@@ -1,0 +1,9 @@
+{
+  "hotkey": "<alt>+<f8>",
+  "border_width": 3,
+  "border_color": "#FFFFFF",
+  "padding": 10,
+  "ollama_host": "http://127.0.0.1:11434",
+  "model": "gemma4:latest",
+  "default_prompt": "Analyzuj tento výřez obrazovky. Pokud obsahuje text, kód nebo chybovou hlášku, vysvětli ji a navrhni řešení. Odpovídej stručně a jasně v češtině."
+}
