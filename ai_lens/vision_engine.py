@@ -17,10 +17,63 @@ import subprocess
 import sys
 
 
-def encode_pil_to_base64(image: Image.Image, fmt: str = "PNG") -> str:
-    """Encodes a PIL Image directly in RAM to a base64 string for local VLM inference."""
+DEFAULT_SYSTEM_PROMPT = (
+    "You are an intelligent, versatile visual AI assistant (like ChatGPT or Gemini) "
+    "helping a Czech user who circled a region on their screen. "
+    "Keep your internal thinking brief (2-4 short sentences): first verify what is visually "
+    "shown in the image (animal, object, person, scene, UI, diagram, or code) and read any visible text "
+    "(remember that text on screen is often in Czech, e.g. 'had' means snake in Czech, not the English verb 'had'). "
+    "Always write your final response in natural, fluent, grammatically correct Czech using common, everyday Czech words "
+    "(never invent nonexistent Czech words or awkward literal translations). "
+    "Respond naturally like a classic AI model based on what is in the image: "
+    "if it shows an animal, plant, object, person, or place, clearly identify it, accurately describe what you see in the image, "
+    "and share brief, factual information about it; "
+    "if there is a label or caption next to an image, treat it simply as the name/caption of what is shown and never invent absurd stories; "
+    "if it shows a question, quiz, test, or math problem, solve it directly and explain the correct answer; "
+    "if it shows text, an article, foreign language, code, or an error message, explain, translate, or solve it clearly. "
+    "Never claim to see an animal or object that is not actually in the image."
+)
+
+
+def prepare_image_for_vlm(image: Image.Image, max_side: int = 896, min_side: int = 256) -> Image.Image:
+    """
+    Normalizes the cropped PIL image for fast, accurate CLIP/VLM vision encoding:
+      - Converts to RGB.
+      - Upscales very small crops so fine details and short labels remain legible after patch projection.
+      - Downscales huge 4K crops to max_side (896px) so Gemma 4 processes the image in <0.5s
+        without triggering excessive multi-tile overhead.
+    """
+    rgb = image.convert("RGB")
+    w, h = rgb.size
+    if w <= 0 or h <= 0:
+        return rgb
+
+    longest = max(w, h)
+    shortest = min(w, h)
+
+    if longest > max_side:
+        scale = max_side / float(longest)
+        new_w = max(1, int(round(w * scale)))
+        new_h = max(1, int(round(h * scale)))
+        rgb = rgb.resize((new_w, new_h), Image.Resampling.LANCZOS)
+    elif shortest < min_side and longest < max_side:
+        scale = min(max_side / float(longest), min_side / float(shortest))
+        if scale > 1.05:
+            new_w = max(1, int(round(w * scale)))
+            new_h = max(1, int(round(h * scale)))
+            rgb = rgb.resize((new_w, new_h), Image.Resampling.LANCZOS)
+
+    return rgb
+
+
+def encode_pil_to_base64(image: Image.Image, fmt: str = "JPEG", max_side: int = 896) -> str:
+    """Encodes a normalized PIL Image directly in RAM to a base64 string for local VLM inference."""
+    prepared = prepare_image_for_vlm(image, max_side=max_side)
     buf = io.BytesIO()
-    image.save(buf, format=fmt)
+    if fmt.upper() in ("JPG", "JPEG"):
+        prepared.save(buf, format="JPEG", quality=92, optimize=True)
+    else:
+        prepared.save(buf, format=fmt)
     return base64.b64encode(buf.getvalue()).decode("ascii")
 
 
@@ -43,6 +96,7 @@ def warmup_local_model(
     ollama_host: str = "http://127.0.0.1:11434",
     model: str = "gemma4:latest",
     keep_alive: str = "30m",
+    temperature: float = 0.2,
 ) -> bool:
     """
     Preloads the VLM into VRAM/RAM via the local loopback Ollama API so that
@@ -52,6 +106,7 @@ def warmup_local_model(
     payload = {
         "model": model,
         "messages": [],
+        "options": {"temperature": temperature},
         "keep_alive": keep_alive,
     }
     for attempt in range(2):
@@ -84,6 +139,9 @@ class VisionInferenceWorker(QThread):
         prompt: str,
         ollama_host: str = "http://127.0.0.1:11434",
         model: str = "gemma4:latest",
+        system_prompt: Optional[str] = None,
+        think: bool = True,
+        temperature: float = 0.2,
         history: Optional[list[dict[str, Any]]] = None,
         parent: Optional[Any] = None,
     ) -> None:
@@ -92,6 +150,9 @@ class VisionInferenceWorker(QThread):
         self.prompt = prompt
         self.ollama_host = ollama_host.rstrip("/")
         self.model = model
+        self.system_prompt = system_prompt if system_prompt is not None else DEFAULT_SYSTEM_PROMPT
+        self.think = think
+        self.temperature = temperature
         self.history = list(history) if history else []
         self._cancelled = False
 
@@ -136,12 +197,20 @@ class VisionInferenceWorker(QThread):
         url = f"{self.ollama_host}/api/chat"
 
         try:
-            b64_img = encode_pil_to_base64(self.image, fmt="PNG")
+            b64_img = encode_pil_to_base64(self.image, fmt="JPEG")
         except Exception as exc:
             self.errorOccurred.emit(f"Chyba při kódování výřezu do RAM: {exc}")
             return
 
         messages: list[dict[str, Any]] = []
+        if self.system_prompt:
+            messages.append(
+                {
+                    "role": "system",
+                    "content": self.system_prompt,
+                }
+            )
+
         if not self.history:
             messages.append(
                 {
@@ -159,12 +228,13 @@ class VisionInferenceWorker(QThread):
                 }
             )
 
-        # Disable long hidden reasoning chains (think=False) on models like gemma4
-        # so visible tokens stream in <0.5s instead of waiting 15s on hidden thinking tokens.
         payload: dict[str, Any] = {
             "model": self.model,
             "messages": messages,
-            "think": False,
+            "think": self.think,
+            "options": {
+                "temperature": self.temperature,
+            },
             "stream": True,
             "keep_alive": "30m",
         }
@@ -173,7 +243,7 @@ class VisionInferenceWorker(QThread):
             with httpx.Client(timeout=httpx.Timeout(120.0, connect=5.0), trust_env=False) as client:
                 ok, err_body = self._stream_chat(client, url, payload)
                 if not ok and "think" in err_body.lower():
-                    # Fallback for older models that don't accept the "think" parameter
+                    # Fallback for models that do not support the "think" parameter
                     payload.pop("think", None)
                     ok, err_body = self._stream_chat(client, url, payload)
 

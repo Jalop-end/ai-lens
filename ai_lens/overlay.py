@@ -51,12 +51,14 @@ def load_config(config_path: Path = DEFAULT_CONFIG_PATH) -> dict[str, Any]:
         "hotkey": "<alt>+<f8>",
         "border_width": 3,
         "border_color": "#FFFFFF",
-        "padding": 10,
+        "padding": 20,
         "ollama_host": "http://127.0.0.1:11434",
         "model": "gemma4:latest",
+        "think": True,
+        "temperature": 0.2,
         "default_prompt": (
-            "Analyzuj tento výřez obrazovky. Pokud obsahuje text, kód nebo chybovou hlášku, "
-            "vysvětli ji a navrhni řešení. Odpovídej stručně a jasně v češtině."
+            "Podívej se na tento zakroužkovaný výřez obrazovky. "
+            "Popiš přesně, co na něm vidíš, a odpověz přirozeně jako klasický AI model v češtině."
         ),
     }
     if config_path.exists():
@@ -161,6 +163,7 @@ class OverlayWindow(QWidget):
             try:
                 self._worker.cancel()
                 self._worker.tokenReceived.disconnect()
+                self._worker.thinkingProgress.disconnect()
                 self._worker.finishedInference.disconnect()
                 self._worker.errorOccurred.disconnect()
             except Exception:
@@ -266,7 +269,7 @@ class OverlayWindow(QWidget):
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:  # noqa: N802
         """
-        Computes the Bounding Box with padding p = 10 px, crops the clean screenshot,
+        Computes the Bounding Box with adaptive padding, crops the clean screenshot,
         displays the PopoverCard right next to the selection, and launches QThread VLM inference.
         """
         if event.button() == Qt.MouseButton.LeftButton and self._is_drawing:
@@ -275,7 +278,7 @@ class OverlayWindow(QWidget):
             self._lasso_points.append(pos)
             self._lasso_path.lineTo(pos)
 
-            padding = int(self.config.get("padding", 10))
+            padding = int(self.config.get("padding", 20))
             bbox = compute_bounding_box(
                 points=self._lasso_points,
                 screen_width=self.width(),
@@ -301,7 +304,7 @@ class OverlayWindow(QWidget):
                 default_prompt = str(
                     self.config.get(
                         "default_prompt",
-                        "Analyzuj tento výřez obrazovky a odpověz stručně v češtině.",
+                        "Podívej se na tento zakroužkovaný výřez obrazovky. Popiš přesně, co na něm vidíš, a odpověz přirozeně jako klasický AI model v češtině.",
                     )
                 )
                 self.regionSelected.emit(cropped, bbox, default_prompt)
@@ -323,11 +326,14 @@ class OverlayWindow(QWidget):
 
         model_name = str(self.config.get("model", "gemma4:latest"))
         ollama_host = str(self.config.get("ollama_host", "http://127.0.0.1:11434"))
+        think_enabled = bool(self.config.get("think", True))
+        temperature = float(self.config.get("temperature", 0.2))
+        system_prompt = self.config.get("system_prompt")
         self.popover.title_label.setText(f"AI Lens · {model_name}")
 
         if not is_followup:
             self._chat_history.clear()
-            self.popover.start_loading(f"Lokální model `{model_name}` analyzuje výřez…")
+            self.popover.start_loading(f"Lokální model `{model_name}` zkoumá zakroužkovaný výřez…")
         else:
             self.popover.append_token(f"\n\n---\n**Dotaz:** {prompt}\n\n")
             self.popover.status_label.setText("Přemýšlím…")
@@ -337,10 +343,14 @@ class OverlayWindow(QWidget):
             prompt=prompt,
             ollama_host=ollama_host,
             model=model_name,
+            system_prompt=str(system_prompt) if system_prompt else None,
+            think=think_enabled,
+            temperature=temperature,
             history=self._chat_history if is_followup else None,
             parent=self,
         )
         worker.tokenReceived.connect(self._on_worker_token)
+        worker.thinkingProgress.connect(self.popover.on_thinking_progress)
         worker.finishedInference.connect(
             lambda elapsed, p=prompt, f=is_followup: self._on_worker_finished(elapsed, p, f)
         )
@@ -360,7 +370,7 @@ class OverlayWindow(QWidget):
         self.popover.stop_loading(f"Hotovo ({elapsed:.1f} s)")
         if self._last_cropped_image is not None:
             if not is_followup:
-                b64_img = encode_pil_to_base64(self._last_cropped_image, fmt="PNG")
+                b64_img = encode_pil_to_base64(self._last_cropped_image, fmt="JPEG")
                 self._chat_history.append(
                     {"role": "user", "content": prompt, "images": [b64_img]}
                 )

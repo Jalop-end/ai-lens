@@ -85,8 +85,8 @@ class PopoverCard(QFrame):
     promptSubmitted = pyqtSignal(str)
     closeRequested = pyqtSignal()
 
-    DEFAULT_WIDTH = 380
-    DEFAULT_HEIGHT = 310
+    DEFAULT_WIDTH = 420
+    DEFAULT_HEIGHT = 340
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -96,6 +96,7 @@ class PopoverCard(QFrame):
 
         self._raw_markdown: str = ""
         self._loading_step: int = 0
+        self._thinking_tokens: int = 0
         self._loading_timer = QTimer(self)
         self._loading_timer.setInterval(350)
         self._loading_timer.timeout.connect(self._tick_loading)
@@ -211,15 +212,29 @@ class PopoverCard(QFrame):
     def _tick_loading(self) -> None:
         dots = "." * ((self._loading_step % 3) + 1)
         self._loading_step += 1
-        self.status_label.setText(f"Analyzuji výřez{dots}")
+        if self._thinking_tokens > 0:
+            self.status_label.setText(f"Zkoumám obraz a přemýšlím{dots}")
+        else:
+            self.status_label.setText(f"Analyzuji výřez{dots}")
 
     def start_loading(self, message: str = "Čekání na lokální AI model…") -> None:
         """Starts the loading indicator before first tokens arrive."""
         self._raw_markdown = ""
         self._loading_step = 0
+        self._thinking_tokens = 0
         self.status_label.setText("Analyzuji výřez.")
         self.response_browser.setMarkdown(f"*{message}*")
         self._loading_timer.start()
+
+    def on_thinking_progress(self) -> None:
+        """Updates status when the VLM is actively running visual reasoning tokens."""
+        self._thinking_tokens += 1
+        if self._thinking_tokens == 1:
+            self.status_label.setText("Zkoumám obraz a přemýšlím…")
+            if not self._raw_markdown:
+                self.response_browser.setMarkdown(
+                    "*Model pečlivě zkoumá detaily a text ve zakroužkovaném výřezu…*"
+                )
 
     def stop_loading(self, status_text: str = "Hotovo") -> None:
         """Stops the loading indicator once streaming completes or pauses."""
@@ -238,7 +253,7 @@ class PopoverCard(QFrame):
         """Appends a newly streamed token and re-renders Markdown in real time."""
         if self._loading_timer.isActive():
             self._loading_timer.stop()
-            self.status_label.setText("Streamuji odpověď…")
+        self.status_label.setText("Streamuji odpověď…")
         self._raw_markdown += token
         self.response_browser.setMarkdown(self._raw_markdown)
         sb = self.response_browser.verticalScrollBar()

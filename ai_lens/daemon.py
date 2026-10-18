@@ -512,9 +512,10 @@ def run_daemon(open_immediately: bool = False) -> None:
     sigint_timer.timeout.connect(lambda: None)
 
     # Pre-warm local VLM in background thread
+    temperature = float(config.get("temperature", 0.2))
     threading.Thread(
         target=warmup_local_model,
-        args=(ollama_host, model_name),
+        args=(ollama_host, model_name, "30m", temperature),
         name="AILensWarmup",
         daemon=True,
     ).start()

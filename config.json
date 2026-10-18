@@ -2,8 +2,10 @@
   "hotkey": "<alt>+<f8>",
   "border_width": 3,
   "border_color": "#FFFFFF",
-  "padding": 10,
+  "padding": 20,
   "ollama_host": "http://127.0.0.1:11434",
   "model": "gemma4:latest",
-  "default_prompt": "Analyzuj tento výřez obrazovky. Pokud obsahuje text, kód nebo chybovou hlášku, vysvětli ji a navrhni řešení. Odpovídej stručně a jasně v češtině."
+  "think": true,
+  "temperature": 0.2,
+  "default_prompt": "Podívej se na tento zakroužkovaný výřez obrazovky. Popiš přesně, co na něm vidíš, a odpověz přirozeně jako klasický AI model v češtině."
 }
