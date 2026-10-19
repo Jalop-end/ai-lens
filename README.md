@@ -12,32 +12,39 @@ With a single hotkey (**`Alt + F8`**) or one click on the floating mini-dock, yo
 
 ---
 
-## Visual Overview & Popover Preview
+## How AI Lens Works (Project Architecture & Workflow)
 
-```text
-┌──────────────────────────────────────────────────────────────────────────────────────────┐
-│          AI Lens [CS · High] — Zakroužkuj oblast myší   |   [Esc] Zavřít                 │
-│                                                                                          │
-│    ╭───────────────────────╮      ┌────────────────────────────────────────────────────┐ │
-│   ╱   Doplň chybějící:      ╲     │ AI Lens · gemma4:latest [CS · High]                │ │
-│  │                           │    │                      Hotovo · doba generování 9.4 s│ │
-│  │      "abc_dď"             │    ├────────────────────────────────────────────────────┤ │
-│   ╲                         ╱     │ Na zakroužkovaném výřezu vidím neúplnou řadu       │ │
-│    ╰───────────────────────╯      │ písmen "abc_dď", kde mezi písmeny "c" a "d"        │ │
-│                                   │ chybí jeden znak (_).                              │ │
-│                                   │                                                    │ │
-│                                   │ Chybějící písmeno je **č** (výsledná posloupnost   │ │
-│                                   │ je **abcčdď**).                                    │ │
-│                                   │                                                    │ │
-│                                   │ **Proč tomu tak je:** Za mezerou již následuje     │ │
-│                                   │ písmeno "d" a hned za ním "ď" (s háčkem). Jde tedy │ │
-│                                   │ o českou abecedu včetně písmen s diakritikou       │ │
-│                                   │ (a, b, c, **č**, d, ď), kde po základním písmenu   │ │
-│                                   │ "c" následuje "č".                                 │ │
-│                                   ├────────────────────────────────────────────────────┤ │
-│                                   │ [ Doplňující dotaz k výřezu… (Enter pro odeslání) ]│ │
-│                                   └────────────────────────────────────────────────────┘ │
-└──────────────────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    subgraph S1 ["1. Standby & Control (Daemon)"]
+        CLI["CLI Launch: .\ai-lens.bat [cs|en] [Low|Medium|High]"] --> CFG["Load Config, Language (15 locales) & Thinking Tier"]
+        CFG --> DOCK["Floating Mini-Dock (Full Pill or Minimized 8px Dash '—')"]
+        CFG --> HOTKEY["Triple Hotkey Engine (Alt+F8 / F8 / GetAsyncKeyState)"]
+    end
+
+    subgraph S2 ["2. Instant Capture & Selection (RAM-Only)"]
+        DOCK & HOTKEY --> CAP["Raw Screen Buffer to Volatile RAM (under 15 ms, 0 disk writes)"]
+        CAP --> OVR["Fullscreen Frameless Qt Overlay + HUD Banner"]
+        OVR --> LASSO["User circles subject with Freehand Mouse Lasso"]
+        LASSO --> CROP["Padded Bounding Box Crop & Base64 RAM Encoding"]
+    end
+
+    subgraph S3 ["3. 100% Offline Local VLM Inference (Ollama)"]
+        CROP --> TIER{"Active Thinking Tier"}
+        TIER -->|Low| TL["Low Mode: think=False | 1024 tokens | 768px | Concise 2-4 sentences"]
+        TIER -->|Medium| TM["Medium Mode: think=True | 2560 tokens | 1024px | Balanced 1-2 paragraphs"]
+        TIER -->|High| TH["High Mode: think=True | 4096 tokens | 1344px | Encyclopedic depth"]
+        TL & TM & TH --> STREAM["Real-Time Token & Reasoning Streaming (QThread)"]
+        STREAM --> OLLAMA["Local Ollama at 127.0.0.1:11434 (gemma4 / qwen2.5vl)"]
+    end
+
+    subgraph S4 ["4. Live Popover UI & Zero-Retention Memory Wipe"]
+        STREAM --> POP["Floating Popover Card positioned next to selection"]
+        POP --> RENDER["Render Styled Answer (16px bold answers + serif italic quotes)"]
+        RENDER --> BADGE["Localized Status Badge (e.g. Done · generation time 9.4 s)"]
+        BADGE --> CHAT["Multi-turn follow-up question OR Press Esc / click ✕ to close"]
+        CHAT --> CLEAN["Zero-Retention: Immediate RAM memory wipe and garbage collection"]
+    end
 ```
 
 ---
@@ -61,39 +68,6 @@ With a single hotkey (**`Alt + F8`**) or one click on the floating mini-dock, yo
   - Captures the screen buffer directly into RAM with automatic high-DPI scaling (up to 4K+).
   - Supports **`Alt + F8`**, **`F8`**, **`Ctrl + Alt + Shift + G`**, and a draggable **Collapsible Mini-Dock** (`🔍 AI Lens [CS · Medium] (Alt+F8)`).
   - **Minimizes to a thin dash (`—` / "čárka"):** Click the `—` button or double-click to shrink the dock into a razor-thin 8px bar that covers nothing on screen. Click it once or double-click anywhere to expand it back!
-
----
-
-## Architecture Pipeline
-
-```mermaid
-flowchart TD
-    subgraph S1 ["1. CLI Launch & Configuration"]
-        CLI["Terminal: ai-lens [lang] [Low|Medium|High]"] --> CFG["Load Language (15 locales) & Thinking Tier"]
-        CFG --> DOCK["Floating Mini-Dock + Triple Hotkey Engine (Alt+F8 / F8)"]
-    end
-
-    subgraph S2 ["2. Instant Capture & Localized HUD Overlay"]
-        DOCK --> CAP["Raw Screen Buffer into RAM (under 15 ms)"]
-        CAP --> OVR["Frameless Fullscreen Qt Window + Localized HUD Pill"]
-        OVR --> LASSO["Freehand Mouse Lasso -> Padded Bounding Box Crop"]
-    end
-
-    subgraph S3 ["3. Adaptive Local VLM Inference (Ollama 127.0.0.1)"]
-        LASSO --> TIER{"Active Thinking Tier"}
-        TIER -->|Low| TL["Fast Mode: think=False | 1024 tokens | 2048 ctx | 768px"]
-        TIER -->|Medium| TM["Balanced Mode: think=True | 2560 tokens | 4096 ctx | 1024px"]
-        TIER -->|High| TH["Deep Thinking: think=True | 4096 tokens | 8192 ctx | 1344px"]
-        TL & TM & TH --> STREAM["Real-Time Token & Reasoning Stream (QThread)"]
-    end
-
-    subgraph S4 ["4. Localized Popover UI & Typography"]
-        STREAM --> POP["Floating Popover Card with Collision Detection"]
-        POP --> STYLE["16px Extra-Bold Answers + Serif Italic Citations"]
-        STYLE --> DONE["Localized Status & Generation Time (e.g. Done · 12.0 s)"]
-        DONE --> FOLLOW["Multi-Turn Follow-up Input or Esc back to Standby"]
-    end
-```
 
 ---
 
