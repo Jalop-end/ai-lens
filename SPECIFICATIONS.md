@@ -9,7 +9,7 @@ Tento dokument obsahuje kompletní technickou specifikaci aplikace **AI Lens**, 
 AI Lens běží jako plně lokální desktopová aplikace rozdělená do dvou oddělených vrstev, které spolu komunikují výhradně přes lokální loopback rozhraní (`127.0.0.1`):
 
 1. **Klientská GUI & Capture vrstva (Python + PyQt6 + Win32 API):**
-   - Po spuštění (`ai-lens cs High` nebo `.\ai-lens.bat`) běží v lehkém pohotovostním režimu (**Standby Daemon**).
+   - Po spuštění (`.\ai-lens.bat en High`, `.\ai-lens.bat cs High` nebo `.\ai-lens.bat`) běží v lehkém pohotovostním režimu (**Standby Daemon**).
    - **Neotevírá žádný naslouchající TCP/UDP port** – komunikace mezi CLI příkazy (`trigger`, `status`, `stop`) a běžícím procesem probíhá přes nativní Windows zprávu `PostThreadMessageW` (`WM_HOTKEY`).
    - Detekce zkratky (`Alt+F8` / `F8` / `Ctrl+Alt+Shift+G`) využívá trojitý engine: dedikované Win32 `GetMessageW` vlákno (`RegisterHotKey`), 15ms hardwarový poller `GetAsyncKeyState` a nízkourovňový hook `pynput`.
 2. **Lokální VLM Inference vrstva (Ollama Server na `127.0.0.1:11434`):**
@@ -21,7 +21,7 @@ AI Lens běží jako plně lokální desktopová aplikace rozdělená do dvou od
 
 ## 2. Specifikace AI modelů (VLM)
 
-Aplikace ve výchozím stavu využívá multimodální model **`gemma4:latest`**, ale v [`config.json`](config.json) (nebo příkazem `ai-lens config --model <název>`) lze přepnout na libovolný lokální VLM model v Ollamě:
+Aplikace ve výchozím stavu využívá multimodální model **`gemma4:latest`**, ale v [`config.json`](config.json) (nebo příkazem `.\ai-lens.bat config --model <název>`) lze přepnout na libovolný lokální VLM model v Ollamě:
 
 | Model v Ollamě | Role / Určení | Velikost na disku | Spotřeba RAM / VRAM (Model) | Minimální RAM PC |
 |---|---|---|---|---|
@@ -61,7 +61,7 @@ Všechny tři úrovně jsou navrženy tak, aby **běžely lokálně i na slabš�
 
 | Parametr | `Low` (Rychlý režim) | `Medium` (Vyvážený – Výchozí) | `High` (Hluboké myšlení & Encyklopedický kontext) |
 |---|---|---|---|
-| **Spuštění z terminálu** | `ai-lens cs Low` | `ai-lens cs Medium` *(nebo `ai-lens cs`)* | `ai-lens cs High` |
+| **Spuštění z terminálu (Windows)** | `.\ai-lens.bat en Low`<br>`.\ai-lens.bat cs Low` | `.\ai-lens.bat en Medium`<br>`.\ai-lens.bat cs Medium` | `.\ai-lens.bat en High`<br>`.\ai-lens.bat cs High` |
 | **Přesnost odpovědí** | **Základní / Rychlá** (okamžitá identifikace hlavního objektu či textu) | **Vysoká** (pečlivé ověření vizuálních znaků, textu i otázek krok za krokem) | **Maximální** (hloubková kontrola detailů, rozlišení podobných druhů/pojmů, nulová tolerance k drobným chybám) |
 | **Faktický kontext (např. když zakroužkuješ zvíře / rostlinu / věc)** | **Stručný kontext (2–4 věty):** přesně určí, o jaké zvíře/věc jde, a přidá 1–2 nejdůležitější fakta. | **Vyvážený, bohatý kontext (1–2 odstavce):** určí druh/kategorii, popíše vzhled na snímku a doplní výskyt (kde žije), potravu/funkci a zajímavost. | **Hluboký encyklopedický kontext (kompletní profil):** přesné druhové zařazení, rozlišení od podobných druhů, anatomické znaky, prostředí, potrava, chování/fungování, historie a zajímavé souvislosti. |
 | **Faktický kontext u textu, kódu a otázek** | Rychlé shrnutí významu nebo přímá odpověď se stručným důvodem. | Jasné vysvětlení významu, kontextu věty/kódu a srozumitelné zdůvodnění správné odpovědi. | Kompletní rozbor významu, kontrola kontextu před i za vynechaným místem (`_`), odhalení chytáků a podrobný postup krok za krokem. |

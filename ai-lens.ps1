@@ -1,0 +1,37 @@
+<#
+.SYNOPSIS
+    Universal PowerShell launcher for AI Lens.
+    Works out of the box with or without an active virtual environment.
+.EXAMPLE
+    .\ai-lens.bat en High
+    .\ai-lens cs High
+    .\ai-lens diag
+#>
+
+[CmdletBinding()]
+param(
+    [Parameter(ValueFromRemainingArguments = $true)]
+    [string[]]$Arguments
+)
+
+$env:PYTHONUTF8 = "1"
+$env:PYTHONIOENCODING = "utf-8"
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$venvPython = Join-Path $scriptDir ".venv\Scripts\python.exe"
+
+if (Test-Path $venvPython) {
+    & $venvPython -m ai_lens @Arguments
+} else {
+    $pythonCmd = Get-Command python -ErrorAction SilentlyContinue
+    if ($pythonCmd) {
+        & python -m ai_lens @Arguments
+    } else {
+        $pyCmd = Get-Command py -ErrorAction SilentlyContinue
+        if ($pyCmd) {
+            & py -m ai_lens @Arguments
+        } else {
+            Write-Error "[AI Lens] Python nebyl nalezen. Nainstalujte prosim Python z https://www.python.org/"
+            exit 1
+        }
+    }
+}

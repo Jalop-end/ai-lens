@@ -104,9 +104,9 @@ All three tiers run **100% locally on your hardware (even on weaker PCs with 8�
 
 | Tier | CLI Command Example | Answer Accuracy & Factual Context (e.g. Circling an Animal, Object, or Text) | Tokens (`num_predict`) / Window (`num_ctx`) | Max Image Detail (`max_side`) | Typical Generation Time & Trade-Off |
 |---|---|---|---|---|---|
-| **`Low`** | `ai-lens cs Low`<br>`ai-lens en Low` | **Basic / Fast Accuracy & Concise Context (2–4 sentences):** Identifies the animal, plant, object, or text and gives 1–2 key facts or a direct summary. (`think=False`) | `1024` / `2048` tokens | `768 px` | **Fastest (~1–4 s), lowest RAM overhead.** Ideal for quick visual lookups or simple translations on weaker laptops. |
-| **`Medium`** *(Default)* | `ai-lens cs Medium`<br>`ai-lens cs` | **High Accuracy & Balanced Factual Context (1–2 paragraphs):** When an animal/plant/object is circled, states its species/category, habitat/origin, diet/function, and key traits; for text/questions, explains meaning and context clearly. (`think=True`) | `2560` / `4096` tokens | `1024 px` | **Balanced (~5–12 s), moderate RAM usage.** High accuracy and informative context while keeping responses snappy. |
-| **`High`** | `ai-lens cs High`<br>`ai-lens en High` | **Maximum Accuracy & Deep Encyclopedic Context:** Distinguishes look-alike species/objects/concepts, provides a rich encyclopedic profile (taxonomy, anatomy/features, habitat, diet/behavior, history/purpose, and interesting facts), and verifies tricky questions/blanks (`_`) step by step. (`think=True`) | `4096` / `8192` tokens | `1344 px` | **Maximum accuracy (~10–25 s), higher token & KV-cache RAM usage.** Inspects fine visual details and diacritics at high resolution and delivers comprehensive context. |
+| **`Low`** | `.\ai-lens.bat en Low`<br>`.\ai-lens.bat cs Low` | **Basic / Fast Accuracy & Concise Context (2–4 sentences):** Identifies the animal, plant, object, or text and gives 1–2 key facts or a direct summary. (`think=False`) | `1024` / `2048` tokens | `768 px` | **Fastest (~1–4 s), lowest RAM overhead.** Ideal for quick visual lookups or simple translations on weaker laptops. |
+| **`Medium`** *(Default)* | `.\ai-lens.bat en Medium`<br>`.\ai-lens.bat cs Medium` | **High Accuracy & Balanced Factual Context (1–2 paragraphs):** When an animal/plant/object is circled, states its species/category, habitat/origin, diet/function, and key traits; for text/questions, explains meaning and context clearly. (`think=True`) | `2560` / `4096` tokens | `1024 px` | **Balanced (~5–12 s), moderate RAM usage.** High accuracy and informative context while keeping responses snappy. |
+| **`High`** | `.\ai-lens.bat en High`<br>`.\ai-lens.bat cs High` | **Maximum Accuracy & Deep Encyclopedic Context:** Distinguishes look-alike species/objects/concepts, provides a rich encyclopedic profile (taxonomy, anatomy/features, habitat, diet/behavior, history/purpose, and interesting facts), and verifies tricky questions/blanks (`_`) step by step. (`think=True`) | `4096` / `8192` tokens | `1344 px` | **Maximum accuracy (~10–25 s), higher token & KV-cache RAM usage.** Inspects fine visual details and diacritics at high resolution and delivers comprehensive context. |
 
 > [!NOTE]
 > **Why does `High` take longer to generate?**
@@ -162,96 +162,102 @@ You do **not** need a virtual environment (`venv`) to install and run AI Lens—
 
 ---
 
-## Quick Start
+### Quick Start
 
 ### 1. Launch with Language & Thinking Depth (`Low` / `Medium` / `High`)
-After `pip install -e .`, run `ai-lens` (or `.\ai-lens.bat` / `python -m ai_lens`) followed by an optional language shortcut (`cs`, `en`, `de`, `sk`, etc.) and/or thinking tier (`Low`, `Medium`, `High`) in any order:
+On Windows, you can launch AI Lens directly from PowerShell or Command Prompt using **`.\ai-lens.bat`** (or `.\ai-lens` in PowerShell, or `python -m ai_lens`). It works automatically whether you use a virtual environment or system Python.
+
+Pass an optional language shortcut (`cs`, `en`, `de`, `sk`, etc.) and/or thinking tier (`Low`, `Medium`, `High`) in any order:
 
 ```powershell
+# Launch in English with High thinking depth:
+.\ai-lens.bat en High
+
 # Launch in Czech with High thinking depth (best for tricky questions, sequences & puzzles):
-ai-lens cs High
+.\ai-lens.bat cs High
 
 # Launch in Czech with Medium thinking depth (default balanced mode):
-ai-lens cs Medium
+.\ai-lens.bat cs Medium
 
-# Launch in English with High or Low thinking depth:
-ai-lens en High
-ai-lens en Low
+# Launch in English with Low thinking depth (fastest on weaker laptops):
+.\ai-lens.bat en Low
 
 # Change only the thinking depth (keeps your current language):
-ai-lens High
-ai-lens Low
+.\ai-lens.bat High
+.\ai-lens.bat Low
 
-# Or via the Windows batch launcher (works automatically with or without .venv):
-.\ai-lens.bat cs High
-.\ai-lens.bat en Medium
+# (Optional) If you have an active virtual environment or installed package to PATH,
+# you can also type 'ai-lens' directly:
+# ai-lens en High
 ```
 
-- A floating pill **`🔍 AI Lens [CS · High] (Alt+F8)`** appears in the top-right corner of your screen.
+- A floating pill **`🔍 AI Lens [EN · High] (Alt+F8)`** appears in the top-right corner of your screen.
 - Press **`Alt + F8`** (or **`F8`**, or click the floating pill) and draw a circle with your left mouse button around any region.
 - Press **`Esc`** or right-click anywhere to return to standby.
 
 ### 2. Immediate One-Shot Trigger
 Trigger the overlay immediately without waiting for a hotkey:
 ```powershell
-ai-lens trigger
-ai-lens trigger cs High
-ai-lens trigger en Low
+.\ai-lens.bat trigger
+.\ai-lens.bat trigger en High
+.\ai-lens.bat trigger cs Low
 ```
 
 ---
 
 ## Supported Language Shortcuts (Full AI + UI Localization)
 
-Pass any language code directly in the terminal (e.g. `ai-lens en High` or `.\ai-lens.bat de Medium`). Both the **AI response** and the **Popover UI** (including generation time badges, status text, and input placeholders) switch to that language:
+Pass any language code directly to `.\ai-lens.bat` (e.g. `.\ai-lens.bat en High` or `.\ai-lens.bat de Medium`). Both the **AI response** and the **Popover UI** (including generation time badges, status text, and input placeholders) switch to that language:
 
 | Code | Language | Example Command | Localized Completion Badge Example |
 |---|---|---|---|
-| `cs` *(or `cz`)* | Czech (Čeština) — *Default* | `ai-lens cs High` | `Hotovo · doba generování 12.0 s` |
-| `en` | English (Angličtina) | `ai-lens en High` | `Done · generation time 12.0 s` |
-| `sk` | Slovak (Slovenčina) | `ai-lens sk High` | `Hotovo · doba generovania 12.0 s` |
-| `de` | German (Deutsch) | `ai-lens de Medium` | `Fertig · Generierungszeit 12.0 s` |
-| `es` | Spanish (Español) | `ai-lens es Medium` | `Listo · tiempo de generación 12.0 s` |
-| `fr` | French (Français) | `ai-lens fr Medium` | `Terminé · temps de génération 12.0 s` |
-| `pl` | Polish (Polski) | `ai-lens pl Medium` | `Gotowe · czas generowania 12.0 s` |
-| `uk` *(or `ua`)* | Ukrainian (Українська) | `ai-lens uk Medium` | `Готово · час генерації 12.0 с` |
-| `it` | Italian (Italiano) | `ai-lens it Medium` | `Fatto · tempo de generazione 12.0 s` |
-| `pt` | Portuguese (Português) | `ai-lens pt Medium` | `Concluído · tempo de geração 12.0 s` |
-| `ru` | Russian (Русский) | `ai-lens ru Medium` | `Готово · время генерации 12.0 с` |
-| `nl` | Dutch (Nederlands) | `ai-lens nl Medium` | `Klaar · generatietijd 12.0 s` |
-| `zh` *(or `cn`)* | Chinese (中文) | `ai-lens zh Medium` | `完成 · 生成用时 12.0 秒` |
-| `ja` *(or `jp`)* | Japanese (日本語) | `ai-lens ja Medium` | `完了 · 生成時間 12.0 秒` |
-| `ko` *(or `kr`)* | Korean (한국어) | `ai-lens ko Medium` | `완료 · 생성 시간 12.0초` |
+| `en` | English (Angličtina) | `.\ai-lens.bat en High` | `Done · generation time 12.0 s` |
+| `cs` *(or `cz`)* | Czech (Čeština) — *Default* | `.\ai-lens.bat cs High` | `Hotovo · doba generování 12.0 s` |
+| `sk` | Slovak (Slovenčina) | `.\ai-lens.bat sk High` | `Hotovo · doba generovania 12.0 s` |
+| `de` | German (Deutsch) | `.\ai-lens.bat de Medium` | `Fertig · Generierungszeit 12.0 s` |
+| `es` | Spanish (Español) | `.\ai-lens.bat es Medium` | `Listo · tiempo de generación 12.0 s` |
+| `fr` | French (Français) | `.\ai-lens.bat fr Medium` | `Terminé · temps de génération 12.0 s` |
+| `pl` | Polish (Polski) | `.\ai-lens.bat pl Medium` | `Gotowe · czas generowania 12.0 s` |
+| `uk` *(or `ua`)* | Ukrainian (Українська) | `.\ai-lens.bat uk Medium` | `Готово · час генерації 12.0 с` |
+| `it` | Italian (Italiano) | `.\ai-lens.bat it Medium` | `Fatto · tempo de generazione 12.0 s` |
+| `pt` | Portuguese (Português) | `.\ai-lens.bat pt Medium` | `Concluído · tempo de geração 12.0 s` |
+| `ru` | Russian (Русский) | `.\ai-lens.bat ru Medium` | `Готово · время генерации 12.0 с` |
+| `nl` | Dutch (Nederlands) | `.\ai-lens.bat nl Medium` | `Klaar · generatietijd 12.0 s` |
+| `zh` *(or `cn`)* | Chinese (中文) | `.\ai-lens.bat zh Medium` | `完成 · 生成用时 12.0 秒` |
+| `ja` *(or `jp`)* | Japanese (日本語) | `.\ai-lens.bat ja Medium` | `完了 · 生成時間 12.0 秒` |
+| `ko` *(or `kr`)* | Korean (한국어) | `.\ai-lens.bat ko Medium` | `완료 · 생성 시간 12.0초` |
 
 ---
 
 ## CLI Reference
 
-| Command | Description |
+Run via `.\ai-lens.bat <command>` (or `ai-lens <command>` if installed globally/with active venv):
+
+| Command (Windows) | Description |
 |---|---|
-| `ai-lens [lang] [Low\|Medium\|High]` | Starts AI Lens in standby mode with optional language & thinking depth (e.g., `ai-lens cs High`, `ai-lens en Low`, `ai-lens High`). |
-| `ai-lens start --now` | Starts the daemon and immediately opens the fullscreen capture overlay. |
-| `ai-lens trigger [lang] [level]` | Triggers the overlay on the running instance or runs a one-shot capture. |
-| `ai-lens diag` *(or `diagnostika`)* | Prints a live terminal report of active model, live RAM/CPU usage, `Low`/`Medium`/`High` accuracy & factual context specs, Zero-Retention RAM check, and 7-point security audit. |
-| `ai-lens levels` | Lists the `Low`, `Medium`, and `High` thinking tiers, answer accuracy, factual context depth, and token limits. |
-| `ai-lens languages` | Lists all 15 supported language codes and highlights the active language. |
-| `ai-lens status` | Displays the running state, active hotkey, model, language, and thinking level. |
-| `ai-lens stop` | Cleanly stops the running AI Lens background process. |
-| `ai-lens config` | Views or updates persistent settings in `config.json`. |
+| `.\ai-lens.bat [lang] [Low\|Medium\|High]` | Starts AI Lens in standby mode with optional language & thinking depth (e.g., `.\ai-lens.bat en High`, `.\ai-lens.bat cs High`). |
+| `.\ai-lens.bat start --now` | Starts the daemon and immediately opens the fullscreen capture overlay. |
+| `.\ai-lens.bat trigger [lang] [level]` | Triggers the overlay on the running instance or runs a one-shot capture. |
+| `.\ai-lens.bat diag` *(or `diagnostika`)* | Prints a live terminal report of active model, live RAM/CPU usage, `Low`/`Medium`/`High` accuracy & factual context specs, Zero-Retention RAM check, and 7-point security audit. |
+| `.\ai-lens.bat levels` | Lists the `Low`, `Medium`, and `High` thinking tiers, answer accuracy, factual context depth, and token limits. |
+| `.\ai-lens.bat languages` | Lists all 15 supported language codes and highlights the active language. |
+| `.\ai-lens.bat status` | Displays the running state, active hotkey, model, language, and thinking level. |
+| `.\ai-lens.bat stop` | Cleanly stops the running AI Lens background process. |
+| `.\ai-lens.bat config` | Views or updates persistent settings in `config.json`. |
 
 ### Persistent Configuration Examples
 ```powershell
-# Set Czech language and High thinking depth in config.json
-ai-lens config --lang cs --level High
+# Set English language and High thinking depth in config.json:
+.\ai-lens.bat config --lang en --level High
 
-# Set English language and Medium thinking depth
-ai-lens config --lang en --level Medium
+# Set Czech language and Medium thinking depth:
+.\ai-lens.bat config --lang cs --level Medium
 
-# Change the local VLM model in Ollama
-ai-lens config --model gemma4:latest
+# Change the local VLM model in Ollama:
+.\ai-lens.bat config --model gemma4:latest
 
-# Adjust selection bounding-box padding in pixels
-ai-lens config --padding 20
+# Adjust selection bounding-box padding in pixels:
+.\ai-lens.bat config --padding 20
 ```
 
 ---
@@ -261,11 +267,10 @@ ai-lens config --padding 20
 You can view the live system specifications, RAM/CPU usage, `Low`/`Medium`/`High` accuracy & context profiles, Zero-Retention memory status, and 7-point security audit directly in your terminal at any time:
 
 ```powershell
-ai-lens diag
-# or in Czech:
-ai-lens diagnostika
-# or via the batch launcher:
+# Run live diagnostics in PowerShell / CMD:
 .\ai-lens.bat diag
+# or in Czech:
+.\ai-lens.bat diagnostika
 ```
 
 For full technical documentation—including exact **RAM / VRAM / CPU consumption**, **`Low` / `Medium` / `High` factual context & accuracy parameters**, **Zero-Retention RAM erasure on chat close**, and the **Security & Threat Audit**—see [**`SPECIFICATIONS.md`**](SPECIFICATIONS.md).

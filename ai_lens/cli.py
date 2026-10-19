@@ -94,7 +94,7 @@ app = typer.Typer(
     help=(
         "AI Lens - 100% offline lokální VLM asistent s okamžitým výřezem obrazovky.\n\n"
         "Rychlé spuštění s volbou jazyka a hloubky myšlení (Low / Medium / High):\n"
-        "  `ai-lens cs High`   |   `ai-lens en Medium`   |   `ai-lens Low`"
+        "  `.\\ai-lens.bat cs High`   |   `.\\ai-lens.bat en Medium`   |   `.\\ai-lens.bat Low`"
     ),
     add_completion=False,
     invoke_without_command=True,
@@ -218,7 +218,7 @@ def status() -> None:
     else:
         typer.echo(
             f"[AI Lens] Proces momentálně neběží (jazyk: {lang_disp}, myšlení: {level_disp} [{tier_cfg['num_predict']} tokenů]). "
-            "Spusť jej např. příkazem: ai-lens cs High"
+            "Spusť jej např. příkazem: .\\ai-lens.bat cs High (nebo .\\ai-lens.bat en High)"
         )
 
 
@@ -238,7 +238,7 @@ def languages_cmd() -> None:
     cfg = load_config()
     current = normalize_language_code(str(cfg.get("language", "cs")))
     typer.echo(
-        "Podporované zkratky jazyků (použití: `ai-lens <jazyk> [Low|Medium|High]`, např. `ai-lens cs High` nebo `ai-lens en Medium`):"
+        "Podporované zkratky jazyků (použití: `.\\ai-lens.bat <jazyk> [Low|Medium|High]`, např. `.\\ai-lens.bat cs High` nebo `.\\ai-lens.bat en Medium`):"
     )
     for code, (en_name, native_name) in SUPPORTED_LANGUAGES.items():
         marker = "* " if code == current else "  "
@@ -251,7 +251,7 @@ def levels_cmd() -> None:
     cfg = load_config()
     current = normalize_thinking_level(str(cfg.get("thinking_level", "medium")))
     typer.echo(
-        "Úrovně hloubky myšlení, přesnosti odpovědí a šíře faktického kontextu (použití: `ai-lens <jazyk> <Low|Medium|High>`, např. `ai-lens cs High`):"
+        "Úrovně hloubky myšlení, přesnosti odpovědí a šíře faktického kontextu (použití: `.\\ai-lens.bat <jazyk> <Low|Medium|High>`, např. `.\\ai-lens.bat cs High`):"
     )
     typer.echo("=" * 112)
     for key, info in THINKING_LEVELS.items():
@@ -355,7 +355,7 @@ def diag_cmd() -> None:
     # 1. Stav běhu a AI modelu
     typer.echo("\n[1/5] STAV APLIKACE & AI MODELU (RUNTIME)")
     typer.echo(
-        f"  • Stav procesu na pozadí : {'BĚŽÍ (připraven na ' + hotkey + ' / F8)' if daemon_running else 'NEBĚŽÍ (spusť: ai-lens cs High)'}"
+        f"  • Stav procesu na pozadí : {'BĚŽÍ (připraven na ' + hotkey + ' / F8)' if daemon_running else 'NEBĚŽÍ (spusť: .\\ai-lens.bat cs High nebo .\\ai-lens.bat en High)'}"
     )
     typer.echo(
         f"  • Lokální Ollama engine  : {'ONLINE a model připraven (' + ollama_url + ')' if ollama_online else 'OFFLINE nebo model není stažen (' + ollama_url + ')'}"

@@ -1,4 +1,7 @@
 @echo off
+setlocal
+set PYTHONUTF8=1
+set PYTHONIOENCODING=utf-8
 if exist "%~dp0.venv\Scripts\python.exe" (
     "%~dp0.venv\Scripts\python.exe" -m ai_lens %*
 ) else (
@@ -9,3 +12,4 @@ if exist "%~dp0.venv\Scripts\python.exe" (
         py -m ai_lens %*
     )
 )
+endlocal
