@@ -153,7 +153,7 @@ def _normalize_cli_argv() -> None:
             skip_next = False
             continue
         arg = sys.argv[i].strip()
-        cleaned = arg.lower().lstrip("-").replace(" ", "").replace('"', '').replace("'", "")
+        cleaned = arg.lower().lstrip("-/\\").replace(" ", "").replace('"', '').replace("'", "")
 
         # Chained or prefixed operators: `@\`, `@/`, `&&`, `&`, `@`
         if arg in ("@\\", "@/","@", '"@\\"', "'@\\'", "&&", "&") or cleaned in ("@\\", "@/"):
