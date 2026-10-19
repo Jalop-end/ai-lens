@@ -163,6 +163,13 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from ai_lens.vision_engine import (
+    get_thinking_level_display,
+    get_ui_strings,
+    normalize_language_code,
+    normalize_thinking_level,
+)
+
 
 def compute_popover_position(
     bbox: QRect,
@@ -224,16 +231,16 @@ class PopoverCard(QFrame):
     """
     Floating QFrame card shown right next to the circled area on the overlay.
     Contains:
-      - Header bar with status/loading indicator and close button
+      - Header bar with localized status/loading indicator and close button
       - Markdown-capable response view (for streaming tokens)
-      - Follow-up question input field at the bottom
+      - Localized follow-up question input field at the bottom
     """
 
     promptSubmitted = pyqtSignal(str)
     closeRequested = pyqtSignal()
 
-    DEFAULT_WIDTH = 420
-    DEFAULT_HEIGHT = 340
+    DEFAULT_WIDTH = 440
+    DEFAULT_HEIGHT = 350
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -241,6 +248,8 @@ class PopoverCard(QFrame):
         self.setFixedSize(self.DEFAULT_WIDTH, self.DEFAULT_HEIGHT)
         self.setCursor(Qt.CursorShape.ArrowCursor)
 
+        self._language: str = "cs"
+        self._thinking_level: str = "medium"
         self._raw_markdown: str = ""
         self._loading_step: int = 0
         self._thinking_tokens: int = 0
@@ -350,6 +359,16 @@ class PopoverCard(QFrame):
         layout.addWidget(self.response_browser, stretch=1)
         layout.addWidget(self.prompt_input)
 
+    def set_locale(self, language: str, thinking_level: str = "medium") -> None:
+        """Updates all PopoverCard labels, tooltips, and placeholders to match `language` and `thinking_level`."""
+        self._language = normalize_language_code(language)
+        self._thinking_level = normalize_thinking_level(thinking_level)
+        ui = get_ui_strings(self._language)
+        self.close_btn.setToolTip(ui["close_tooltip"])
+        self.prompt_input.setPlaceholderText(ui["followup_placeholder"])
+        if not self._loading_timer.isActive() and not self._raw_markdown:
+            self.status_label.setText(ui["ready"])
+
     def _on_submit_prompt(self) -> None:
         text = self.prompt_input.text().strip()
         if text:
@@ -357,38 +376,44 @@ class PopoverCard(QFrame):
             self.promptSubmitted.emit(text)
 
     def _tick_loading(self) -> None:
+        ui = get_ui_strings(self._language)
         dots = "." * ((self._loading_step % 3) + 1)
         self._loading_step += 1
         if self._thinking_tokens > 0:
-            self.status_label.setText(f"Zkoumám obraz a přemýšlím{dots}")
+            self.status_label.setText(f"{ui['thinking']}{dots}")
         else:
-            self.status_label.setText(f"Analyzuji výřez{dots}")
+            self.status_label.setText(f"{ui['analyzing']}{dots}")
 
-    def start_loading(self, message: str = "Čekání na lokální AI model…") -> None:
+    def start_loading(self, message: str = "") -> None:
         """Starts the loading indicator before first tokens arrive."""
+        ui = get_ui_strings(self._language)
         self._raw_markdown = ""
         self._loading_step = 0
         self._thinking_tokens = 0
-        self.status_label.setText("Analyzuji výřez.")
-        self.response_browser.setHtml(render_styled_markdown_html(f"*{message}*"))
+        self.status_label.setText(f"{ui['analyzing']}.")
+        if message:
+            self.response_browser.setHtml(render_styled_markdown_html(f"*{message}*"))
         self._loading_timer.start()
 
     def on_thinking_progress(self) -> None:
         """Updates status when the VLM is actively running visual reasoning tokens."""
+        ui = get_ui_strings(self._language)
         self._thinking_tokens += 1
         if self._thinking_tokens == 1:
-            self.status_label.setText("Zkoumám obraz a přemýšlím…")
+            self.status_label.setText(f"{ui['thinking']}…")
             if not self._raw_markdown:
+                level_disp = get_thinking_level_display(self._thinking_level, self._language)
                 self.response_browser.setHtml(
                     render_styled_markdown_html(
-                        "*Model pečlivě zkoumá detaily a text ve zakroužkovaném výřezu…*"
+                        ui["loading_thinking"].format(level=level_disp)
                     )
                 )
 
-    def stop_loading(self, status_text: str = "Hotovo") -> None:
+    def stop_loading(self, status_text: str = "") -> None:
         """Stops the loading indicator once streaming completes or pauses."""
+        ui = get_ui_strings(self._language)
         self._loading_timer.stop()
-        self.status_label.setText(status_text)
+        self.status_label.setText(status_text or ui["ready"])
 
     def set_markdown_content(self, markdown_text: str) -> None:
         """Replaces the displayed Markdown text using styled HTML rendering."""
@@ -400,9 +425,10 @@ class PopoverCard(QFrame):
 
     def append_token(self, token: str) -> None:
         """Appends a newly streamed token and re-renders styled HTML in real time."""
+        ui = get_ui_strings(self._language)
         if self._loading_timer.isActive():
             self._loading_timer.stop()
-        self.status_label.setText("Streamuji odpověď…")
+        self.status_label.setText(ui["streaming"])
         self._raw_markdown += token
         self.response_browser.setHtml(render_styled_markdown_html(self._raw_markdown))
         sb = self.response_browser.verticalScrollBar()

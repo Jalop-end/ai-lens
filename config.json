@@ -6,7 +6,8 @@
   "ollama_host": "http://127.0.0.1:11434",
   "model": "gemma4:latest",
   "language": "cs",
+  "thinking_level": "medium",
   "think": true,
-  "temperature": 0.2,
-  "default_prompt": "Podívej se na tento zakroužkovaný výřez obrazovky. Popiš přesně, co na něm vidíš, pokud obsahuje otázku nebo doplňovačku, vyřeš ji a vysvětli proč, a odpověz přirozeně jako klasický AI model v češtině."
+  "temperature": 0.15,
+  "default_prompt": "Podívej se na tento zakroužkovaný výřez obrazovky. Pečlivě zkontroluj každý znak, písmeno (včetně háčků a čárek) i kontext okolo mezer. Popiš přesně, co na něm vidíš, pokud obsahuje otázku, posloupnost nebo doplňovačku, vyřeš ji a vysvětli proč, a odpověz přirozeně v češtině."
 }

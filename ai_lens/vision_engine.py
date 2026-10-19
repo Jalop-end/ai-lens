@@ -1,20 +1,18 @@
-"""Local offline Vision-Language Model engine via Ollama (127.0.0.1) with QThread streaming."""
+"""Local offline Vision-Language Model engine via Ollama (127.0.0.1) with QThread streaming, multi-language UI localization, and Low/Medium/High thinking tiers."""
 
 from __future__ import annotations
 
 import base64
 import io
 import json
+import subprocess
+import sys
 import time
 from typing import Any, Optional
 
 import httpx
 from PIL import Image
 from PyQt6.QtCore import QThread, pyqtSignal
-
-
-import subprocess
-import sys
 
 
 SUPPORTED_LANGUAGES: dict[str, tuple[str, str]] = {
@@ -75,22 +73,400 @@ LANGUAGE_ALIASES: dict[str, str] = {
     "korean": "ko",
 }
 
+
+# Thinking & Quality Tiers (Low / Medium / High)
+# Designed so all 3 tiers remain runnable locally even on weaker PCs (8-16 GB RAM),
+# while trading off generation time & KV-cache RAM for deeper reasoning and higher token limits.
+THINKING_LEVELS: dict[str, dict[str, Any]] = {
+    "low": {
+        "label": "Low",
+        "think": False,
+        "num_ctx": 2048,
+        "num_predict": 1024,
+        "max_image_side": 768,
+        "temperature": 0.2,
+        "top_p": 0.9,
+        "repeat_penalty": 1.05,
+        "desc_cs": "Rychlý režim (nízké nároky na RAM, nejrychlejší odpověď, základní uvažování)",
+        "desc_en": "Fast mode (lowest RAM usage, fastest generation, basic reasoning)",
+    },
+    "medium": {
+        "label": "Medium",
+        "think": True,
+        "num_ctx": 4096,
+        "num_predict": 2560,
+        "max_image_side": 1024,
+        "temperature": 0.15,
+        "top_p": 0.9,
+        "repeat_penalty": 1.07,
+        "desc_cs": "Vyvážený režim (střední hloubka myšlení, 2560 tokenů, pečlivá kontrola otázek a posloupností)",
+        "desc_en": "Balanced mode (medium thinking depth, 2560 tokens, careful verification of questions & sequences)",
+    },
+    "high": {
+        "label": "High",
+        "think": True,
+        "num_ctx": 8192,
+        "num_predict": 4096,
+        "max_image_side": 1344,
+        "temperature": 0.1,
+        "top_p": 0.85,
+        "repeat_penalty": 1.1,
+        "desc_cs": "Hluboké myšlení (4096 tokenů, vysoké rozlišení detailů, krok-za-krokem kontrola abecedy, diakritiky a chytáků; delší doba generování)",
+        "desc_en": "Deep thinking (4096 tokens, high detail resolution, step-by-step verification of alphabets, diacritics & tricky puzzles; longer generation time)",
+    },
+}
+
+THINKING_LEVEL_ALIASES: dict[str, str] = {
+    "l": "low",
+    "low": "low",
+    "fast": "low",
+    "m": "medium",
+    "med": "medium",
+    "mid": "medium",
+    "medium": "medium",
+    "normal": "medium",
+    "h": "high",
+    "hi": "high",
+    "high": "high",
+    "deep": "high",
+    "max": "high",
+}
+
+
+UI_TRANSLATIONS: dict[str, dict[str, str]] = {
+    "cs": {
+        "ready": "Připraveno",
+        "analyzing": "Analyzuji výřez",
+        "thinking": "Hluboce přemýšlím",
+        "streaming": "Streamuji odpověď…",
+        "done_time": "Hotovo · doba generování {elapsed:.1f} s",
+        "conn_error": "Chyba spojení",
+        "close_tooltip": "Zavřít (Esc)",
+        "followup_placeholder": "Doplňující dotaz k výřezu… (Enter pro odeslání)",
+        "followup_prefix": "Dotaz",
+        "loading_init": "Lokální model `{model}` ({lang}, režim **{level}**) zkoumá zakroužkovaný výřez…",
+        "loading_thinking": "*Model pečlivě zkoumá každý znak, kontext a detaily ve výřezu (hloubka myšlení: **{level}**)…*",
+        "hud_banner": "AI Lens [{lang} · {level}] — Zakroužkuj oblast myší   |   [Esc] Zavřít",
+        "dock_tooltip": "Klikni pro okamžitý výběr obrazovky lasem (nebo stiskni Alt+F8)",
+        "dock_quit_tooltip": "Ukončit AI Lens",
+        "err_title": "Chyba lokálního AI enginu",
+        "err_connect": "Nelze se připojit k lokálnímu AI enginu na `{host}`.\n\nUjisti se, že běží lokální Ollama (`ollama serve`) a máš stažený model `{model}`.",
+        "level_low": "Low (Rychlý)",
+        "level_medium": "Medium (Vyvážený)",
+        "level_high": "High (Hluboké myšlení)",
+    },
+    "en": {
+        "ready": "Ready",
+        "analyzing": "Analyzing selection",
+        "thinking": "Thinking deeply",
+        "streaming": "Streaming response…",
+        "done_time": "Done · generation time {elapsed:.1f} s",
+        "conn_error": "Connection error",
+        "close_tooltip": "Close (Esc)",
+        "followup_placeholder": "Ask a follow-up question… (Press Enter to send)",
+        "followup_prefix": "Question",
+        "loading_init": "Local model `{model}` ({lang}, **{level}** mode) is analyzing the selected region…",
+        "loading_thinking": "*Model is carefully verifying characters, context, and details in the selection (thinking depth: **{level}**)…*",
+        "hud_banner": "AI Lens [{lang} · {level}] — Circle region with mouse   |   [Esc] Close",
+        "dock_tooltip": "Click for instant screen lasso selection (or press Alt+F8)",
+        "dock_quit_tooltip": "Quit AI Lens",
+        "err_title": "Local AI Engine Error",
+        "err_connect": "Cannot connect to local AI engine at `{host}`.\n\nMake sure local Ollama (`ollama serve`) is running and model `{model}` is pulled.",
+        "level_low": "Low (Fast)",
+        "level_medium": "Medium (Balanced)",
+        "level_high": "High (Deep Thinking)",
+    },
+    "sk": {
+        "ready": "Pripravené",
+        "analyzing": "Analyzujem výrez",
+        "thinking": "Hlboko premýšľam",
+        "streaming": "Streamujem odpoveď…",
+        "done_time": "Hotovo · doba generovania {elapsed:.1f} s",
+        "conn_error": "Chyba spojenia",
+        "close_tooltip": "Zavrieť (Esc)",
+        "followup_placeholder": "Doplňujúca otázka k výrezu… (Enter pre odoslanie)",
+        "followup_prefix": "Otázka",
+        "loading_init": "Lokálny model `{model}` ({lang}, režim **{level}**) skúma zakrúžkovaný výrez…",
+        "loading_thinking": "*Model starostlivo overuje každý znak, kontext a detaily vo výreze (hĺbka myslenia: **{level}**)…*",
+        "hud_banner": "AI Lens [{lang} · {level}] — Zakrúžkuj oblasť myšou   |   [Esc] Zavrieť",
+        "dock_tooltip": "Klikni pre okamžitý výber obrazovky lasom (alebo stlač Alt+F8)",
+        "dock_quit_tooltip": "Ukončiť AI Lens",
+        "err_title": "Chyba lokálneho AI enginu",
+        "err_connect": "Nedá sa pripojiť k lokálnemu AI enginu na `{host}`.\n\nUisti sa, že beží lokálna Ollama (`ollama serve`) a máš stiahnutý model `{model}`.",
+        "level_low": "Low (Rýchly)",
+        "level_medium": "Medium (Vyvážený)",
+        "level_high": "High (Hlboké myslenie)",
+    },
+    "de": {
+        "ready": "Bereit",
+        "analyzing": "Ausschnitt wird analysiert",
+        "thinking": "Denke tief nach",
+        "streaming": "Antwort wird gestreamt…",
+        "done_time": "Fertig · Generierungszeit {elapsed:.1f} s",
+        "conn_error": "Verbindungsfehler",
+        "close_tooltip": "Schließen (Esc)",
+        "followup_placeholder": "Folgefrage zum Ausschnitt… (Enter zum Senden)",
+        "followup_prefix": "Frage",
+        "loading_init": "Lokales Modell `{model}` ({lang}, Modus **{level}**) analysiert den ausgewählten Bereich…",
+        "loading_thinking": "*Das Modell prüft sorgfältig alle Zeichen, Details und Zusammenhänge (Denktiefe: **{level}**)…*",
+        "hud_banner": "AI Lens [{lang} · {level}] — Bereich mit der Maus einkreisen   |   [Esc] Schließen",
+        "dock_tooltip": "Klicken für sofortige Bildschirm-Auswahl (oder Alt+F8 drücken)",
+        "dock_quit_tooltip": "AI Lens beenden",
+        "err_title": "Fehler der lokalen KI-Engine",
+        "err_connect": "Verbindung zur lokalen KI-Engine unter `{host}` fehlgeschlagen.\n\nStelle sicher, dass Ollama (`ollama serve`) läuft und `{model}` installiert ist.",
+        "level_low": "Low (Schnell)",
+        "level_medium": "Medium (Ausgewogen)",
+        "level_high": "High (Tiefes Denken)",
+    },
+    "es": {
+        "ready": "Listo",
+        "analyzing": "Analizando recorte",
+        "thinking": "Pensando profundamente",
+        "streaming": "Transmitiendo respuesta…",
+        "done_time": "Listo · tiempo de generación {elapsed:.1f} s",
+        "conn_error": "Error de conexión",
+        "close_tooltip": "Cerrar (Esc)",
+        "followup_placeholder": "Pregunta de seguimiento… (Enter para enviar)",
+        "followup_prefix": "Pregunta",
+        "loading_init": "El modelo local `{model}` ({lang}, modo **{level}**) está analizando el recorte…",
+        "loading_thinking": "*El modelo está verificando cuidadosamente cada carácter y detalle (profundidad: **{level}**)…*",
+        "hud_banner": "AI Lens [{lang} · {level}] — Rodea el área con el ratón   |   [Esc] Cerrar",
+        "dock_tooltip": "Haz clic para seleccionar en pantalla (o pulsa Alt+F8)",
+        "dock_quit_tooltip": "Salir de AI Lens",
+        "err_title": "Error del motor de IA local",
+        "err_connect": "No se puede conectar al motor de IA local en `{host}`.\n\nAsegúrate de que Ollama (`ollama serve`) esté activo y tengas el modelo `{model}`.",
+        "level_low": "Low (Rápido)",
+        "level_medium": "Medium (Equilibrado)",
+        "level_high": "High (Pensamiento profundo)",
+    },
+    "fr": {
+        "ready": "Prêt",
+        "analyzing": "Analyse de la sélection",
+        "thinking": "Réflexion approfondie",
+        "streaming": "Diffusion de la réponse…",
+        "done_time": "Terminé · temps de génération {elapsed:.1f} s",
+        "conn_error": "Erreur de connexion",
+        "close_tooltip": "Fermer (Échap)",
+        "followup_placeholder": "Question complémentaire… (Entrée pour envoyer)",
+        "followup_prefix": "Question",
+        "loading_init": "Le modèle local `{model}` ({lang}, mode **{level}**) analyse la sélection…",
+        "loading_thinking": "*Le modèle vérifie attentivement chaque caractère et détail (profondeur : **{level}**)…*",
+        "hud_banner": "AI Lens [{lang} · {level}] — Entourez la zone avec la souris   |   [Échap] Fermer",
+        "dock_tooltip": "Cliquez pour sélectionner une zone (ou appuyez sur Alt+F8)",
+        "dock_quit_tooltip": "Quitter AI Lens",
+        "err_title": "Erreur du moteur IA local",
+        "err_connect": "Impossible de se connecter au moteur IA local sur `{host}`.\n\nVérifiez qu'Ollama (`ollama serve`) fonctionne et que `{model}` est téléchargé.",
+        "level_low": "Low (Rapide)",
+        "level_medium": "Medium (Équilibré)",
+        "level_high": "High (Réflexion profonde)",
+    },
+    "pl": {
+        "ready": "Gotowe",
+        "analyzing": "Analizuję wycinek",
+        "thinking": "Głębokie myślenie",
+        "streaming": "Strumieniowanie odpowiedzi…",
+        "done_time": "Gotowe · czas generowania {elapsed:.1f} s",
+        "conn_error": "Błąd połączenia",
+        "close_tooltip": "Zamknij (Esc)",
+        "followup_placeholder": "Dodatkowe pytanie do wycinka… (Enter aby wysłać)",
+        "followup_prefix": "Pytanie",
+        "loading_init": "Lokalny model `{model}` ({lang}, tryb **{level}**) analizuje zaznaczony wycinek…",
+        "loading_thinking": "*Model dokładnie sprawdza znaki, kontekst i szczegóły wycinka (poziom: **{level}**)…*",
+        "hud_banner": "AI Lens [{lang} · {level}] — Zakreśl obszar myszką   |   [Esc] Zamknij",
+        "dock_tooltip": "Kliknij, aby zaznaczyć obszar (lub naciśnij Alt+F8)",
+        "dock_quit_tooltip": "Zakończ AI Lens",
+        "err_title": "Błąd lokalnego silnika AI",
+        "err_connect": "Nie można połączyć się z lokalnym silnikiem AI pod adresem `{host}`.\n\nUpewnij się, że działa Ollama (`ollama serve`) i pobrano model `{model}`.",
+        "level_low": "Low (Szybki)",
+        "level_medium": "Medium (Zrównoważony)",
+        "level_high": "High (Głębokie myślenie)",
+    },
+    "uk": {
+        "ready": "Готово",
+        "analyzing": "Аналізую фрагмент",
+        "thinking": "Глибоке мислення",
+        "streaming": "Генерація відповіді…",
+        "done_time": "Готово · час генерації {elapsed:.1f} с",
+        "conn_error": "Помилка з'єднання",
+        "close_tooltip": "Закрити (Esc)",
+        "followup_placeholder": "Додаткове запитання… (Enter для відправки)",
+        "followup_prefix": "Запитання",
+        "loading_init": "Локальна модель `{model}` ({lang}, режим **{level}**) аналізує виділений фрагмент…",
+        "loading_thinking": "*Модель ретельно перевіряє кожен символ, контекст і деталі (рівень мислення: **{level}**)…*",
+        "hud_banner": "AI Lens [{lang} · {level}] — Обведіть область мишею   |   [Esc] Закрити",
+        "dock_tooltip": "Натисніть для виділення області (або Alt+F8)",
+        "dock_quit_tooltip": "Вийти з AI Lens",
+        "err_title": "Помилка локального AI рушія",
+        "err_connect": "Не вдалося підключитися до локального AI на `{host}`.\n\nПереконайтеся, що Ollama (`ollama serve`) запущено і модель `{model}` завантажена.",
+        "level_low": "Low (Швидкий)",
+        "level_medium": "Medium (Збалансований)",
+        "level_high": "High (Глибоке мислення)",
+    },
+    "it": {
+        "ready": "Pronto",
+        "analyzing": "Analisi della selezione",
+        "thinking": "Pensiero profondo",
+        "streaming": "Streaming della risposta…",
+        "done_time": "Fatto · tempo di generazione {elapsed:.1f} s",
+        "conn_error": "Errore di connessione",
+        "close_tooltip": "Chiudi (Esc)",
+        "followup_placeholder": "Domanda di approfondimento… (Invio per inviare)",
+        "followup_prefix": "Domanda",
+        "loading_init": "Il modello locale `{model}` ({lang}, modalità **{level}**) sta analizzando la selezione…",
+        "loading_thinking": "*Il modello sta verificando attentamente ogni carattere e dettaglio (livello: **{level}**)…*",
+        "hud_banner": "AI Lens [{lang} · {level}] — Cerchia l'area con il mouse   |   [Esc] Chiudi",
+        "dock_tooltip": "Clicca per selezionare un'area (o premi Alt+F8)",
+        "dock_quit_tooltip": "Chiudi AI Lens",
+        "err_title": "Errore del motore IA locale",
+        "err_connect": "Impossibile connettersi al motore IA locale su `{host}`.\n\nAssicurati che Ollama (`ollama serve`) sia attivo e il modello `{model}` sia installato.",
+        "level_low": "Low (Veloce)",
+        "level_medium": "Medium (Bilanciato)",
+        "level_high": "High (Pensiero profondo)",
+    },
+    "pt": {
+        "ready": "Pronto",
+        "analyzing": "Analisando seleção",
+        "thinking": "Pensamento profundo",
+        "streaming": "Transmitindo resposta…",
+        "done_time": "Concluído · tempo de geração {elapsed:.1f} s",
+        "conn_error": "Erro de conexão",
+        "close_tooltip": "Fechar (Esc)",
+        "followup_placeholder": "Pergunta complementar… (Enter para enviar)",
+        "followup_prefix": "Pergunta",
+        "loading_init": "O modelo local `{model}` ({lang}, modo **{level}**) está analisando a seleção…",
+        "loading_thinking": "*O modelo está verificando cuidadosamente cada caractere e detalhe (nível: **{level}**)…*",
+        "hud_banner": "AI Lens [{lang} · {level}] — Circule a área com o mouse   |   [Esc] Fechar",
+        "dock_tooltip": "Clique para selecionar na tela (ou pressione Alt+F8)",
+        "dock_quit_tooltip": "Sair do AI Lens",
+        "err_title": "Erro do motor de IA local",
+        "err_connect": "Não foi possível conectar ao motor de IA local em `{host}`.\n\nCertifique-se de que o Ollama (`ollama serve`) está rodando com o modelo `{model}`.",
+        "level_low": "Low (Rápido)",
+        "level_medium": "Medium (Equilibrado)",
+        "level_high": "High (Pensamento profundo)",
+    },
+    "ru": {
+        "ready": "Готово",
+        "analyzing": "Анализирую фрагмент",
+        "thinking": "Глубокое размышление",
+        "streaming": "Генерация ответа…",
+        "done_time": "Готово · время генерации {elapsed:.1f} с",
+        "conn_error": "Ошибка соединения",
+        "close_tooltip": "Закрыть (Esc)",
+        "followup_placeholder": "Дополнительный вопрос… (Enter для отправки)",
+        "followup_prefix": "Вопрос",
+        "loading_init": "Локальная модель `{model}` ({lang}, режим **{level}**) анализирует выделенный фрагмент…",
+        "loading_thinking": "*Модель тщательно проверяет каждый символ, контекст и детали (уровень мышления: **{level}**)…*",
+        "hud_banner": "AI Lens [{lang} · {level}] — Обведите область мышью   |   [Esc] Закрыть",
+        "dock_tooltip": "Нажмите для выделения области (или Alt+F8)",
+        "dock_quit_tooltip": "Выйти из AI Lens",
+        "err_title": "Ошибка локального ИИ-движка",
+        "err_connect": "Не удалось подключиться к локальному ИИ на `{host}`.\n\nУбедитесь, что Ollama (`ollama serve`) запущена и модель `{model}` скачана.",
+        "level_low": "Low (Быстрый)",
+        "level_medium": "Medium (Сбалансированный)",
+        "level_high": "High (Глубокое мышление)",
+    },
+    "nl": {
+        "ready": "Klaar",
+        "analyzing": "Selectie analyseren",
+        "thinking": "Diep nadenken",
+        "streaming": "Antwoord streamen…",
+        "done_time": "Klaar · generatietijd {elapsed:.1f} s",
+        "conn_error": "Verbindingsfout",
+        "close_tooltip": "Sluiten (Esc)",
+        "followup_placeholder": "Vervolgvraag stellen… (Enter om te verzenden)",
+        "followup_prefix": "Vraag",
+        "loading_init": "Lokaal model `{model}` ({lang}, modus **{level}**) analyseert de selectie…",
+        "loading_thinking": "*Het model controleert zorgvuldig elk teken en detail in de selectie (niveau: **{level}**)…*",
+        "hud_banner": "AI Lens [{lang} · {level}] — Omcirkel gebied met de muis   |   [Esc] Sluiten",
+        "dock_tooltip": "Klik voor directe schermselectie (of druk op Alt+F8)",
+        "dock_quit_tooltip": "AI Lens afsluiten",
+        "err_title": "Fout in lokale AI-engine",
+        "err_connect": "Kan geen verbinding maken met lokale AI op `{host}`.\n\nZorg ervoor dat Ollama (`ollama serve`) draait en `{model}` is geïnstalleerd.",
+        "level_low": "Low (Snel)",
+        "level_medium": "Medium (Gebalanceerd)",
+        "level_high": "High (Diep nadenken)",
+    },
+    "zh": {
+        "ready": "就绪",
+        "analyzing": "正在分析截图",
+        "thinking": "深度思考中",
+        "streaming": "正在生成回答…",
+        "done_time": "完成 · 生成用时 {elapsed:.1f} 秒",
+        "conn_error": "连接错误",
+        "close_tooltip": "关闭 (Esc)",
+        "followup_placeholder": "继续追问… (按 Enter 发送)",
+        "followup_prefix": "追问",
+        "loading_init": "本地模型 `{model}` ({lang}, **{level}** 模式) 正在分析圈选区域…",
+        "loading_thinking": "*模型正在仔细核对选区内的每个字符、顺序与上下文细节 (思考深度: **{level}**)…*",
+        "hud_banner": "AI Lens [{lang} · {level}] — 用鼠标圈选区域   |   [Esc] 关闭",
+        "dock_tooltip": "点击立即圈选屏幕 (或按 Alt+F8)",
+        "dock_quit_tooltip": "退出 AI Lens",
+        "err_title": "本地 AI 引擎错误",
+        "err_connect": "无法连接到本地 AI 引擎 `{host}`。\n\n请确认 Ollama (`ollama serve`) 正在运行且已下载 `{model}`。",
+        "level_low": "Low (快速)",
+        "level_medium": "Medium (均衡)",
+        "level_high": "High (深度思考)",
+    },
+    "ja": {
+        "ready": "準備完了",
+        "analyzing": "選択範囲を分析中",
+        "thinking": "深く思考中",
+        "streaming": "回答を生成中…",
+        "done_time": "完了 · 生成時間 {elapsed:.1f} 秒",
+        "conn_error": "接続エラー",
+        "close_tooltip": "閉じる (Esc)",
+        "followup_placeholder": "追加の質問を入力… (Enterで送信)",
+        "followup_prefix": "質問",
+        "loading_init": "ローカルモデル `{model}` ({lang}, **{level}** モード) が選択範囲を分析しています…",
+        "loading_thinking": "*モデルが文字・並び順・文脈を詳細に検証しています (思考レベル: **{level}**)…*",
+        "hud_banner": "AI Lens [{lang} · {level}] — マウスで範囲を囲んでください   |   [Esc] 閉じる",
+        "dock_tooltip": "クリックして画面を選択 (または Alt+F8)",
+        "dock_quit_tooltip": "AI Lens を終了",
+        "err_title": "ローカル AI エンジンエラー",
+        "err_connect": "ローカル AI エンジン `{host}` に接続できません。\n\nOllama (`ollama serve`) が起動し、`{model}` が取得済みか確認してください。",
+        "level_low": "Low (高速)",
+        "level_medium": "Medium (標準)",
+        "level_high": "High (深い思考)",
+    },
+    "ko": {
+        "ready": "준비됨",
+        "analyzing": "선택 영역 분석 중",
+        "thinking": "깊이 생각하는 중",
+        "streaming": "답변 스트리밍 중…",
+        "done_time": "완료 · 생성 시간 {elapsed:.1f}초",
+        "conn_error": "연결 오류",
+        "close_tooltip": "닫기 (Esc)",
+        "followup_placeholder": "추가 질문 입력… (Enter 키로 전송)",
+        "followup_prefix": "질문",
+        "loading_init": "로컬 모델 `{model}` ({lang}, **{level}** 모드)이 선택 영역을 분석 중입니다…",
+        "loading_thinking": "*모델이 선택 영역의 문자, 순서, 맥락을 면밀히 검증하고 있습니다 (사고 깊이: **{level}**)…*",
+        "hud_banner": "AI Lens [{lang} · {level}] — 마우스로 영역을 그리세요   |   [Esc] 닫기",
+        "dock_tooltip": "클릭하여 화면 영역 선택 (또는 Alt+F8)",
+        "dock_quit_tooltip": "AI Lens 종료",
+        "err_title": "로컬 AI 엔진 오류",
+        "err_connect": "로컬 AI 엔진 `{host}`에 연결할 수 없습니다.\n\nOllama (`ollama serve`) 실행 여부와 `{model}` 모델을 확인하세요.",
+        "level_low": "Low (빠름)",
+        "level_medium": "Medium (균형)",
+        "level_high": "High (깊은 사고)",
+    },
+}
+
 DEFAULT_PROMPTS_BY_LANG: dict[str, str] = {
-    "cs": "Podívej se na tento zakroužkovaný výřez obrazovky. Popiš přesně, co na něm vidíš, pokud obsahuje otázku nebo doplňovačku, vyřeš ji a vysvětli proč, a odpověz přirozeně jako klasický AI model v češtině.",
-    "en": "Look at this circled screenshot region. Describe accurately what you see, if it contains a question or fill-in-the-blank, answer it and explain why, and respond naturally like a classic AI model in English.",
-    "sk": "Pozri sa na tento zakrúžkovaný výrez obrazovky. Opíš presne, čo na ňom vidíš, ak obsahuje otázku alebo doplňovačku, vyrieš ju a vysvetli prečo, a odpovedz prirodzene ako klasický AI model v slovenčine.",
-    "de": "Sieh dir diesen eingekreisten Bildschirmausschnitt an. Beschreibe genau, was du siehst, beantworte eventuelle Fragen oder Lückentexte mit Begründung und antworte natürlich wie ein klassisches KI-Modell auf Deutsch.",
-    "es": "Mira este recorte de pantalla seleccionado. Describe con precisión lo que ves, si contiene una pregunta o espacio en blanco, respóndela y explica por qué, y responde de forma natural en español.",
-    "fr": "Regarde cette capture d'écran sélectionnée. Décris précisément ce que tu vois, s'il y a une question ou un texte à trous, réponds-y en expliquant pourquoi, et réponds naturellement en français.",
-    "pl": "Spójrz na ten zaznaczony wycinek ekranu. Opisz dokładnie, co widzisz, a jeśli zawiera pytanie lub lukę do uzupełnienia, odpowiedz i wyjaśnij dlaczego, odpowiadając naturalnie po polsku.",
-    "uk": "Подивися на цей виділений фрагмент екрана. Точно опиши, що ти бачиш, якщо там є запитання або пропуск у реченні — дай відповідь і поясни чому, відповідаючи природною українською мовою.",
-    "it": "Guarda questo ritaglio dello schermo. Descrivi con precisione ciò che vedi, se contiene una domanda o uno spazio da completare, rispondi e spiega perché, rispondendo in modo naturale in italiano.",
-    "pt": "Olhe para este recorte da tela. Descreva com precisão o que vê, se contiver uma pergunta ou lacuna para preencher, responda e explique o porquê, respondendo naturalmente em português.",
-    "ru": "Посмотри на этот выделенный фрагмент экрана. Точно опиши, что ты видишь, а если там есть вопрос или пропуск в предложении — дай ответ и объясни почему, отвечая на естественном русском языке.",
-    "nl": "Bekijk deze gemarkeerde schermafbeelding. Beschrijf nauwkeurig wat je ziet, beantwoord eventuele vragen of invuloefeningen met uitleg waarom, en antwoord natuurlijk in het Nederlands.",
-    "zh": "请看这个圈出的屏幕截图区域。准确描述你所看到的内容；如果包含问题或填空题，请给出答案并解释原因，用自然流畅的中文回答。",
-    "ja": "この囲まれた画面の切り抜きを見てください。見えるものを正確に説明し、質問や穴埋め問題が含まれている場合は答えとその理由を説明し、自然な日本語で回答してください。",
-    "ko": "동그라미로 표시된 화면 캡처 영역을 보세요. 보이는 것을 정확히 설명하고, 질문이나 빈칸 채우기 문제가 있다면 정답과 그 이유를 자연스러운 한국어로 설명해 주세요.",
+    "cs": "Podívej se na tento zakroužkovaný výřez obrazovky. Pečlivě zkontroluj každý znak, písmeno (včetně háčků a čárek) i kontext okolo mezer. Popiš přesně, co na něm vidíš, pokud obsahuje otázku, posloupnost nebo doplňovačku, vyřeš ji a vysvětli proč, a odpověz přirozeně v češtině.",
+    "en": "Look at this circled screenshot region. Carefully inspect every character, letter, symbol, and context around any blanks. Describe accurately what you see, if it contains a question, sequence, or fill-in-the-blank, solve it and explain why, and respond naturally in English.",
+    "sk": "Pozri sa na tento zakrúžkovaný výrez obrazovky. Starostlivo skontroluj každý znak, písmeno (vrátane mäkčeňov a dĺžňov) aj kontext okolo medzier. Opíš presne, čo na ňom vidíš, ak obsahuje otázku, postupnosť alebo doplňovačku, vyrieš ju a vysvetli prečo, a odpovedz prirodzene v slovenčine.",
+    "de": "Sieh dir diesen eingekreisten Bildschirmausschnitt an. Prüfe jedes Zeichen, jeden Buchstaben und den Kontext rund um Lücken genau. Beschreibe, was du siehst, löse Fragen, Reihenfolgen oder Lückentexte mit Begründung und antworte natürlich auf Deutsch.",
+    "es": "Mira este recorte de pantalla seleccionado. Examina con cuidado cada carácter, letra y el contexto alrededor de cualquier espacio en blanco. Describe con precisión lo que ves, resuelve preguntas, secuencias o espacios en blanco explicando por qué, y responde en español.",
+    "fr": "Regarde cette capture d'écran sélectionnée. Examine attentivement chaque caractère, lettre et le contexte autour des blancs. Décris précisément ce que tu vois, résous les questions, suites ou textes à trous en expliquant pourquoi, et réponds en français.",
+    "pl": "Spójrz na ten zaznaczony wycinek ekranu. Dokładnie sprawdź każdy znak, literę (w tym znaki diakrytyczne) oraz kontekst wokół luk. Opisz, co widzisz, rozwiąż pytania, ciągi lub luki z wyjaśnieniem dlaczego, odpowiadając naturalnie po polsku.",
+    "uk": "Подивися на цей виділений фрагмент екрана. Уважно перевір кожен символ, літеру та контекст навколо пропусків. Точно опиши, що бачиш, розв'яжи запитання, послідовність або пропуск і поясни чому, відповідаючи українською мовою.",
+    "it": "Guarda questo ritaglio dello schermo. Controlla attentamente ogni carattere, lettera e il contesto intorno agli spazi vuoti. Descrivi con precisione ciò che vedi, risolvi domande, sequenze o spazi da completare spiegando perché, e rispondi in italiano.",
+    "pt": "Olhe para este recorte da tela. Verifique cuidadosamente cada caractere, letra e o contexto ao redor de lacunas. Descreva com precisão o que vê, resolva perguntas, sequências ou lacunas explicando o porquê, e responda em português.",
+    "ru": "Посмотри на этот выделенный фрагмент экрана. Внимательно проверь каждый символ, букву и контекст вокруг пропусков. Точно опиши, что видишь, реши вопрос, последовательность или пропуск и объясни почему, отвечая на русском языке.",
+    "nl": "Bekijk deze gemarkeerde schermafbeelding. Controleer elk teken, elke letter en de context rond lege plekken zorgvuldig. Beschrijf nauwkeurig wat je ziet, los vragen, reeksen of invuloefeningen op met uitleg waarom, en antwoord in het Nederlands.",
+    "zh": "请看这个圈出的屏幕截图区域。仔细检查每个字符、字母以及空白处前后的上下文。准确描述你看到的内容；如果包含问题、序列或填空题，请给出正确答案并解释原因，用自然流畅的中文回答。",
+    "ja": "この囲まれた画面の切り抜きを見てください。すべての文字、記号、空欄前後の文脈を注意深く確認し、見えるものを正確に説明してください。質問、並び順、穴埋め問題がある場合は正解とその理由を自然な日本語で説明してください。",
+    "ko": "동그라미로 표시된 화면 캡처 영역을 보세요. 모든 글자, 기호, 빈칸 앞뒤의 맥락을 주의 깊게 확인하고 보이는 것을 정확히 설명하세요. 질문, 순서 추론, 빈칸 채우기 문제가 있다면 정답과 이유를 자연스러운 한국어로 설명해 주세요.",
 }
 
 
@@ -112,6 +488,39 @@ def is_recognized_language_arg(arg: str) -> bool:
     return cleaned in SUPPORTED_LANGUAGES or cleaned in LANGUAGE_ALIASES
 
 
+def normalize_thinking_level(level: Optional[str]) -> str:
+    """Normalizes a user-supplied thinking level ('Low', 'Medium', 'High') to 'low', 'medium', or 'high'."""
+    if not level:
+        return "medium"
+    cleaned = level.strip().lower().lstrip("-")
+    return THINKING_LEVEL_ALIASES.get(cleaned, "medium")
+
+
+def is_recognized_thinking_level(arg: str) -> bool:
+    """Returns True if `arg` is a valid thinking level ('Low', 'Medium', 'High', etc.)."""
+    cleaned = arg.strip().lower()
+    return cleaned in THINKING_LEVEL_ALIASES
+
+
+def get_thinking_level_config(level: Optional[str]) -> dict[str, Any]:
+    """Returns the parameter dictionary for the given thinking level ('low', 'medium', 'high')."""
+    norm = normalize_thinking_level(level)
+    return THINKING_LEVELS.get(norm, THINKING_LEVELS["medium"])
+
+
+def get_thinking_level_display(level: Optional[str], lang: Optional[str] = "cs") -> str:
+    """Returns a localized human-readable label for the thinking level."""
+    norm = normalize_thinking_level(level)
+    ui = get_ui_strings(lang)
+    return ui.get(f"level_{norm}", THINKING_LEVELS[norm]["label"])
+
+
+def get_ui_strings(lang: Optional[str] = "cs") -> dict[str, str]:
+    """Returns the localized UI dictionary for the given language code."""
+    code = normalize_language_code(lang)
+    return UI_TRANSLATIONS.get(code, UI_TRANSLATIONS["cs"])
+
+
 def get_language_display(lang: Optional[str]) -> str:
     """Returns a human-readable string like 'cs (Čeština / Czech)'."""
     code = normalize_language_code(lang)
@@ -127,23 +536,50 @@ def get_default_prompt(lang: Optional[str] = "cs") -> str:
     return DEFAULT_PROMPTS_BY_LANG.get(code, DEFAULT_PROMPTS_BY_LANG["cs"])
 
 
-def build_system_prompt(lang: Optional[str] = "cs") -> str:
+def build_system_prompt(lang: Optional[str] = "cs", thinking_level: Optional[str] = "medium") -> str:
     """
-    Builds the system prompt in English (for optimal Gemma 4 internal `<thought>` reasoning)
-    while enforcing output in the user's selected language and applying the strict rules for:
-      1. Accurate visual description without hallucinations.
-      2. Answering questions + explaining WHY.
-      3. Special ordering for fill-in-the-blank / missing-word sentences (describe first, answer second).
-      4. Highlighting answers/important words with `**...**` and wrapping citations/quotes in `"..."`.
+    Builds the system prompt in English (for optimal Gemma 4 / Qwen internal reasoning)
+    while enforcing output in the user's selected language and scaling reasoning depth
+    according to `thinking_level` ('low', 'medium', 'high').
     """
     code = normalize_language_code(lang)
+    level = normalize_thinking_level(thinking_level)
     en_name, native_name = SUPPORTED_LANGUAGES.get(code, ("Czech", "Čeština"))
+
+    if level == "low":
+        thinking_instruction = (
+            "Keep your internal reasoning concise and direct, but always verify the exact characters "
+            "both before and after any blank (_) before answering."
+        )
+    elif level == "high":
+        thinking_instruction = (
+            "THINK DEEPLY AND METHODICALLY STEP BY STEP before producing your answer:\n"
+            "  a) Transcribe every visible word, letter, diacritic mark (such as Czech carons/háčky: č, ď, ě, ň, ř, š, ť, ž, "
+            "or acute accents/čárky: á, é, í, ó, ú, ů, ý), number, and symbol in the image with 100% precision.\n"
+            "  b) When solving any sequence, alphabet, pattern, or fill-in-the-blank (e.g. 'abc_dď'), explicitly list the elements "
+            "IMMEDIATELY BEFORE the blank ('a', 'b', 'c') AND IMMEDIATELY AFTER the blank ('d', 'ď').\n"
+            "  c) Notice why 'ď' is present: in the Czech alphabet (a, b, c, č, d, ď, e, ě, f, g, h, ch, i, j, k, l, m, n, ň, o, p, q, r, ř, s, š, t, ť, u, v, w, x, y, z, ž), "
+            "letters with carons follow their base letter (c -> č, d -> ď). Since 'c' is before '_' and 'd, ď' are already after '_', "
+            "the missing character between 'c' and 'd' MUST be 'č' (NEVER repeat 'd' when 'd' is already written right after the blank!).\n"
+            "  d) Perform a final self-check: verify that your chosen answer fits logically, mathematically, and alphabetically "
+            "without duplicating adjacent elements or contradicting the visual evidence."
+        )
+    else:  # medium
+        thinking_instruction = (
+            "Think carefully step by step before answering:\n"
+            "  - Read every character, diacritic (e.g. č, ď, ě, ř, š, ž), number, and word in the image accurately.\n"
+            "  - For any sequence, alphabet, or fill-in-the-blank (such as 'abc_dď'), inspect both what comes BEFORE '_' and what comes AFTER '_'. "
+            "For example, in 'abc_dď', 'd' and 'ď' are already after the blank, demonstrating the Czech alphabet with diacritics (a, b, c, č, d, ď), "
+            "so the missing letter is 'č' (never guess a letter that is already sitting right next to the blank).\n"
+            "  - Double-check your logic before writing the final response."
+        )
+
     return (
-        f"You are an intelligent, versatile visual AI assistant (like ChatGPT or Gemini) "
-        f"helping a user who circled a region on their screen. "
-        f"Keep your internal thinking brief (2-4 short sentences): first verify what is visually "
-        f"shown in the image (animal, object, person, scene, UI, diagram, question, or code) and read any visible text "
-        f"(note that text on screen may be in {en_name} or another language; e.g. in Czech 'had' means snake, not the English verb 'had').\n\n"
+        f"You are an intelligent, detail-oriented visual AI assistant (like ChatGPT or Gemini) "
+        f"helping a user who circled a region on their screen.\n\n"
+        f"REASONING & VERIFICATION DEPTH ({level.upper()} MODE):\n"
+        f"{thinking_instruction}\n"
+        f"(Also remember that text on screen may be in {en_name} or another language; e.g. in Czech 'had' means snake, not the English verb 'had'.)\n\n"
         f"LANGUAGE RULE:\n"
         f"- Always write your entire visible response in natural, fluent, grammatically correct {en_name} ({native_name}) "
         f"using standard everyday vocabulary (never invent nonexistent words or awkward literal translations).\n\n"
@@ -152,12 +588,13 @@ def build_system_prompt(lang: Optional[str] = "cs") -> str:
         f"and share relevant, factual context like a classic AI model. Never claim to see an animal or object that is not in the image, "
         f"and never invent absurd stories to connect a wrong guess with a label.\n"
         f"2. Standard Questions / Quizzes / Tests / Problems: If the circled region contains a question, test item, multiple-choice quiz, or problem, "
-        f"describe what is shown, ALWAYS provide the direct answer to the question, and clearly explain WHY that answer is correct.\n"
-        f"3. Fill-in-the-Blank / Incomplete Sentences (e.g. 'něco je _____ proto', '...', '___', or a sentence where a word/part is clearly missing): "
+        f"describe what is shown, ALWAYS provide the direct, verified answer to the question, and clearly explain WHY that answer is correct.\n"
+        f"3. Fill-in-the-Blank / Incomplete Sentences / Missing Character Sequences (e.g. 'něco je _____ proto', 'abc_dď', '...', '___', or any text where a word or letter is clearly missing): "
         f"This ALSO counts as a question, but you MUST follow this exact order:\n"
         f"   - FIRST (in your opening sentence/paragraph): Do NOT give the missing answer in the first sentence! First describe what you see on the screen "
-        f"(that there is an incomplete sentence or exercise with a missing word/part, quoting the visible sentence in double quotes \"...\").\n"
-        f"   - SECOND (only AFTER describing what you see): Provide the correct missing word/answer and explain WHY it belongs there.\n\n"
+        f"(that there is an incomplete sentence, sequence, or exercise with a missing part, quoting the visible text in double quotes \"...\").\n"
+        f"   - SECOND (only AFTER describing what you see): Provide the exact missing letter/word/answer (verified against both the preceding and following characters/words) "
+        f"and clearly explain WHY it belongs there.\n\n"
         f"FORMATTING, HIGHLIGHTING & CITATION RULES:\n"
         f"- Always highlight the main answer and the most important generated keywords/conclusions using Markdown bold **like this** "
         f"(do not overuse bold on whole paragraphs; use **bold** specifically on the answer and key terms so they stand out larger and thicker).\n"
@@ -165,16 +602,16 @@ def build_system_prompt(lang: Optional[str] = "cs") -> str:
     )
 
 
-DEFAULT_SYSTEM_PROMPT = build_system_prompt("cs")
+DEFAULT_SYSTEM_PROMPT = build_system_prompt("cs", "medium")
 
 
-def prepare_image_for_vlm(image: Image.Image, max_side: int = 896, min_side: int = 256) -> Image.Image:
+def prepare_image_for_vlm(image: Image.Image, max_side: int = 1024, min_side: int = 320) -> Image.Image:
     """
     Normalizes the cropped PIL image for fast, accurate CLIP/VLM vision encoding:
       - Converts to RGB.
-      - Upscales very small crops so fine details and short labels remain legible after patch projection.
-      - Downscales huge 4K crops to max_side (896px) so Gemma 4 processes the image in <0.5s
-        without triggering excessive multi-tile overhead.
+      - Upscales small crops (like short text or 'abc_dď') so fine diacritics (háčky/čárky)
+        and underscores remain sharp and legible after patch projection.
+      - Downscales huge 4K crops to `max_side` according to the active thinking tier.
     """
     rgb = image.convert("RGB")
     w, h = rgb.size
@@ -199,12 +636,12 @@ def prepare_image_for_vlm(image: Image.Image, max_side: int = 896, min_side: int
     return rgb
 
 
-def encode_pil_to_base64(image: Image.Image, fmt: str = "JPEG", max_side: int = 896) -> str:
+def encode_pil_to_base64(image: Image.Image, fmt: str = "JPEG", max_side: int = 1024) -> str:
     """Encodes a normalized PIL Image directly in RAM to a base64 string for local VLM inference."""
     prepared = prepare_image_for_vlm(image, max_side=max_side)
     buf = io.BytesIO()
     if fmt.upper() in ("JPG", "JPEG"):
-        prepared.save(buf, format="JPEG", quality=92, optimize=True)
+        prepared.save(buf, format="JPEG", quality=94, optimize=True)
     else:
         prepared.save(buf, format=fmt)
     return base64.b64encode(buf.getvalue()).decode("ascii")
@@ -229,7 +666,7 @@ def warmup_local_model(
     ollama_host: str = "http://127.0.0.1:11434",
     model: str = "gemma4:latest",
     keep_alive: str = "30m",
-    temperature: float = 0.2,
+    temperature: float = 0.15,
 ) -> bool:
     """
     Preloads the VLM into VRAM/RAM via the local loopback Ollama API so that
@@ -273,9 +710,10 @@ class VisionInferenceWorker(QThread):
         ollama_host: str = "http://127.0.0.1:11434",
         model: str = "gemma4:latest",
         language: str = "cs",
+        thinking_level: str = "medium",
         system_prompt: Optional[str] = None,
-        think: bool = True,
-        temperature: float = 0.2,
+        think: Optional[bool] = None,
+        temperature: Optional[float] = None,
         history: Optional[list[dict[str, Any]]] = None,
         parent: Optional[Any] = None,
     ) -> None:
@@ -285,11 +723,18 @@ class VisionInferenceWorker(QThread):
         self.ollama_host = ollama_host.rstrip("/")
         self.model = model
         self.language = normalize_language_code(language)
+        self.thinking_level = normalize_thinking_level(thinking_level)
+        self.tier_cfg = get_thinking_level_config(self.thinking_level)
+
         self.system_prompt = (
-            system_prompt if system_prompt is not None else build_system_prompt(self.language)
+            system_prompt
+            if system_prompt is not None
+            else build_system_prompt(self.language, self.thinking_level)
         )
-        self.think = think
-        self.temperature = temperature
+        self.think = bool(self.tier_cfg["think"]) if think is None else think
+        self.temperature = (
+            float(self.tier_cfg["temperature"]) if temperature is None else temperature
+        )
         self.history = list(history) if history else []
         self._cancelled = False
 
@@ -332,11 +777,13 @@ class VisionInferenceWorker(QThread):
     def run(self) -> None:
         t0 = time.perf_counter()
         url = f"{self.ollama_host}/api/chat"
+        ui = get_ui_strings(self.language)
+        max_side = int(self.tier_cfg.get("max_image_side", 1024))
 
         try:
-            b64_img = encode_pil_to_base64(self.image, fmt="JPEG")
+            b64_img = encode_pil_to_base64(self.image, fmt="JPEG", max_side=max_side)
         except Exception as exc:
-            self.errorOccurred.emit(f"Chyba při kódování výřezu do RAM: {exc}")
+            self.errorOccurred.emit(f"{ui['err_title']}: {exc}")
             return
 
         messages: list[dict[str, Any]] = []
@@ -371,13 +818,20 @@ class VisionInferenceWorker(QThread):
             "think": self.think,
             "options": {
                 "temperature": self.temperature,
+                "num_ctx": int(self.tier_cfg.get("num_ctx", 4096)),
+                "num_predict": int(self.tier_cfg.get("num_predict", 2560)),
+                "top_p": float(self.tier_cfg.get("top_p", 0.9)),
+                "repeat_penalty": float(self.tier_cfg.get("repeat_penalty", 1.07)),
             },
             "stream": True,
             "keep_alive": "30m",
         }
 
+        # Higher timeout for High thinking mode so deep reasoning never times out prematurely
+        timeout_sec = 240.0 if self.thinking_level == "high" else 150.0
+
         try:
-            with httpx.Client(timeout=httpx.Timeout(120.0, connect=5.0), trust_env=False) as client:
+            with httpx.Client(timeout=httpx.Timeout(timeout_sec, connect=5.0), trust_env=False) as client:
                 ok, err_body = self._stream_chat(client, url, payload)
                 if not ok and "think" in err_body.lower():
                     # Fallback for models that do not support the "think" parameter
@@ -385,7 +839,7 @@ class VisionInferenceWorker(QThread):
                     ok, err_body = self._stream_chat(client, url, payload)
 
                 if not ok:
-                    self.errorOccurred.emit(f"Lokální Ollama vrátila chybu: {err_body}")
+                    self.errorOccurred.emit(f"{ui['err_title']}: {err_body}")
                     return
 
             if not self._cancelled:
@@ -394,9 +848,8 @@ class VisionInferenceWorker(QThread):
 
         except httpx.ConnectError:
             self.errorOccurred.emit(
-                f"Nelze se připojit k lokálnímu AI enginu na `{self.ollama_host}`.\n\n"
-                f"Ujisti se, že běží lokální Ollama (`ollama serve`) a máš stažený model `{self.model}`."
+                ui["err_connect"].format(host=self.ollama_host, model=self.model)
             )
         except Exception as exc:
             if not self._cancelled:
-                self.errorOccurred.emit(f"Chyba při lokální VLM inferenci: {exc}")
+                self.errorOccurred.emit(f"{ui['err_title']}: {exc}")

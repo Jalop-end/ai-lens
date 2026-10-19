@@ -29,8 +29,17 @@ from ai_lens.overlay import (
     _ensure_utf8_stdio,
     load_config,
     set_language_in_config,
+    set_thinking_level_in_config,
 )
-from ai_lens.vision_engine import get_language_display, warmup_local_model
+from ai_lens.vision_engine import (
+    get_language_display,
+    get_thinking_level_config,
+    get_thinking_level_display,
+    get_ui_strings,
+    normalize_language_code,
+    normalize_thinking_level,
+    warmup_local_model,
+)
 
 STATE_FILE_PATH = Path(__file__).resolve().parent.parent / ".ai_lens_state.json"
 DEBUG_LOG_PATH = Path(__file__).resolve().parent.parent / "ai_lens_debug.log"
@@ -136,7 +145,7 @@ class FloatingTriggerBar(QFrame):
     triggerClicked = pyqtSignal()
     quitClicked = pyqtSignal()
 
-    def __init__(self) -> None:
+    def __init__(self, language: str = "cs", thinking_level: str = "medium") -> None:
         super().__init__(None)
         self.setObjectName("FloatingTriggerBar")
         self.setWindowTitle("AI Lens Mini-Dock")
@@ -184,16 +193,23 @@ class FloatingTriggerBar(QFrame):
         layout.setContentsMargins(6, 2, 6, 2)
         layout.setSpacing(2)
 
-        self.trigger_btn = QPushButton("🔍 AI Lens (Alt+F8)")
+        lang_code = normalize_language_code(language)
+        level_norm = normalize_thinking_level(thinking_level)
+        tier_cfg = get_thinking_level_config(level_norm)
+        ui = get_ui_strings(lang_code)
+
+        self.trigger_btn = QPushButton(
+            f"🔍 AI Lens [{lang_code.upper()} · {tier_cfg['label']}] (Alt+F8)"
+        )
         self.trigger_btn.setObjectName("ActionBtn")
         self.trigger_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.trigger_btn.setToolTip("Klikni pro okamžitý výběr obrazovky lasem (nebo stiskni Alt+F8)")
+        self.trigger_btn.setToolTip(ui["dock_tooltip"])
         self.trigger_btn.clicked.connect(self.triggerClicked.emit)
 
         self.quit_btn = QPushButton("✕")
         self.quit_btn.setObjectName("QuitBtn")
         self.quit_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.quit_btn.setToolTip("Ukončit AI Lens")
+        self.quit_btn.setToolTip(ui["dock_quit_tooltip"])
         self.quit_btn.clicked.connect(self.quitClicked.emit)
 
         layout.addWidget(self.trigger_btn)
@@ -314,7 +330,11 @@ class DaemonBridge(QObject):
     stopRequested = pyqtSignal()
 
 
-def run_daemon(open_immediately: bool = False, language: Optional[str] = None) -> None:
+def run_daemon(
+    open_immediately: bool = False,
+    language: Optional[str] = None,
+    thinking_level: Optional[str] = None,
+) -> None:
     """
     Starts AI Lens from the Command Line:
       - Zero TCP/IP listening sockets (completely invisible to Windows Firewall).
@@ -330,13 +350,19 @@ def run_daemon(open_immediately: bool = False, language: Optional[str] = None) -
 
     if language:
         set_language_in_config(language)
+    if thinking_level:
+        set_thinking_level_in_config(thinking_level)
 
     existing = _read_daemon_state()
     if existing is not None:
         cfg_now = load_config()
-        lang_disp = get_language_display(str(cfg_now.get("language", "cs")))
+        lang_code_now = str(cfg_now.get("language", "cs"))
+        lang_disp = get_language_display(lang_code_now)
+        level_disp = get_thinking_level_display(
+            str(cfg_now.get("thinking_level", "medium")), lang_code_now
+        )
         _log_debug(
-            f"[AI Lens] Proces již běží (PID {existing['pid']}, jazyk: {lang_disp}). Aktivuji překryvné okno…"
+            f"[AI Lens] Proces již běží (PID {existing['pid']}, jazyk: {lang_disp}, hloubka myšlení: {level_disp}). Aktivuji překryvné okno…"
         )
         send_daemon_command("TRIGGER")
         return
@@ -346,12 +372,14 @@ def run_daemon(open_immediately: bool = False, language: Optional[str] = None) -
     model_name = str(config.get("model", "gemma4:latest"))
     ollama_host = str(config.get("ollama_host", "http://127.0.0.1:11434"))
     lang_code = str(config.get("language", "cs"))
+    level_code = str(config.get("thinking_level", "medium"))
+    tier_cfg = get_thinking_level_config(level_code)
 
     app = QApplication.instance() or QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
 
     overlay = OverlayWindow(config=config, daemon_mode=True)
-    floating_bar = FloatingTriggerBar()
+    floating_bar = FloatingTriggerBar(language=lang_code, thinking_level=level_code)
     floating_bar.show()
     floating_bar.raise_()
 
@@ -525,7 +553,7 @@ def run_daemon(open_immediately: bool = False, language: Optional[str] = None) -
     sigint_timer.timeout.connect(lambda: None)
 
     # Pre-warm local VLM in background thread
-    temperature = float(config.get("temperature", 0.2))
+    temperature = float(tier_cfg.get("temperature", 0.15))
     threading.Thread(
         target=warmup_local_model,
         args=(ollama_host, model_name, "30m", temperature),
@@ -533,15 +561,20 @@ def run_daemon(open_immediately: bool = False, language: Optional[str] = None) -
         daemon=True,
     ).start()
 
-    print("=" * 72, flush=True)
+    level_disp = get_thinking_level_display(level_code, lang_code)
+    print("=" * 74, flush=True)
     print(" AI Lens BĚŽÍ V POHOTOVOSTI (Plovoucí lišta + Trojitá detekce zkratky)", flush=True)
     print(f" Lokální AI model  : {model_name}", flush=True)
-    print(f" Jazyk odpovědí    : {get_language_display(lang_code)}", flush=True)
+    print(f" Jazyk (UI + AI)   : {get_language_display(lang_code)}", flush=True)
+    print(
+        f" Hloubka myšlení   : {level_disp} (max {tier_cfg['num_predict']} tokenů, kontext {tier_cfg['num_ctx']})",
+        flush=True,
+    )
     print(" Zkratky           : [Alt + F8]  |  [F8]  |  [Ctrl + Alt + Shift + G]", flush=True)
     print(" Plovoucí tlačítko : Nahoře vpravo na obrazovce 'AI Lens (Alt+F8)'", flush=True)
     print(" Zavření overlaye  : Klávesa [Esc] nebo pravé tlačítko myši", flush=True)
     print(f" Diagnostický log  : {DEBUG_LOG_PATH.name}", flush=True)
-    print("=" * 72, flush=True)
+    print("=" * 74, flush=True)
 
     if open_immediately:
         QTimer.singleShot(150, lambda: bridge.triggerRequested.emit("start"))

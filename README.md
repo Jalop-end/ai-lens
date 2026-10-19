@@ -3,28 +3,63 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Ollama](https://img.shields.io/badge/AI-Ollama%20(Local)-orange)](https://ollama.com/)
+[![Languages: 15](https://img.shields.io/badge/UI%20%26%20AI%20Languages-15-success)](#supported-language-shortcuts)
+[![Thinking Tiers: Low | Medium | High](https://img.shields.io/badge/Thinking%20Depth-Low%20%7C%20Medium%20%7C%20High-blueviolet)](#thinking-depth--quality-tiers-low--medium--high)
 
 **AI Lens** is a lightweight, 100% offline desktop screen-capture assistant designed for instantaneous screen analysis using local Vision-Language Models (VLMs) like `gemma4:latest`, `qwen2.5-vl`, or `minicpm-v`.
 
-With a single hotkey (**`Alt + F8`**) or one click on the floating mini-dock, your screen is instantly frozen (< 15 ms). You can freely circle any area with your mouse (lasso selection), and receive real-time streaming answers, code explanations, error diagnoses, or translations from your local AI model—without sending a single byte outside your computer.
+With a single hotkey (**`Alt + F8`**) or one click on the floating mini-dock, your screen is instantly frozen (< 15 ms). Circle any area with your mouse (lasso selection) to receive real-time streaming answers, question & puzzle solutions, fill-in-the-blank completions, code explanations, or translations from your local AI model—without sending a single byte outside your computer.
+
+---
+
+## Visual Overview & Popover Preview
+
+```text
+┌──────────────────────────────────────────────────────────────────────────────────────────┐
+│          AI Lens [CS · High] — Zakroužkuj oblast myší   |   [Esc] Zavřít                 │
+│                                                                                          │
+│    ╭───────────────────────╮      ┌────────────────────────────────────────────────────┐ │
+│   ╱   Doplň chybějící:      ╲     │ AI Lens · gemma4:latest [CS · High]                │ │
+│  │                           │    │                      Hotovo · doba generování 9.4 s│ │
+│  │      "abc_dď"             │    ├────────────────────────────────────────────────────┤ │
+│   ╲                         ╱     │ Na zakroužkovaném výřezu vidím neúplnou řadu       │ │
+│    ╰───────────────────────╯      │ písmen "abc_dď", kde mezi písmeny "c" a "d"        │ │
+│                                   │ chybí jeden znak (_).                              │ │
+│                                   │                                                    │ │
+│                                   │ Chybějící písmeno je **č** (výsledná posloupnost   │ │
+│                                   │ je **abcčdď**).                                    │ │
+│                                   │                                                    │ │
+│                                   │ **Proč tomu tak je:** Za mezerou již následuje     │ │
+│                                   │ písmeno "d" a hned za ním "ď" (s háčkem). Jde tedy │ │
+│                                   │ o českou abecedu včetně písmen s diakritikou       │ │
+│                                   │ (a, b, c, **č**, d, ď), kde po základním písmenu   │ │
+│                                   │ "c" následuje "č".                                 │ │
+│                                   ├────────────────────────────────────────────────────┤ │
+│                                   │ [ Doplňující dotaz k výřezu… (Enter pro odeslání) ]│ │
+│                                   └────────────────────────────────────────────────────┘ │
+└──────────────────────────────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
 ## Key Features
 
 - **100% Local & Private:** Runs entirely on `127.0.0.1` via local Ollama. Zero external cloud APIs, zero tracking, zero telemetry.
-- **Ultra-Fast Capture (< 15 ms):** Captures the screen buffer directly into RAM using high-performance screen capture with automatic high-DPI scaling (up to 4K+).
-- **Freehand Lasso Tool:** Draw naturally around any text, terminal error, diagram, or UI element. The bounding box is automatically calculated with customizable padding.
-- **Floating Popover Card:**
-  - Displays real-time streaming tokens with Markdown and code block syntax rendering.
-  - Smart collision detection: automatically repositions to prevent overflowing screen boundaries.
-  - Interactive multi-turn follow-up question input at the bottom.
-- **Triple-Engine Hotkey Detection:**
-  - Supports **`Alt + F8`**, **`F8`**, and **`Ctrl + Alt + Shift + G`**.
-  - Powered by native Win32 `RegisterHotKey`, a 15ms `GetAsyncKeyState` hardware key poller, and low-level keyboard hooks to guarantee responsiveness regardless of Windows language switches (`CS`/`EN`) or keyboard rollover limits.
-- **Floating Mini-Dock:** A sleek, draggable floating pill (`AI Lens (Alt+F8)`) that provides 1-click mouse activation and visual confirmation that the assistant is running.
-- **Firewall & Sandbox Friendly:** Zero listening TCP network ports opened by the application, eliminating Windows Defender Firewall blockages.
-- **Console QuickEdit Protection:** Automatically disables Windows Console QuickEdit pause mode so clicking in the terminal never freezes background threads.
+- **3 Configurable Thinking Depth & Quality Tiers (`Low`, `Medium`, `High`):**
+  - Choose directly from the terminal (`ai-lens cs High`, `ai-lens en Medium`, `ai-lens Low`) how deeply the model thinks, how many tokens it can generate (`1024` / `2560` / `4096`), and what image resolution it inspects (`768px` / `1024px` / `1344px`).
+  - Engineered to remain **lightweight enough to run locally even on weaker PCs** across all three tiers.
+- **Smart Question, Sequence & Fill-in-the-Blank Solver:**
+  - **Standard Questions & Quizzes:** Describes what is visible, **always provides the direct verified answer**, and **explains why** it is correct.
+  - **Fill-in-the-Blank Sentences (`"něco je _____ proto"`, `...`, `___`):** Follows a strict two-step rule—**first** describes what is shown on the screen (without giving away the answer in the first sentence), and **second** provides the missing answer and explains why.
+  - **Character-by-Character Sequence & Alphabet Verification:** Inspects characters and diacritics both **before** and **after** any blank `_` (e.g., recognizing that in `"abc_dď"` the letter `"d"` and `"ď"` are already present after the blank, so the missing Czech alphabet letter is **`č`**).
+- **Enhanced Popover Typography & Citation Styling:**
+  - **Highlighted Answers (`**...**`):** Rendered in the same clean text color (`#E5E7EB`), but **larger (`16px`) and extra bold (`font-weight: 800`)** so key answers stand out immediately.
+  - **Citations (`"..."`):** Automatically enclosed in standard double quotes `""` and styled in an **italic serif citation font** (`Georgia`, `Cambria`, `Times New Roman`).
+- **Full 15-Language Localization (AI Responses + Entire UI):**
+  - Switching language (`ai-lens cs`, `ai-lens en`, `ai-lens de`, `ai-lens sk`, etc.) localizes **both** the AI's answers and **all UI elements**: generation time badges (`Hotovo · doba generování 12.0 s` / `Done · generation time 12.0 s`), thinking/streaming indicators, input placeholders, tooltips, and the top overlay HUD banner.
+- **Ultra-Fast Capture (< 15 ms) & Triple-Engine Hotkeys:**
+  - Captures the screen buffer directly into RAM with automatic high-DPI scaling (up to 4K+).
+  - Supports **`Alt + F8`**, **`F8`**, **`Ctrl + Alt + Shift + G`**, and a draggable **Floating Mini-Dock** (`🔍 AI Lens [CS · Medium] (Alt+F8)`).
 
 ---
 
@@ -32,37 +67,50 @@ With a single hotkey (**`Alt + F8`**) or one click on the floating mini-dock, yo
 
 ```mermaid
 flowchart TD
-    subgraph S1 ["1. Activation & Hotkeys"]
-        A["Hotkey: Alt+F8 / F8 / Ctrl+Alt+Shift+G"] --> B["Dual Win32 / Hardware Poller"]
-        C["Floating Mini-Dock Click"] --> B
-        B --> D["Trigger Screen Capture"]
+    subgraph S1 ["1. CLI Launch & Configuration"]
+        CLI["Terminal: ai-lens <lang> <Low|Medium|High>"] --> CFG["Load Language (15 locales) & Thinking Tier"]
+        CFG --> DOCK["Floating Mini-Dock + Triple Hotkey Engine (Alt+F8 / F8)"]
     end
 
-    subgraph S2 ["2. Frame Capture & Overlay"]
-        D --> E["Raw Framebuffer into RAM (<15 ms)"]
-        E --> F["Frameless Fullscreen Qt Window"]
-        F --> G["Frozen Screen Background + 3px Glowing Border"]
+    subgraph S2 ["2. Instant Capture & Localized HUD Overlay"]
+        DOCK --> CAP["Raw Screen Buffer into RAM (<15 ms)"]
+        CAP --> OVR["Frameless Fullscreen Qt Window + Localized HUD Pill"]
+        OVR --> LASSO["Freehand Mouse Lasso -> Padded Bounding Box Crop"]
     end
 
-    subgraph S3 ["3. Freehand Lasso & Crop"]
-        G --> H["Mouse Drag: QPainterPath Trajectory"]
-        H --> I["Bounding Box Calculation (+padding)"]
-        I --> J["High-DPI Clean Sub-Region Crop into RAM"]
+    subgraph S3 ["3. Adaptive Local VLM Inference (Ollama 127.0.0.1)"]
+        LASSO --> TIER{"Active Thinking Tier"}
+        TIER -->|Low| TL["Fast Mode: think=False | 1024 tokens | 2048 ctx | 768px"]
+        TIER -->|Medium| TM["Balanced Mode: think=True | 2560 tokens | 4096 ctx | 1024px"]
+        TIER -->|High| TH["Deep Thinking: think=True | 4096 tokens | 8192 ctx | 1344px"]
+        TL & TM & TH --> STREAM["Real-Time Token & Reasoning Stream (QThread)"]
     end
 
-    subgraph S4 ["4. Local VLM Inference"]
-        J --> K["QThread Async Worker"]
-        K --> L["Local Ollama API (127.0.0.1:11434)"]
-        L --> M["Visual Grounding (think=True) + Fast Streaming"]
-    end
-
-    subgraph S5 ["5. Popover UI"]
-        M --> N["Floating QFrame near Selection"]
-        N --> O["Styled HTML: Highlighted Answers & Serif Citations"]
-        O --> P["Follow-up Question Field (Multi-turn)"]
-        P --> Q["[Esc] / Right Click: Hide back to standby"]
+    subgraph S4 ["4. Localized Popover UI & Typography"]
+        STREAM --> POP["Floating Popover Card with Collision Detection"]
+        POP --> STYLE["16px Extra-Bold Answers (**...**) + Serif Italic Citations (\"...\")"]
+        STYLE --> DONE["Localized Status & Generation Time (e.g. 'Done · generation time 12.0 s')"]
+        DONE --> FOLLOW["Multi-Turn Follow-up Input or [Esc] back to Standby"]
     end
 ```
+
+---
+
+## Thinking Depth & Quality Tiers (`Low` / `Medium` / `High`)
+
+You can control how deeply the local AI model thinks and how many tokens it allocates by passing **`Low`**, **`Medium`**, or **`High`** directly in the terminal.
+
+All three tiers run **100% locally on your hardware (even on weaker PCs with 8–16 GB RAM)**, allowing you to trade off **generation speed & temporary RAM usage** against **reasoning depth & accuracy on tricky questions**:
+
+| Tier | CLI Command Example | Internal Thinking (`think`) | Max Output / Thinking Tokens (`num_predict`) | Context Window (`num_ctx`) | Max Image Detail (`max_side`) | Typical Generation Time & Trade-Off |
+|---|---|---|---|---|---|---|
+| **`Low`** | `ai-lens cs Low`<br>`ai-lens en Low` | `False` (Direct answer) | `1024` tokens | `2048` tokens | `768 px` | **Fastest (~1–4 s), lowest RAM overhead.** Ideal for quick visual descriptions, simple OCR, or translations on weaker laptops. |
+| **`Medium`** *(Default)* | `ai-lens cs Medium`<br>`ai-lens cs` | `True` (Step-by-step verification) | `2560` tokens | `4096` tokens | `1024 px` | **Balanced (~5–12 s), moderate RAM usage.** Verifies questions, fill-in-the-blanks, and sequences carefully while keeping responses snappy. |
+| **`High`** | `ai-lens cs High`<br>`ai-lens en High` | `True` (Deep multi-step self-check) | `4096` tokens | `8192` tokens | `1344 px` | **Maximum accuracy (~10–25 s), higher token & KV-cache RAM usage.** Inspects fine diacritics (`č`, `ď`, `ě`, `ř`) at high resolution and verifies character sequences (`abc_dď` → **`č`**), logic puzzles, and tricky test questions step by step before answering. Still runs smoothly on everyday local PCs. |
+
+> [!NOTE]
+> **Why does `High` take longer to generate?**
+> In `High` mode, the local VLM first generates an internal chain-of-thought (transcribing characters before and after blanks, checking diacritics and alphabetical/mathematical rules, and double-checking its conclusion) before streaming the final answer. You pay with a few extra seconds of generation time and slightly more RAM during the question, and in return get significantly higher accuracy on subtle tasks.
 
 ---
 
@@ -73,7 +121,7 @@ flowchart TD
 3. **Local AI Engine:** [Ollama](https://ollama.com/) running locally:
    ```bash
    ollama pull gemma4:latest
-   # Or optionally:
+   # Or optionally for ultra-lightweight hardware:
    # ollama pull qwen2.5vl:3b
    ```
 
@@ -100,7 +148,7 @@ You do **not** need a virtual environment (`venv`) to install and run AI Lens—
 > While a `venv` is not required, using one is recommended if you want to keep project dependencies isolated from your global Python installation:
 > ```powershell
 > # Create virtual environment (use 'py -m venv .venv' on Windows if 'python' opens the MS Store)
-> python -m venv .venv
+> py -m venv .venv
 >
 > # Activate in PowerShell (bypass script execution policy for the current session if needed):
 > Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
@@ -116,94 +164,92 @@ You do **not** need a virtual environment (`venv`) to install and run AI Lens—
 
 ## Quick Start
 
-### 1. Launch in Standby Mode (with Optional Language Code)
-After `pip install -e .`, simply run `ai-lens` (or `.\ai-lens.bat` / `python -m ai_lens`) followed by an optional language shortcut (`cs`, `en`, `de`, `sk`, etc.):
+### 1. Launch with Language & Thinking Depth (`Low` / `Medium` / `High`)
+After `pip install -e .`, run `ai-lens` (or `.\ai-lens.bat` / `python -m ai_lens`) followed by an optional language shortcut (`cs`, `en`, `de`, `sk`, etc.) and/or thinking tier (`Low`, `Medium`, `High`) in any order:
 
 ```powershell
-# Launch with default language (Czech - cs):
-ai-lens
-# or:
-ai-lens cs
+# Launch in Czech with High thinking depth (best for tricky questions, sequences & puzzles):
+ai-lens cs High
 
-# Launch in English:
-ai-lens en
+# Launch in Czech with Medium thinking depth (default balanced mode):
+ai-lens cs Medium
 
-# Or via the Windows batch launcher (works with or without .venv):
-.\ai-lens.bat cs
-.\ai-lens.bat en
+# Launch in English with High or Low thinking depth:
+ai-lens en High
+ai-lens en Low
+
+# Change only the thinking depth (keeps your current language):
+ai-lens High
+ai-lens Low
+
+# Or via the Windows batch launcher (works automatically with or without .venv):
+.\ai-lens.bat cs High
+.\ai-lens.bat en Medium
 ```
 
-- A floating pill **`AI Lens (Alt+F8)`** will appear in the top-right corner of your screen.
-- Press **`Alt + F8`** (or **`F8`**, or simply click the floating button).
-- The screen freezes with a crisp white & cyan border and a top HUD banner.
-- **Draw a circle** with your left mouse button around what you want to analyze:
-  - **Images, Animals, Objects, Places:** Accurately describes what is visible and provides natural context like a classic AI model.
-  - **Questions, Quizzes, Tests:** Describes what is shown, **always provides the direct answer** (highlighted larger & bolder), and **explains why** it is correct.
-  - **Fill-in-the-Blank Sentences (e.g., `"něco je _____ proto"`):** First describes the visible sentence and context, and **only after describing what it sees** provides the missing answer and explanation.
-  - **Citations & Quotes:** Automatically wrapped in `""` and rendered in an italic serif citation font (`Georgia` / `Times New Roman`).
-- Press **`Esc`** or right-click anywhere to dismiss the overlay and return to standby.
+- A floating pill **`🔍 AI Lens [CS · High] (Alt+F8)`** appears in the top-right corner of your screen.
+- Press **`Alt + F8`** (or **`F8`**, or click the floating pill) and draw a circle with your left mouse button around any region.
+- Press **`Esc`** or right-click anywhere to return to standby.
 
 ### 2. Immediate One-Shot Trigger
-If you want to trigger the overlay directly without waiting for a hotkey:
+Trigger the overlay immediately without waiting for a hotkey:
 ```powershell
 ai-lens trigger
-# Or with a specific response language:
-ai-lens trigger en
+ai-lens trigger cs High
+ai-lens trigger en Low
 ```
 
 ---
 
-## Supported Language Shortcuts
+## Supported Language Shortcuts (Full AI + UI Localization)
 
-Pass any of the following language codes directly after `ai-lens` (e.g. `ai-lens en` or `.\ai-lens.bat de`):
+Pass any language code directly in the terminal (e.g. `ai-lens en High` or `.\ai-lens.bat de Medium`). Both the **AI response** and the **Popover UI** (including generation time badges, status text, and input placeholders) switch to that language:
 
-| Code | Language | Example Command |
-|---|---|---|
-| `cs` *(or `cz`)* | Czech (Čeština) — *Default* | `ai-lens cs` |
-| `en` | English (Angličtina) | `ai-lens en` |
-| `sk` | Slovak (Slovenčina) | `ai-lens sk` |
-| `de` | German (Deutsch) | `ai-lens de` |
-| `es` | Spanish (Español) | `ai-lens es` |
-| `fr` | French (Français) | `ai-lens fr` |
-| `pl` | Polish (Polski) | `ai-lens pl` |
-| `uk` *(or `ua`)* | Ukrainian (Українська) | `ai-lens uk` |
-| `it` | Italian (Italiano) | `ai-lens it` |
-| `pt` | Portuguese (Português) | `ai-lens pt` |
-| `ru` | Russian (Русский) | `ai-lens ru` |
-| `nl` | Dutch (Nederlands) | `ai-lens nl` |
-| `zh` *(or `cn`)* | Chinese (中文) | `ai-lens zh` |
-| `ja` *(or `jp`)* | Japanese (日本語) | `ai-lens ja` |
-| `ko` *(or `kr`)* | Korean (한국어) | `ai-lens ko` |
+| Code | Language | Example Command | Localized Completion Badge Example |
+|---|---|---|---|
+| `cs` *(or `cz`)* | Czech (Čeština) — *Default* | `ai-lens cs High` | `Hotovo · doba generování 12.0 s` |
+| `en` | English (Angličtina) | `ai-lens en High` | `Done · generation time 12.0 s` |
+| `sk` | Slovak (Slovenčina) | `ai-lens sk High` | `Hotovo · doba generovania 12.0 s` |
+| `de` | German (Deutsch) | `ai-lens de Medium` | `Fertig · Generierungszeit 12.0 s` |
+| `es` | Spanish (Español) | `ai-lens es Medium` | `Listo · tiempo de generación 12.0 s` |
+| `fr` | French (Français) | `ai-lens fr Medium` | `Terminé · temps de génération 12.0 s` |
+| `pl` | Polish (Polski) | `ai-lens pl Medium` | `Gotowe · czas generowania 12.0 s` |
+| `uk` *(or `ua`)* | Ukrainian (Українська) | `ai-lens uk Medium` | `Готово · час генерації 12.0 с` |
+| `it` | Italian (Italiano) | `ai-lens it Medium` | `Fatto · tempo de generazione 12.0 s` |
+| `pt` | Portuguese (Português) | `ai-lens pt Medium` | `Concluído · tempo de geração 12.0 s` |
+| `ru` | Russian (Русский) | `ai-lens ru Medium` | `Готово · время генерации 12.0 с` |
+| `nl` | Dutch (Nederlands) | `ai-lens nl Medium` | `Klaar · generatietijd 12.0 s` |
+| `zh` *(or `cn`)* | Chinese (中文) | `ai-lens zh Medium` | `完成 · 生成用时 12.0 秒` |
+| `ja` *(or `jp`)* | Japanese (日本語) | `ai-lens ja Medium` | `完了 · 生成時間 12.0 秒` |
+| `ko` *(or `kr`)* | Korean (한국어) | `ai-lens ko Medium` | `완료 · 생성 시간 12.0초` |
 
 ---
 
 ## CLI Reference
 
-`ai-lens` provides a rich set of command-line tools:
-
 | Command | Description |
 |---|---|
-| `ai-lens` / `ai-lens <lang>` | Starts the daemon in standby mode (e.g., `ai-lens`, `ai-lens cs`, `ai-lens en`). |
-| `ai-lens start --now` | Starts the daemon and immediately triggers the overlay on launch. |
-| `ai-lens trigger [lang]` | Sends a trigger signal to the running instance, or opens the overlay directly. |
-| `ai-lens languages` | Lists all supported language codes and highlights the currently configured language. |
-| `ai-lens status` | Displays the current running state, active hotkey, model, and response language. |
+| `ai-lens [lang] [Low\|Medium\|High]` | Starts AI Lens in standby mode with optional language & thinking depth (e.g., `ai-lens cs High`, `ai-lens en Low`, `ai-lens High`). |
+| `ai-lens start --now` | Starts the daemon and immediately opens the fullscreen capture overlay. |
+| `ai-lens trigger [lang] [level]` | Triggers the overlay on the running instance or runs a one-shot capture. |
+| `ai-lens levels` | Lists the `Low`, `Medium`, and `High` thinking tiers, token limits, and descriptions. |
+| `ai-lens languages` | Lists all 15 supported language codes and highlights the active language. |
+| `ai-lens status` | Displays the running state, active hotkey, model, language, and thinking level. |
 | `ai-lens stop` | Cleanly stops the running AI Lens background process. |
-| `ai-lens config` | Views or updates configuration parameters in `config.json`. |
+| `ai-lens config` | Views or updates persistent settings in `config.json`. |
 
-### Configuration Options
-You can configure options either in `config.json` or via CLI:
+### Persistent Configuration Examples
 ```powershell
-# Change the default response language
-ai-lens config --lang en
+# Set Czech language and High thinking depth in config.json
+ai-lens config --lang cs --level High
 
-# Change the local model
-ai-lens config --model qwen2.5vl:3b
+# Set English language and Medium thinking depth
+ai-lens config --lang en --level Medium
 
-# Change the default hotkey
-ai-lens config --hotkey "<alt>+<f8>"
+# Change the local VLM model in Ollama
+ai-lens config --model gemma4:latest
 
-# Adjust selection padding
+# Adjust selection bounding-box padding in pixels
 ai-lens config --padding 20
 ```
 
@@ -216,17 +262,17 @@ ai-lens/
 ├── ai_lens/
 │   ├── __init__.py          # Package metadata
 │   ├── __main__.py          # Direct python -m ai_lens execution entry point
-│   ├── cli.py               # Typer CLI commands (start, stop, status, trigger, config)
-│   ├── daemon.py            # Win32 background loop, hotkey engine, floating dock
+│   ├── cli.py               # Typer CLI with direct <lang> and <Low|Medium|High> shortcuts
+│   ├── daemon.py            # Win32 background loop, triple hotkey engine, localized floating dock
 │   ├── capture.py           # Sub-15ms screen capture & high-DPI bounding box crop
-│   ├── overlay.py           # PyQt6 frameless fullscreen overlay with lasso painter
-│   ├── popover.py           # Floating result card, markdown renderer, collision detection
-│   └── vision_engine.py     # Local Ollama stream worker (QThread), auto-start helper
-├── ai-lens.bat              # Quick Windows launcher
-├── config.json              # Configurable shortcuts, models, padding, and prompts
-├── pyproject.toml           # Project dependencies and entry points
+│   ├── overlay.py           # PyQt6 frameless fullscreen overlay with localized HUD & lasso
+│   ├── popover.py           # Floating result card, styled HTML renderer (16px bold & serif quotes)
+│   └── vision_engine.py     # Local Ollama QThread worker, Low/Medium/High tiers & 15 UI locales
+├── ai-lens.bat              # Universal Windows launcher (works with or without .venv)
+├── config.json              # Persistent configuration (hotkey, model, language, thinking_level)
+├── pyproject.toml           # Project dependencies and CLI entry point
 ├── .gitignore               # Clean git exclusions
-└── README.md                # English documentation
+└── README.md                # Documentation
 ```
 
 ---

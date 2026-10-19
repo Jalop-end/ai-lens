@@ -31,11 +31,16 @@ from ai_lens.capture import (
 from ai_lens.popover import PopoverCard
 from ai_lens.vision_engine import (
     DEFAULT_PROMPTS_BY_LANG,
+    THINKING_LEVELS,
     VisionInferenceWorker,
     encode_pil_to_base64,
     get_default_prompt,
     get_language_display,
+    get_thinking_level_config,
+    get_thinking_level_display,
+    get_ui_strings,
     normalize_language_code,
+    normalize_thinking_level,
 )
 
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.json"
@@ -62,8 +67,9 @@ def load_config(config_path: Path = DEFAULT_CONFIG_PATH) -> dict[str, Any]:
         "ollama_host": "http://127.0.0.1:11434",
         "model": "gemma4:latest",
         "language": "cs",
+        "thinking_level": "medium",
         "think": True,
-        "temperature": 0.2,
+        "temperature": 0.15,
         "default_prompt": get_default_prompt("cs"),
     }
     if config_path.exists():
@@ -74,6 +80,9 @@ def load_config(config_path: Path = DEFAULT_CONFIG_PATH) -> dict[str, Any]:
         except Exception:
             pass
     defaults["language"] = normalize_language_code(str(defaults.get("language", "cs")))
+    defaults["thinking_level"] = normalize_thinking_level(
+        str(defaults.get("thinking_level", "medium"))
+    )
     return defaults
 
 
@@ -82,19 +91,29 @@ def set_language_in_config(lang: str, config_path: Path = DEFAULT_CONFIG_PATH) -
     cfg = load_config(config_path)
     code = normalize_language_code(lang)
     cfg["language"] = code
-    current_prompt = str(cfg.get("default_prompt", "")).strip()
-    known_defaults = set(DEFAULT_PROMPTS_BY_LANG.values()) | {
-        "Podívej se na tento zakroužkovaný výřez obrazovky. Popiš přesně, co na něm vidíš, a odpověz přirozeně jako klasický AI model v češtině.",
-        "Analyzuj tento výřez obrazovky. Pokud obsahuje text, kód nebo chybovou hlášku, vysvětli ji a navrhni řešení. Odpovídej stručně a jasně v češtině.",
-    }
-    if not current_prompt or current_prompt in known_defaults:
-        cfg["default_prompt"] = get_default_prompt(code)
+    cfg["default_prompt"] = get_default_prompt(code)
     try:
         with open(config_path, "w", encoding="utf-8") as f:
             json.dump(cfg, f, indent=2, ensure_ascii=False)
     except Exception:
         pass
     return code
+
+
+def set_thinking_level_in_config(level: str, config_path: Path = DEFAULT_CONFIG_PATH) -> str:
+    """Updates the active thinking level ('low', 'medium', 'high') and corresponding parameters in config.json."""
+    cfg = load_config(config_path)
+    norm = normalize_thinking_level(level)
+    tier = get_thinking_level_config(norm)
+    cfg["thinking_level"] = norm
+    cfg["think"] = bool(tier["think"])
+    cfg["temperature"] = float(tier["temperature"])
+    try:
+        with open(config_path, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2, ensure_ascii=False)
+    except Exception:
+        pass
+    return norm
 
 
 class OverlayWindow(QWidget):
@@ -218,6 +237,9 @@ class OverlayWindow(QWidget):
             Capture time in milliseconds.
         """
         self.config = load_config()
+        lang_code = normalize_language_code(str(self.config.get("language", "cs")))
+        thinking_level = normalize_thinking_level(str(self.config.get("thinking_level", "medium")))
+        self.popover.set_locale(lang_code, thinking_level)
         self.reset_selection()
         if self.isVisible():
             self.hide()
@@ -329,12 +351,8 @@ class OverlayWindow(QWidget):
 
                 self.popover.place_near_bbox(bbox, self.rect())
                 lang_code = normalize_language_code(str(self.config.get("language", "cs")))
-                cfg_prompt = str(self.config.get("default_prompt", "")).strip()
-                known_defaults = set(DEFAULT_PROMPTS_BY_LANG.values())
-                if not cfg_prompt or cfg_prompt in known_defaults:
-                    default_prompt = get_default_prompt(lang_code)
-                else:
-                    default_prompt = cfg_prompt
+                custom_prompt = str(self.config.get("custom_prompt", "")).strip()
+                default_prompt = custom_prompt if custom_prompt else get_default_prompt(lang_code)
                 self.regionSelected.emit(cropped, bbox, default_prompt)
                 self._start_inference(cropped, default_prompt, is_followup=False)
 
@@ -355,19 +373,30 @@ class OverlayWindow(QWidget):
         model_name = str(self.config.get("model", "gemma4:latest"))
         ollama_host = str(self.config.get("ollama_host", "http://127.0.0.1:11434"))
         lang_code = normalize_language_code(str(self.config.get("language", "cs")))
-        think_enabled = bool(self.config.get("think", True))
-        temperature = float(self.config.get("temperature", 0.2))
+        thinking_level = normalize_thinking_level(str(self.config.get("thinking_level", "medium")))
+        tier_cfg = get_thinking_level_config(thinking_level)
+        ui = get_ui_strings(lang_code)
+
+        self.popover.set_locale(lang_code, thinking_level)
+        level_short = str(tier_cfg["label"])
+        level_disp = get_thinking_level_display(thinking_level, lang_code)
         system_prompt = self.config.get("system_prompt")
-        self.popover.title_label.setText(f"AI Lens · {model_name} [{lang_code.upper()}]")
+        self.popover.title_label.setText(
+            f"AI Lens · {model_name} [{lang_code.upper()} · {level_short}]"
+        )
 
         if not is_followup:
             self._chat_history.clear()
             self.popover.start_loading(
-                f"Lokální model `{model_name}` ({get_language_display(lang_code)}) zkoumá zakroužkovaný výřez…"
+                ui["loading_init"].format(
+                    model=model_name,
+                    lang=get_language_display(lang_code),
+                    level=level_disp,
+                )
             )
         else:
-            self.popover.append_token(f"\n\n---\n**Dotaz:** {prompt}\n\n")
-            self.popover.status_label.setText("Přemýšlím…")
+            self.popover.append_token(f"\n\n---\n**{ui['followup_prefix']}:** {prompt}\n\n")
+            self.popover.status_label.setText(f"{ui['thinking']}…")
 
         worker = VisionInferenceWorker(
             image=cropped_image,
@@ -375,9 +404,8 @@ class OverlayWindow(QWidget):
             ollama_host=ollama_host,
             model=model_name,
             language=lang_code,
+            thinking_level=thinking_level,
             system_prompt=str(system_prompt) if system_prompt else None,
-            think=think_enabled,
-            temperature=temperature,
             history=self._chat_history if is_followup else None,
             parent=self,
         )
@@ -398,11 +426,19 @@ class OverlayWindow(QWidget):
         self.popover.append_token(token)
 
     def _on_worker_finished(self, elapsed: float, prompt: str, is_followup: bool) -> None:
-        """Updates status badge and stores conversation turn for follow-up queries."""
-        self.popover.stop_loading(f"Hotovo ({elapsed:.1f} s)")
+        """Updates localized status badge (including generation time) and stores conversation turn."""
+        lang_code = normalize_language_code(str(self.config.get("language", "cs")))
+        thinking_level = normalize_thinking_level(str(self.config.get("thinking_level", "medium")))
+        tier_cfg = get_thinking_level_config(thinking_level)
+        ui = get_ui_strings(lang_code)
+        self.popover.stop_loading(ui["done_time"].format(elapsed=elapsed))
         if self._last_cropped_image is not None:
             if not is_followup:
-                b64_img = encode_pil_to_base64(self._last_cropped_image, fmt="JPEG")
+                b64_img = encode_pil_to_base64(
+                    self._last_cropped_image,
+                    fmt="JPEG",
+                    max_side=int(tier_cfg.get("max_image_side", 1024)),
+                )
                 self._chat_history.append(
                     {"role": "user", "content": prompt, "images": [b64_img]}
                 )
@@ -413,9 +449,11 @@ class OverlayWindow(QWidget):
             )
 
     def _on_worker_error(self, error_msg: str) -> None:
-        """Displays any local VLM connection/inference error inside PopoverCard."""
-        self.popover.stop_loading("Chyba spojení")
-        self.popover.set_markdown_content(f"**Chyba lokálního AI enginu**\n\n{error_msg}")
+        """Displays any local VLM connection/inference error inside PopoverCard in the selected language."""
+        lang_code = normalize_language_code(str(self.config.get("language", "cs")))
+        ui = get_ui_strings(lang_code)
+        self.popover.stop_loading(ui["conn_error"])
+        self.popover.set_markdown_content(f"**{ui['err_title']}**\n\n{error_msg}")
 
     def _on_followup_prompt(self, prompt_text: str) -> None:
         """Handles follow-up question typed in the bottom QLineEdit of the PopoverCard."""
@@ -424,7 +462,7 @@ class OverlayWindow(QWidget):
             self._start_inference(self._last_cropped_image, prompt_text, is_followup=True)
 
     def paintEvent(self, event) -> None:  # noqa: N802
-        """Paints the frozen screen, unmistakable active border + top HUD pill, lasso trail, and Bounding Box."""
+        """Paints the frozen screen, unmistakable active border + localized top HUD pill, lasso trail, and Bounding Box."""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
 
@@ -496,8 +534,14 @@ class OverlayWindow(QWidget):
         half = border_width // 2
         painter.drawRect(self.rect().adjusted(half, half, -half, -half))
 
-        # 5. Draw top-center HUD pill so the user immediately sees AI Lens is active
-        pill_w, pill_h = 520, 38
+        # 5. Draw localized top-center HUD pill so the user immediately sees AI Lens is active
+        lang_code = normalize_language_code(str(self.config.get("language", "cs")))
+        thinking_level = normalize_thinking_level(str(self.config.get("thinking_level", "medium")))
+        tier_cfg = get_thinking_level_config(thinking_level)
+        ui = get_ui_strings(lang_code)
+        hud_text = ui["hud_banner"].format(lang=lang_code.upper(), level=tier_cfg["label"])
+
+        pill_w, pill_h = 560, 38
         pill_x = (self.width() - pill_w) // 2
         pill_y = 18
         pill_rect = QRectF(float(pill_x), float(pill_y), float(pill_w), float(pill_h))
@@ -512,7 +556,7 @@ class OverlayWindow(QWidget):
         painter.drawText(
             pill_rect,
             Qt.AlignmentFlag.AlignCenter,
-            "AI Lens aktivní — Zakroužkuj oblast myší   |   [Esc] Zavřít",
+            hud_text,
         )
 
     def keyPressEvent(self, event: QKeyEvent) -> None:  # noqa: N802
@@ -523,18 +567,25 @@ class OverlayWindow(QWidget):
             super().keyPressEvent(event)
 
 
-def run_overlay_mvp(language: Optional[str] = None) -> None:
+def run_overlay_mvp(
+    language: Optional[str] = None,
+    thinking_level: Optional[str] = None,
+) -> None:
     """Standalone launcher for immediate screen capture + overlay."""
     _ensure_utf8_stdio()
     if language:
         set_language_in_config(language)
+    if thinking_level:
+        set_thinking_level_in_config(thinking_level)
     app = QApplication.instance() or QApplication(sys.argv)
     overlay = OverlayWindow(daemon_mode=False)
     capture_ms = overlay.activate_overlay()
-    lang_disp = get_language_display(str(overlay.config.get("language", "cs")))
+    lang_code = str(overlay.config.get("language", "cs"))
+    lang_disp = get_language_display(lang_code)
+    level_disp = get_thinking_level_display(str(overlay.config.get("thinking_level", "medium")), lang_code)
     print(f"[AI Lens] Obrazovka zachycena do RAM za {capture_ms:.2f} ms.")
     print(
-        f"[AI Lens] Lokální VLM ({overlay.config.get('model')}, jazyk: {lang_disp}) připraven. "
+        f"[AI Lens] Lokální VLM ({overlay.config.get('model')}, jazyk: {lang_disp}, hloubka myšlení: {level_disp}) připraven. "
         "Zakroužkuj oblast myší, odpověď se bude streamovat v reálném čase. [Esc] pro zavření."
     )
     sys.exit(app.exec())
