@@ -68,12 +68,12 @@ With a single hotkey (**`Alt + F8`**) or one click on the floating mini-dock, yo
 ```mermaid
 flowchart TD
     subgraph S1 ["1. CLI Launch & Configuration"]
-        CLI["Terminal: ai-lens <lang> <Low|Medium|High>"] --> CFG["Load Language (15 locales) & Thinking Tier"]
+        CLI["Terminal: ai-lens [lang] [Low|Medium|High]"] --> CFG["Load Language (15 locales) & Thinking Tier"]
         CFG --> DOCK["Floating Mini-Dock + Triple Hotkey Engine (Alt+F8 / F8)"]
     end
 
     subgraph S2 ["2. Instant Capture & Localized HUD Overlay"]
-        DOCK --> CAP["Raw Screen Buffer into RAM (<15 ms)"]
+        DOCK --> CAP["Raw Screen Buffer into RAM (under 15 ms)"]
         CAP --> OVR["Frameless Fullscreen Qt Window + Localized HUD Pill"]
         OVR --> LASSO["Freehand Mouse Lasso -> Padded Bounding Box Crop"]
     end
@@ -88,9 +88,9 @@ flowchart TD
 
     subgraph S4 ["4. Localized Popover UI & Typography"]
         STREAM --> POP["Floating Popover Card with Collision Detection"]
-        POP --> STYLE["16px Extra-Bold Answers (**...**) + Serif Italic Citations (\"...\")"]
-        STYLE --> DONE["Localized Status & Generation Time (e.g. 'Done · generation time 12.0 s')"]
-        DONE --> FOLLOW["Multi-Turn Follow-up Input or [Esc] back to Standby"]
+        POP --> STYLE["16px Extra-Bold Answers + Serif Italic Citations"]
+        STYLE --> DONE["Localized Status & Generation Time (e.g. Done · 12.0 s)"]
+        DONE --> FOLLOW["Multi-Turn Follow-up Input or Esc back to Standby"]
     end
 ```
 
