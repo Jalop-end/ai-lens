@@ -53,12 +53,12 @@ flowchart TD
     subgraph S4 ["4. Local VLM Inference"]
         J --> K["QThread Async Worker"]
         K --> L["Local Ollama API (127.0.0.1:11434)"]
-        L --> M["Fast Streaming (think=False, ~0.4s response)"]
+        L --> M["Visual Grounding (think=True) + Fast Streaming"]
     end
 
     subgraph S5 ["5. Popover UI"]
         M --> N["Floating QFrame near Selection"]
-        N --> O["Markdown & Code Rendering"]
+        N --> O["Styled HTML: Highlighted Answers & Serif Citations"]
         O --> P["Follow-up Question Field (Multi-turn)"]
         P --> Q["[Esc] / Right Click: Hide back to standby"]
     end
@@ -81,46 +81,99 @@ flowchart TD
 
 ## Installation
 
+You do **not** need a virtual environment (`venv`) to install and run AI Lens—after cloning and installing, you can launch it directly with a single command.
+
 1. **Clone the repository:**
    ```bash
    git clone https://github.com/Jalop-end/ai-lens.git
    cd ai-lens
    ```
 
-2. **Set up a virtual environment:**
-   ```powershell
-   python -m venv .venv
-   .\.venv\Scripts\activate
-   ```
-
-3. **Install dependencies:**
+2. **Install dependencies directly:**
    ```powershell
    pip install -e .
    ```
+   *(If `pip` is not on your PATH on Windows, use `py -m pip install -e .` or `python -m pip install -e .`)*
+
+> [!TIP]
+> **Using a Virtual Environment (`venv`) is Optional but Ideal:**
+> While a `venv` is not required, using one is recommended if you want to keep project dependencies isolated from your global Python installation:
+> ```powershell
+> # Create virtual environment (use 'py -m venv .venv' on Windows if 'python' opens the MS Store)
+> python -m venv .venv
+>
+> # Activate in PowerShell (bypass script execution policy for the current session if needed):
+> Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+> .\.venv\Scripts\Activate.ps1
+>
+> # Or activate in CMD:
+> .\.venv\Scripts\activate.bat
+>
+> pip install -e .
+> ```
 
 ---
 
 ## Quick Start
 
-### 1. Launch in Standby Mode (Recommended)
-Run the convenience batch script or CLI command:
+### 1. Launch in Standby Mode (with Optional Language Code)
+After `pip install -e .`, simply run `ai-lens` (or `.\ai-lens.bat` / `python -m ai_lens`) followed by an optional language shortcut (`cs`, `en`, `de`, `sk`, etc.):
+
 ```powershell
-.\ai-lens.bat
+# Launch with default language (Czech - cs):
+ai-lens
+# or:
+ai-lens cs
+
+# Launch in English:
+ai-lens en
+
+# Or via the Windows batch launcher (works with or without .venv):
+.\ai-lens.bat cs
+.\ai-lens.bat en
 ```
-*(Or `python -m ai_lens` / `ai-lens start`)*
 
 - A floating pill **`AI Lens (Alt+F8)`** will appear in the top-right corner of your screen.
 - Press **`Alt + F8`** (or **`F8`**, or simply click the floating button).
 - The screen freezes with a crisp white & cyan border and a top HUD banner.
-- **Draw a circle** with your left mouse button around what you want to analyze.
-- The popover card appears and streams the analysis in real time.
+- **Draw a circle** with your left mouse button around what you want to analyze:
+  - **Images, Animals, Objects, Places:** Accurately describes what is visible and provides natural context like a classic AI model.
+  - **Questions, Quizzes, Tests:** Describes what is shown, **always provides the direct answer** (highlighted larger & bolder), and **explains why** it is correct.
+  - **Fill-in-the-Blank Sentences (e.g., `"něco je _____ proto"`):** First describes the visible sentence and context, and **only after describing what it sees** provides the missing answer and explanation.
+  - **Citations & Quotes:** Automatically wrapped in `""` and rendered in an italic serif citation font (`Georgia` / `Times New Roman`).
 - Press **`Esc`** or right-click anywhere to dismiss the overlay and return to standby.
 
 ### 2. Immediate One-Shot Trigger
 If you want to trigger the overlay directly without waiting for a hotkey:
 ```powershell
-.\ai-lens.bat trigger
+ai-lens trigger
+# Or with a specific response language:
+ai-lens trigger en
 ```
+
+---
+
+## Supported Language Shortcuts
+
+Pass any of the following language codes directly after `ai-lens` (e.g. `ai-lens en` or `.\ai-lens.bat de`):
+
+| Code | Language | Example Command |
+|---|---|---|
+| `cs` *(or `cz`)* | Czech (Čeština) — *Default* | `ai-lens cs` |
+| `en` | English (Angličtina) | `ai-lens en` |
+| `sk` | Slovak (Slovenčina) | `ai-lens sk` |
+| `de` | German (Deutsch) | `ai-lens de` |
+| `es` | Spanish (Español) | `ai-lens es` |
+| `fr` | French (Français) | `ai-lens fr` |
+| `pl` | Polish (Polski) | `ai-lens pl` |
+| `uk` *(or `ua`)* | Ukrainian (Українська) | `ai-lens uk` |
+| `it` | Italian (Italiano) | `ai-lens it` |
+| `pt` | Portuguese (Português) | `ai-lens pt` |
+| `ru` | Russian (Русский) | `ai-lens ru` |
+| `nl` | Dutch (Nederlands) | `ai-lens nl` |
+| `zh` *(or `cn`)* | Chinese (中文) | `ai-lens zh` |
+| `ja` *(or `jp`)* | Japanese (日本語) | `ai-lens ja` |
+| `ko` *(or `kr`)* | Korean (한국어) | `ai-lens ko` |
 
 ---
 
@@ -130,16 +183,20 @@ If you want to trigger the overlay directly without waiting for a hotkey:
 
 | Command | Description |
 |---|---|
-| `ai-lens` / `ai-lens.bat` | Starts the daemon in standby mode with the floating dock and hotkey listener. |
+| `ai-lens` / `ai-lens <lang>` | Starts the daemon in standby mode (e.g., `ai-lens`, `ai-lens cs`, `ai-lens en`). |
 | `ai-lens start --now` | Starts the daemon and immediately triggers the overlay on launch. |
-| `ai-lens trigger` | Sends a trigger signal to the running instance, or opens the overlay directly. |
-| `ai-lens status` | Displays the current running state, active hotkey, and configured model. |
+| `ai-lens trigger [lang]` | Sends a trigger signal to the running instance, or opens the overlay directly. |
+| `ai-lens languages` | Lists all supported language codes and highlights the currently configured language. |
+| `ai-lens status` | Displays the current running state, active hotkey, model, and response language. |
 | `ai-lens stop` | Cleanly stops the running AI Lens background process. |
-| `ai-lens config` | Views or updates configuration parameters. |
+| `ai-lens config` | Views or updates configuration parameters in `config.json`. |
 
 ### Configuration Options
 You can configure options either in `config.json` or via CLI:
 ```powershell
+# Change the default response language
+ai-lens config --lang en
+
 # Change the local model
 ai-lens config --model qwen2.5vl:3b
 
@@ -147,7 +204,7 @@ ai-lens config --model qwen2.5vl:3b
 ai-lens config --hotkey "<alt>+<f8>"
 
 # Adjust selection padding
-ai-lens config --padding 15
+ai-lens config --padding 20
 ```
 
 ---

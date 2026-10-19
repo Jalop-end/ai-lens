@@ -2,6 +2,153 @@
 
 from __future__ import annotations
 
+import html
+import re
+
+
+_INLINE_CODE_RE = re.compile(r"`([^`\n]+)`")
+_BOLD_RE = re.compile(r"\*\*(.+?)\*\*", re.DOTALL)
+_ITALIC_RE = re.compile(r"(?<!\*)\*([^*\n]+)\*(?!\*)")
+_QUOTE_RE = re.compile(r'(?:„([^“"\n]+)[“"]|“([^”\n]+)”|"([^"\n]{2,})"|«([^»\n]+)»)')
+_HEADING_RE = re.compile(r"^(#{1,4})\s+(.*)$")
+_BULLET_RE = re.compile(r"^\s*[-*•]\s+(.*)$")
+_NUMBERED_RE = re.compile(r"^\s*(\d+\.)\s+(.*)$")
+
+
+def _format_inline_Runs(text: str) -> str:
+    """
+    Formats inline Markdown & typography:
+      - Preserves inline `code`
+      - Formats citations/quotes in "..." with an italic serif citation font (Georgia / Times New Roman)
+      - Formats **important words / answers** in the same color (#E5E7EB) but larger (16px) and thicker (800)
+    """
+    code_slots: list[str] = []
+
+    def _stash_code(m: re.Match[str]) -> str:
+        idx = len(code_slots)
+        escaped_code = html.escape(m.group(1))
+        code_slots.append(
+            f'<code style="font-family: Consolas, \'Cascadia Mono\', monospace; '
+            f'font-size: 12px; color: #E5E7EB;">{escaped_code}</code>'
+        )
+        return f"\x00CODE{idx}\x00"
+
+    working = _INLINE_CODE_RE.sub(_stash_code, text)
+    working = html.escape(working, quote=False)
+
+    # Convert typographic/double quotes into "..." with optimal serif italic citation font
+    def _replace_quote(m: re.Match[str]) -> str:
+        inner = m.group(1) or m.group(2) or m.group(3) or m.group(4) or ""
+        return (
+            '<span style="font-family: \'Georgia\', \'Cambria\', \'Palatino Linotype\', '
+            '\'Times New Roman\', serif; font-style: italic; font-size: 13.5px; color: #E5E7EB;">'
+            f'"{inner}"</span>'
+        )
+
+    working = _QUOTE_RE.sub(_replace_quote, working)
+
+    # Highlight **answers and important words**: same color (#E5E7EB), larger (16px), and thicker (bold 800)
+    working = _BOLD_RE.sub(
+        r'<b style="color: #E5E7EB; font-size: 16px; font-weight: 800;">\1</b>',
+        working,
+    )
+
+    # Standard *italic*
+    working = _ITALIC_RE.sub(r"<i>\1</i>", working)
+
+    for idx, slot_html in enumerate(code_slots):
+        working = working.replace(f"\x00CODE{idx}\x00", slot_html)
+
+    return working
+
+
+def render_styled_markdown_html(markdown_text: str) -> str:
+    """
+    Converts streamed Markdown into rich HTML for QTextBrowser:
+      - Base text: #E5E7EB, 13px Segoe UI
+      - Highlighted answers & key terms (**...**): #E5E7EB, 16px, bold (800)
+      - Citations ("..."): wrapped in "" using italic Georgia / Times New Roman serif font
+    """
+    if not markdown_text:
+        return ""
+
+    parts = re.split(r"(```[\s\S]*?```)", markdown_text)
+    html_blocks: list[str] = []
+
+    for part in parts:
+        if part.startswith("```") and part.endswith("```"):
+            inner = part[3:-3]
+            first_nl = inner.find("\n")
+            if first_nl != -1:
+                inner = inner[first_nl + 1 :]
+            escaped = html.escape(inner.strip("\n"))
+            html_blocks.append(
+                '<pre style="background-color: rgba(15, 18, 25, 220); color: #E5E7EB; '
+                "padding: 8px; border-radius: 6px; font-family: Consolas, 'Cascadia Mono', monospace; "
+                f'font-size: 12px; margin: 6px 0;">{escaped}</pre>'
+            )
+            continue
+
+        lines = part.splitlines()
+        for raw_line in lines:
+            stripped = raw_line.strip()
+            if not stripped:
+                html_blocks.append('<div style="height: 6px;"></div>')
+                continue
+
+            if stripped in ("---", "***", "___"):
+                html_blocks.append(
+                    '<hr style="border: none; border-top: 1px solid rgba(255,255,255,0.16); margin: 8px 0;" />'
+                )
+                continue
+
+            heading_m = _HEADING_RE.match(stripped)
+            if heading_m:
+                h_text = _format_inline_Runs(heading_m.group(2))
+                html_blocks.append(
+                    '<div style="color: #E5E7EB; font-size: 16px; font-weight: 800; '
+                    f'margin-top: 8px; margin-bottom: 4px;">{h_text}</div>'
+                )
+                continue
+
+            if stripped.startswith(">"):
+                quote_body = stripped.lstrip(">").strip().strip('"„“”')
+                formatted_quote = _format_inline_Runs(quote_body)
+                html_blocks.append(
+                    '<div style="margin: 6px 0 6px 10px; font-family: \'Georgia\', \'Cambria\', '
+                    "'Palatino Linotype', 'Times New Roman', serif; font-style: italic; "
+                    f'font-size: 13.5px; color: #E5E7EB;">"{formatted_quote}"</div>'
+                )
+                continue
+
+            bullet_m = _BULLET_RE.match(raw_line)
+            if bullet_m:
+                item_html = _format_inline_Runs(bullet_m.group(1))
+                html_blocks.append(
+                    f'<div style="margin: 3px 0 3px 10px; color: #E5E7EB;">• {item_html}</div>'
+                )
+                continue
+
+            num_m = _NUMBERED_RE.match(raw_line)
+            if num_m:
+                num_prefix = html.escape(num_m.group(1))
+                item_html = _format_inline_Runs(num_m.group(2))
+                html_blocks.append(
+                    '<div style="margin: 3px 0 3px 8px; color: #E5E7EB;">'
+                    f'<b style="color: #E5E7EB; font-size: 14px; font-weight: 700;">{num_prefix}</b> {item_html}</div>'
+                )
+                continue
+
+            line_html = _format_inline_Runs(raw_line)
+            html_blocks.append(f'<div style="margin: 3px 0; color: #E5E7EB;">{line_html}</div>')
+
+    body = "\n".join(html_blocks)
+    return (
+        '<div style="font-family: \'Segoe UI\', system-ui, sans-serif; '
+        'font-size: 13px; color: #E5E7EB; line-height: 1.45;">'
+        f"{body}</div>"
+    )
+
 from typing import Optional
 
 from PyQt6.QtCore import QPoint, QRect, QSize, Qt, QTimer, pyqtSignal
@@ -223,7 +370,7 @@ class PopoverCard(QFrame):
         self._loading_step = 0
         self._thinking_tokens = 0
         self.status_label.setText("Analyzuji výřez.")
-        self.response_browser.setMarkdown(f"*{message}*")
+        self.response_browser.setHtml(render_styled_markdown_html(f"*{message}*"))
         self._loading_timer.start()
 
     def on_thinking_progress(self) -> None:
@@ -232,8 +379,10 @@ class PopoverCard(QFrame):
         if self._thinking_tokens == 1:
             self.status_label.setText("Zkoumám obraz a přemýšlím…")
             if not self._raw_markdown:
-                self.response_browser.setMarkdown(
-                    "*Model pečlivě zkoumá detaily a text ve zakroužkovaném výřezu…*"
+                self.response_browser.setHtml(
+                    render_styled_markdown_html(
+                        "*Model pečlivě zkoumá detaily a text ve zakroužkovaném výřezu…*"
+                    )
                 )
 
     def stop_loading(self, status_text: str = "Hotovo") -> None:
@@ -242,20 +391,20 @@ class PopoverCard(QFrame):
         self.status_label.setText(status_text)
 
     def set_markdown_content(self, markdown_text: str) -> None:
-        """Replaces the displayed Markdown text."""
+        """Replaces the displayed Markdown text using styled HTML rendering."""
         self._raw_markdown = markdown_text
-        self.response_browser.setMarkdown(self._raw_markdown)
+        self.response_browser.setHtml(render_styled_markdown_html(self._raw_markdown))
         sb = self.response_browser.verticalScrollBar()
         if sb is not None:
             sb.setValue(sb.maximum())
 
     def append_token(self, token: str) -> None:
-        """Appends a newly streamed token and re-renders Markdown in real time."""
+        """Appends a newly streamed token and re-renders styled HTML in real time."""
         if self._loading_timer.isActive():
             self._loading_timer.stop()
         self.status_label.setText("Streamuji odpověď…")
         self._raw_markdown += token
-        self.response_browser.setMarkdown(self._raw_markdown)
+        self.response_browser.setHtml(render_styled_markdown_html(self._raw_markdown))
         sb = self.response_browser.verticalScrollBar()
         if sb is not None:
             sb.setValue(sb.maximum())

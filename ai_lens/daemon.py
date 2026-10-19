@@ -24,8 +24,13 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from ai_lens.overlay import OverlayWindow, _ensure_utf8_stdio, load_config
-from ai_lens.vision_engine import warmup_local_model
+from ai_lens.overlay import (
+    OverlayWindow,
+    _ensure_utf8_stdio,
+    load_config,
+    set_language_in_config,
+)
+from ai_lens.vision_engine import get_language_display, warmup_local_model
 
 STATE_FILE_PATH = Path(__file__).resolve().parent.parent / ".ai_lens_state.json"
 DEBUG_LOG_PATH = Path(__file__).resolve().parent.parent / "ai_lens_debug.log"
@@ -309,7 +314,7 @@ class DaemonBridge(QObject):
     stopRequested = pyqtSignal()
 
 
-def run_daemon(open_immediately: bool = False) -> None:
+def run_daemon(open_immediately: bool = False, language: Optional[str] = None) -> None:
     """
     Starts AI Lens from the Command Line:
       - Zero TCP/IP listening sockets (completely invisible to Windows Firewall).
@@ -323,9 +328,16 @@ def run_daemon(open_immediately: bool = False) -> None:
     _ensure_utf8_stdio()
     _disable_console_quickedit()
 
+    if language:
+        set_language_in_config(language)
+
     existing = _read_daemon_state()
     if existing is not None:
-        _log_debug(f"[AI Lens] Proces již běží (PID {existing['pid']}). Aktivuji překryvné okno…")
+        cfg_now = load_config()
+        lang_disp = get_language_display(str(cfg_now.get("language", "cs")))
+        _log_debug(
+            f"[AI Lens] Proces již běží (PID {existing['pid']}, jazyk: {lang_disp}). Aktivuji překryvné okno…"
+        )
         send_daemon_command("TRIGGER")
         return
 
@@ -333,6 +345,7 @@ def run_daemon(open_immediately: bool = False) -> None:
     hotkey_str = str(config.get("hotkey", "<alt>+<f8>"))
     model_name = str(config.get("model", "gemma4:latest"))
     ollama_host = str(config.get("ollama_host", "http://127.0.0.1:11434"))
+    lang_code = str(config.get("language", "cs"))
 
     app = QApplication.instance() or QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
@@ -523,6 +536,7 @@ def run_daemon(open_immediately: bool = False) -> None:
     print("=" * 72, flush=True)
     print(" AI Lens BĚŽÍ V POHOTOVOSTI (Plovoucí lišta + Trojitá detekce zkratky)", flush=True)
     print(f" Lokální AI model  : {model_name}", flush=True)
+    print(f" Jazyk odpovědí    : {get_language_display(lang_code)}", flush=True)
     print(" Zkratky           : [Alt + F8]  |  [F8]  |  [Ctrl + Alt + Shift + G]", flush=True)
     print(" Plovoucí tlačítko : Nahoře vpravo na obrazovce 'AI Lens (Alt+F8)'", flush=True)
     print(" Zavření overlaye  : Klávesa [Esc] nebo pravé tlačítko myši", flush=True)

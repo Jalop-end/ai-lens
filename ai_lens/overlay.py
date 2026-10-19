@@ -29,7 +29,14 @@ from ai_lens.capture import (
     crop_from_capture,
 )
 from ai_lens.popover import PopoverCard
-from ai_lens.vision_engine import VisionInferenceWorker, encode_pil_to_base64
+from ai_lens.vision_engine import (
+    DEFAULT_PROMPTS_BY_LANG,
+    VisionInferenceWorker,
+    encode_pil_to_base64,
+    get_default_prompt,
+    get_language_display,
+    normalize_language_code,
+)
 
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.json"
 DEFAULT_TEST_CROP_PATH = Path(__file__).resolve().parent.parent / "last_crop.png"
@@ -47,19 +54,17 @@ def _ensure_utf8_stdio() -> None:
 
 def load_config(config_path: Path = DEFAULT_CONFIG_PATH) -> dict[str, Any]:
     """Load configuration from config.json with safe defaults."""
-    defaults = {
+    defaults: dict[str, Any] = {
         "hotkey": "<alt>+<f8>",
         "border_width": 3,
         "border_color": "#FFFFFF",
         "padding": 20,
         "ollama_host": "http://127.0.0.1:11434",
         "model": "gemma4:latest",
+        "language": "cs",
         "think": True,
         "temperature": 0.2,
-        "default_prompt": (
-            "Podívej se na tento zakroužkovaný výřez obrazovky. "
-            "Popiš přesně, co na něm vidíš, a odpověz přirozeně jako klasický AI model v češtině."
-        ),
+        "default_prompt": get_default_prompt("cs"),
     }
     if config_path.exists():
         try:
@@ -68,7 +73,28 @@ def load_config(config_path: Path = DEFAULT_CONFIG_PATH) -> dict[str, Any]:
             defaults.update(data)
         except Exception:
             pass
+    defaults["language"] = normalize_language_code(str(defaults.get("language", "cs")))
     return defaults
+
+
+def set_language_in_config(lang: str, config_path: Path = DEFAULT_CONFIG_PATH) -> str:
+    """Updates the active response language (and localized default prompt) in config.json."""
+    cfg = load_config(config_path)
+    code = normalize_language_code(lang)
+    cfg["language"] = code
+    current_prompt = str(cfg.get("default_prompt", "")).strip()
+    known_defaults = set(DEFAULT_PROMPTS_BY_LANG.values()) | {
+        "Podívej se na tento zakroužkovaný výřez obrazovky. Popiš přesně, co na něm vidíš, a odpověz přirozeně jako klasický AI model v češtině.",
+        "Analyzuj tento výřez obrazovky. Pokud obsahuje text, kód nebo chybovou hlášku, vysvětli ji a navrhni řešení. Odpovídej stručně a jasně v češtině.",
+    }
+    if not current_prompt or current_prompt in known_defaults:
+        cfg["default_prompt"] = get_default_prompt(code)
+    try:
+        with open(config_path, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2, ensure_ascii=False)
+    except Exception:
+        pass
+    return code
 
 
 class OverlayWindow(QWidget):
@@ -191,6 +217,7 @@ class OverlayWindow(QWidget):
         Returns:
             Capture time in milliseconds.
         """
+        self.config = load_config()
         self.reset_selection()
         if self.isVisible():
             self.hide()
@@ -301,12 +328,13 @@ class OverlayWindow(QWidget):
                     pass
 
                 self.popover.place_near_bbox(bbox, self.rect())
-                default_prompt = str(
-                    self.config.get(
-                        "default_prompt",
-                        "Podívej se na tento zakroužkovaný výřez obrazovky. Popiš přesně, co na něm vidíš, a odpověz přirozeně jako klasický AI model v češtině.",
-                    )
-                )
+                lang_code = normalize_language_code(str(self.config.get("language", "cs")))
+                cfg_prompt = str(self.config.get("default_prompt", "")).strip()
+                known_defaults = set(DEFAULT_PROMPTS_BY_LANG.values())
+                if not cfg_prompt or cfg_prompt in known_defaults:
+                    default_prompt = get_default_prompt(lang_code)
+                else:
+                    default_prompt = cfg_prompt
                 self.regionSelected.emit(cropped, bbox, default_prompt)
                 self._start_inference(cropped, default_prompt, is_followup=False)
 
@@ -326,14 +354,17 @@ class OverlayWindow(QWidget):
 
         model_name = str(self.config.get("model", "gemma4:latest"))
         ollama_host = str(self.config.get("ollama_host", "http://127.0.0.1:11434"))
+        lang_code = normalize_language_code(str(self.config.get("language", "cs")))
         think_enabled = bool(self.config.get("think", True))
         temperature = float(self.config.get("temperature", 0.2))
         system_prompt = self.config.get("system_prompt")
-        self.popover.title_label.setText(f"AI Lens · {model_name}")
+        self.popover.title_label.setText(f"AI Lens · {model_name} [{lang_code.upper()}]")
 
         if not is_followup:
             self._chat_history.clear()
-            self.popover.start_loading(f"Lokální model `{model_name}` zkoumá zakroužkovaný výřez…")
+            self.popover.start_loading(
+                f"Lokální model `{model_name}` ({get_language_display(lang_code)}) zkoumá zakroužkovaný výřez…"
+            )
         else:
             self.popover.append_token(f"\n\n---\n**Dotaz:** {prompt}\n\n")
             self.popover.status_label.setText("Přemýšlím…")
@@ -343,6 +374,7 @@ class OverlayWindow(QWidget):
             prompt=prompt,
             ollama_host=ollama_host,
             model=model_name,
+            language=lang_code,
             system_prompt=str(system_prompt) if system_prompt else None,
             think=think_enabled,
             temperature=temperature,
@@ -491,15 +523,18 @@ class OverlayWindow(QWidget):
             super().keyPressEvent(event)
 
 
-def run_overlay_mvp() -> None:
+def run_overlay_mvp(language: Optional[str] = None) -> None:
     """Standalone launcher for immediate screen capture + overlay."""
     _ensure_utf8_stdio()
+    if language:
+        set_language_in_config(language)
     app = QApplication.instance() or QApplication(sys.argv)
     overlay = OverlayWindow(daemon_mode=False)
     capture_ms = overlay.activate_overlay()
+    lang_disp = get_language_display(str(overlay.config.get("language", "cs")))
     print(f"[AI Lens] Obrazovka zachycena do RAM za {capture_ms:.2f} ms.")
     print(
-        f"[AI Lens] Lokální VLM ({overlay.config.get('model')}) připraven. "
+        f"[AI Lens] Lokální VLM ({overlay.config.get('model')}, jazyk: {lang_disp}) připraven. "
         "Zakroužkuj oblast myší, odpověď se bude streamovat v reálném čase. [Esc] pro zavření."
     )
     sys.exit(app.exec())

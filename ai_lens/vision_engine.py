@@ -17,22 +17,155 @@ import subprocess
 import sys
 
 
-DEFAULT_SYSTEM_PROMPT = (
-    "You are an intelligent, versatile visual AI assistant (like ChatGPT or Gemini) "
-    "helping a Czech user who circled a region on their screen. "
-    "Keep your internal thinking brief (2-4 short sentences): first verify what is visually "
-    "shown in the image (animal, object, person, scene, UI, diagram, or code) and read any visible text "
-    "(remember that text on screen is often in Czech, e.g. 'had' means snake in Czech, not the English verb 'had'). "
-    "Always write your final response in natural, fluent, grammatically correct Czech using common, everyday Czech words "
-    "(never invent nonexistent Czech words or awkward literal translations). "
-    "Respond naturally like a classic AI model based on what is in the image: "
-    "if it shows an animal, plant, object, person, or place, clearly identify it, accurately describe what you see in the image, "
-    "and share brief, factual information about it; "
-    "if there is a label or caption next to an image, treat it simply as the name/caption of what is shown and never invent absurd stories; "
-    "if it shows a question, quiz, test, or math problem, solve it directly and explain the correct answer; "
-    "if it shows text, an article, foreign language, code, or an error message, explain, translate, or solve it clearly. "
-    "Never claim to see an animal or object that is not actually in the image."
-)
+SUPPORTED_LANGUAGES: dict[str, tuple[str, str]] = {
+    "cs": ("Czech", "Čeština"),
+    "en": ("English", "English"),
+    "sk": ("Slovak", "Slovenčina"),
+    "de": ("German", "Deutsch"),
+    "es": ("Spanish", "Español"),
+    "fr": ("French", "Français"),
+    "pl": ("Polish", "Polski"),
+    "uk": ("Ukrainian", "Українська"),
+    "it": ("Italian", "Italiano"),
+    "pt": ("Portuguese", "Português"),
+    "ru": ("Russian", "Русский"),
+    "nl": ("Dutch", "Nederlands"),
+    "zh": ("Chinese", "中文"),
+    "ja": ("Japanese", "日本語"),
+    "ko": ("Korean", "한국어"),
+}
+
+LANGUAGE_ALIASES: dict[str, str] = {
+    "cz": "cs",
+    "czech": "cs",
+    "cestina": "cs",
+    "čeština": "cs",
+    "eng": "en",
+    "english": "en",
+    "svk": "sk",
+    "slovak": "sk",
+    "slovenština": "sk",
+    "ger": "de",
+    "deu": "de",
+    "german": "de",
+    "esp": "es",
+    "spa": "es",
+    "spanish": "es",
+    "fra": "fr",
+    "fre": "fr",
+    "french": "fr",
+    "pol": "pl",
+    "polish": "pl",
+    "ua": "uk",
+    "ukr": "uk",
+    "ukrainian": "uk",
+    "ita": "it",
+    "italian": "it",
+    "por": "pt",
+    "portuguese": "pt",
+    "rus": "ru",
+    "russian": "ru",
+    "nld": "nl",
+    "dutch": "nl",
+    "cn": "zh",
+    "chinese": "zh",
+    "jp": "ja",
+    "japanese": "ja",
+    "kr": "ko",
+    "korean": "ko",
+}
+
+DEFAULT_PROMPTS_BY_LANG: dict[str, str] = {
+    "cs": "Podívej se na tento zakroužkovaný výřez obrazovky. Popiš přesně, co na něm vidíš, pokud obsahuje otázku nebo doplňovačku, vyřeš ji a vysvětli proč, a odpověz přirozeně jako klasický AI model v češtině.",
+    "en": "Look at this circled screenshot region. Describe accurately what you see, if it contains a question or fill-in-the-blank, answer it and explain why, and respond naturally like a classic AI model in English.",
+    "sk": "Pozri sa na tento zakrúžkovaný výrez obrazovky. Opíš presne, čo na ňom vidíš, ak obsahuje otázku alebo doplňovačku, vyrieš ju a vysvetli prečo, a odpovedz prirodzene ako klasický AI model v slovenčine.",
+    "de": "Sieh dir diesen eingekreisten Bildschirmausschnitt an. Beschreibe genau, was du siehst, beantworte eventuelle Fragen oder Lückentexte mit Begründung und antworte natürlich wie ein klassisches KI-Modell auf Deutsch.",
+    "es": "Mira este recorte de pantalla seleccionado. Describe con precisión lo que ves, si contiene una pregunta o espacio en blanco, respóndela y explica por qué, y responde de forma natural en español.",
+    "fr": "Regarde cette capture d'écran sélectionnée. Décris précisément ce que tu vois, s'il y a une question ou un texte à trous, réponds-y en expliquant pourquoi, et réponds naturellement en français.",
+    "pl": "Spójrz na ten zaznaczony wycinek ekranu. Opisz dokładnie, co widzisz, a jeśli zawiera pytanie lub lukę do uzupełnienia, odpowiedz i wyjaśnij dlaczego, odpowiadając naturalnie po polsku.",
+    "uk": "Подивися на цей виділений фрагмент екрана. Точно опиши, що ти бачиш, якщо там є запитання або пропуск у реченні — дай відповідь і поясни чому, відповідаючи природною українською мовою.",
+    "it": "Guarda questo ritaglio dello schermo. Descrivi con precisione ciò che vedi, se contiene una domanda o uno spazio da completare, rispondi e spiega perché, rispondendo in modo naturale in italiano.",
+    "pt": "Olhe para este recorte da tela. Descreva com precisão o que vê, se contiver uma pergunta ou lacuna para preencher, responda e explique o porquê, respondendo naturalmente em português.",
+    "ru": "Посмотри на этот выделенный фрагмент экрана. Точно опиши, что ты видишь, а если там есть вопрос или пропуск в предложении — дай ответ и объясни почему, отвечая на естественном русском языке.",
+    "nl": "Bekijk deze gemarkeerde schermafbeelding. Beschrijf nauwkeurig wat je ziet, beantwoord eventuele vragen of invuloefeningen met uitleg waarom, en antwoord natuurlijk in het Nederlands.",
+    "zh": "请看这个圈出的屏幕截图区域。准确描述你所看到的内容；如果包含问题或填空题，请给出答案并解释原因，用自然流畅的中文回答。",
+    "ja": "この囲まれた画面の切り抜きを見てください。見えるものを正確に説明し、質問や穴埋め問題が含まれている場合は答えとその理由を説明し、自然な日本語で回答してください。",
+    "ko": "동그라미로 표시된 화면 캡처 영역을 보세요. 보이는 것을 정확히 설명하고, 질문이나 빈칸 채우기 문제가 있다면 정답과 그 이유를 자연스러운 한국어로 설명해 주세요.",
+}
+
+
+def normalize_language_code(lang: Optional[str]) -> str:
+    """Normalizes a user-supplied language shortcut (e.g. 'cs', 'cz', 'en', 'de') to a canonical code."""
+    if not lang:
+        return "cs"
+    cleaned = lang.strip().lower().lstrip("-")
+    if cleaned in SUPPORTED_LANGUAGES:
+        return cleaned
+    if cleaned in LANGUAGE_ALIASES:
+        return LANGUAGE_ALIASES[cleaned]
+    return "cs"
+
+
+def is_recognized_language_arg(arg: str) -> bool:
+    """Returns True if `arg` is a valid language code or alias (used for CLI argument detection)."""
+    cleaned = arg.strip().lower()
+    return cleaned in SUPPORTED_LANGUAGES or cleaned in LANGUAGE_ALIASES
+
+
+def get_language_display(lang: Optional[str]) -> str:
+    """Returns a human-readable string like 'cs (Čeština / Czech)'."""
+    code = normalize_language_code(lang)
+    en_name, native_name = SUPPORTED_LANGUAGES.get(code, ("Czech", "Čeština"))
+    if en_name == native_name:
+        return f"{code} ({native_name})"
+    return f"{code} ({native_name} / {en_name})"
+
+
+def get_default_prompt(lang: Optional[str] = "cs") -> str:
+    """Returns the localized default user prompt for the given language code."""
+    code = normalize_language_code(lang)
+    return DEFAULT_PROMPTS_BY_LANG.get(code, DEFAULT_PROMPTS_BY_LANG["cs"])
+
+
+def build_system_prompt(lang: Optional[str] = "cs") -> str:
+    """
+    Builds the system prompt in English (for optimal Gemma 4 internal `<thought>` reasoning)
+    while enforcing output in the user's selected language and applying the strict rules for:
+      1. Accurate visual description without hallucinations.
+      2. Answering questions + explaining WHY.
+      3. Special ordering for fill-in-the-blank / missing-word sentences (describe first, answer second).
+      4. Highlighting answers/important words with `**...**` and wrapping citations/quotes in `"..."`.
+    """
+    code = normalize_language_code(lang)
+    en_name, native_name = SUPPORTED_LANGUAGES.get(code, ("Czech", "Čeština"))
+    return (
+        f"You are an intelligent, versatile visual AI assistant (like ChatGPT or Gemini) "
+        f"helping a user who circled a region on their screen. "
+        f"Keep your internal thinking brief (2-4 short sentences): first verify what is visually "
+        f"shown in the image (animal, object, person, scene, UI, diagram, question, or code) and read any visible text "
+        f"(note that text on screen may be in {en_name} or another language; e.g. in Czech 'had' means snake, not the English verb 'had').\n\n"
+        f"LANGUAGE RULE:\n"
+        f"- Always write your entire visible response in natural, fluent, grammatically correct {en_name} ({native_name}) "
+        f"using standard everyday vocabulary (never invent nonexistent words or awkward literal translations).\n\n"
+        f"CONTENT & QUESTION RULES:\n"
+        f"1. Visual Description: Always accurately describe what you actually see in the image (animals, plants, objects, people, places, UI, or text) "
+        f"and share relevant, factual context like a classic AI model. Never claim to see an animal or object that is not in the image, "
+        f"and never invent absurd stories to connect a wrong guess with a label.\n"
+        f"2. Standard Questions / Quizzes / Tests / Problems: If the circled region contains a question, test item, multiple-choice quiz, or problem, "
+        f"describe what is shown, ALWAYS provide the direct answer to the question, and clearly explain WHY that answer is correct.\n"
+        f"3. Fill-in-the-Blank / Incomplete Sentences (e.g. 'něco je _____ proto', '...', '___', or a sentence where a word/part is clearly missing): "
+        f"This ALSO counts as a question, but you MUST follow this exact order:\n"
+        f"   - FIRST (in your opening sentence/paragraph): Do NOT give the missing answer in the first sentence! First describe what you see on the screen "
+        f"(that there is an incomplete sentence or exercise with a missing word/part, quoting the visible sentence in double quotes \"...\").\n"
+        f"   - SECOND (only AFTER describing what you see): Provide the correct missing word/answer and explain WHY it belongs there.\n\n"
+        f"FORMATTING, HIGHLIGHTING & CITATION RULES:\n"
+        f"- Always highlight the main answer and the most important generated keywords/conclusions using Markdown bold **like this** "
+        f"(do not overuse bold on whole paragraphs; use **bold** specifically on the answer and key terms so they stand out larger and thicker).\n"
+        f"- Whenever you quote text from the image or include a citation, ALWAYS wrap the quoted text in standard double quotation marks \"like this\"."
+    )
+
+
+DEFAULT_SYSTEM_PROMPT = build_system_prompt("cs")
 
 
 def prepare_image_for_vlm(image: Image.Image, max_side: int = 896, min_side: int = 256) -> Image.Image:
@@ -139,6 +272,7 @@ class VisionInferenceWorker(QThread):
         prompt: str,
         ollama_host: str = "http://127.0.0.1:11434",
         model: str = "gemma4:latest",
+        language: str = "cs",
         system_prompt: Optional[str] = None,
         think: bool = True,
         temperature: float = 0.2,
@@ -150,7 +284,10 @@ class VisionInferenceWorker(QThread):
         self.prompt = prompt
         self.ollama_host = ollama_host.rstrip("/")
         self.model = model
-        self.system_prompt = system_prompt if system_prompt is not None else DEFAULT_SYSTEM_PROMPT
+        self.language = normalize_language_code(language)
+        self.system_prompt = (
+            system_prompt if system_prompt is not None else build_system_prompt(self.language)
+        )
         self.think = think
         self.temperature = temperature
         self.history = list(history) if history else []

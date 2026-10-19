@@ -5,7 +5,8 @@
   "padding": 20,
   "ollama_host": "http://127.0.0.1:11434",
   "model": "gemma4:latest",
+  "language": "cs",
   "think": true,
   "temperature": 0.2,
-  "default_prompt": "Podívej se na tento zakroužkovaný výřez obrazovky. Popiš přesně, co na něm vidíš, a odpověz přirozeně jako klasický AI model v češtině."
+  "default_prompt": "Podívej se na tento zakroužkovaný výřez obrazovky. Popiš přesně, co na něm vidíš, pokud obsahuje otázku nebo doplňovačku, vyřeš ji a vysvětli proč, a odpověz přirozeně jako klasický AI model v češtině."
 }
