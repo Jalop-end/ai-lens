@@ -29,14 +29,17 @@ from ai_lens.overlay import (
     OverlayWindow,
     _ensure_utf8_stdio,
     load_config,
+    set_compute_device_in_config,
     set_language_in_config,
     set_thinking_level_in_config,
 )
 from ai_lens.vision_engine import (
+    get_compute_device_display,
     get_language_display,
     get_thinking_level_config,
     get_thinking_level_display,
     get_ui_strings,
+    normalize_compute_device,
     normalize_language_code,
     normalize_thinking_level,
     warmup_local_model,
@@ -207,7 +210,12 @@ class FloatingTriggerBar(QFrame):
         }
     """
 
-    def __init__(self, language: str = "cs", thinking_level: str = "medium") -> None:
+    def __init__(
+        self,
+        language: str = "cs",
+        thinking_level: str = "medium",
+        compute_device: str = "gpu",
+    ) -> None:
         super().__init__(None)
         self.setObjectName("FloatingTriggerBar")
         self.setWindowTitle("AI Lens Mini-Dock")
@@ -223,6 +231,7 @@ class FloatingTriggerBar(QFrame):
 
         self.lang_code = normalize_language_code(language)
         self.level_norm = normalize_thinking_level(thinking_level)
+        self.compute_device = normalize_compute_device(compute_device)
         self.tier_cfg = get_thinking_level_config(self.level_norm)
         self.ui = get_ui_strings(self.lang_code)
 
@@ -238,7 +247,7 @@ class FloatingTriggerBar(QFrame):
         full_layout.setSpacing(2)
 
         self.trigger_btn = QPushButton(
-            f"🔍 AI Lens [{self.lang_code.upper()} · {self.tier_cfg['label']}] (Alt+F8)",
+            f"🔍 AI Lens [{self.lang_code.upper()} · {self.tier_cfg['label']} · {self.compute_device.upper()}] (Alt+F8)",
             self._full_container,
         )
         self.trigger_btn.setObjectName("ActionBtn")
@@ -496,12 +505,14 @@ def run_daemon(
     open_immediately: bool = False,
     language: Optional[str] = None,
     thinking_level: Optional[str] = None,
+    compute_device: Optional[str] = None,
 ) -> None:
     """
     Starts AI Lens from the Command Line:
       - Zero TCP/IP listening sockets (completely invisible to Windows Firewall).
-      - Shows a sleek FloatingTriggerBar ('🔍 AI Lens (Alt+F8)') at top-right of screen
+      - Shows a sleek FloatingTriggerBar ('🔍 AI Lens [CS · High · GPU] (Alt+F8)') at top-right of screen
         for 1-click mouse activation AND visual confirmation.
+      - Default compute device: GPU (fastest). Switches to CPU when launched with `&& CPU`.
       - Triple-Engine Hotkey Detection for Alt+F8, F8, Ctrl+Shift+G, and Ctrl+Alt+Shift+G:
           1. Win32 RegisterHotKey in a dedicated pure-Python GetMessageW thread.
           2. 15ms GetAsyncKeyState hardware poller in QTimer.
@@ -514,6 +525,11 @@ def run_daemon(
         set_language_in_config(language)
     if thinking_level:
         set_thinking_level_in_config(thinking_level)
+    if compute_device:
+        set_compute_device_in_config(compute_device)
+    else:
+        # Default to GPU when launched normally without && CPU
+        set_compute_device_in_config("gpu")
 
     existing = _read_daemon_state()
     if existing is not None:
@@ -523,8 +539,10 @@ def run_daemon(
         level_disp = get_thinking_level_display(
             str(cfg_now.get("thinking_level", "medium")), lang_code_now
         )
+        dev_now = str(cfg_now.get("compute_device", "gpu"))
+        dev_disp = get_compute_device_display(dev_now, lang_code_now)
         _log_debug(
-            f"[AI Lens] Proces již běží (PID {existing['pid']}, jazyk: {lang_disp}, hloubka myšlení: {level_disp}). Aktivuji překryvné okno…"
+            f"[AI Lens] Proces již běží (PID {existing['pid']}, jazyk: {lang_disp}, hloubka myšlení: {level_disp}, výpočet: {dev_disp}). Aktivuji překryvné okno…"
         )
         send_daemon_command("TRIGGER")
         return
@@ -535,13 +553,18 @@ def run_daemon(
     ollama_host = str(config.get("ollama_host", "http://127.0.0.1:11434"))
     lang_code = str(config.get("language", "cs"))
     level_code = str(config.get("thinking_level", "medium"))
+    dev_code = str(config.get("compute_device", "gpu"))
     tier_cfg = get_thinking_level_config(level_code)
 
     app = QApplication.instance() or QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
 
     overlay = OverlayWindow(config=config, daemon_mode=True)
-    floating_bar = FloatingTriggerBar(language=lang_code, thinking_level=level_code)
+    floating_bar = FloatingTriggerBar(
+        language=lang_code,
+        thinking_level=level_code,
+        compute_device=dev_code,
+    )
     floating_bar.show()
     floating_bar.raise_()
 
@@ -715,27 +738,36 @@ def run_daemon(
     sigint_timer.timeout.connect(lambda: None)
 
     # Pre-warm local VLM in background thread
-    temperature = float(tier_cfg.get("temperature", 0.15))
+    temperature = float(tier_cfg.get("temperature", 0.12))
     threading.Thread(
         target=warmup_local_model,
-        args=(ollama_host, model_name, "30m", temperature),
+        args=(
+            ollama_host,
+            model_name,
+            "30m",
+            temperature,
+            dev_code,
+            int(tier_cfg.get("num_ctx", 10240)),
+        ),
         name="AILensWarmup",
         daemon=True,
     ).start()
 
     level_disp = get_thinking_level_display(level_code, lang_code)
+    dev_disp = get_compute_device_display(dev_code, lang_code)
     print("=" * 74, flush=True)
     print(" AI Lens BĚŽÍ V POHOTOVOSTI (Plovoucí lišta + Trojitá detekce zkratky)", flush=True)
-    print(f" Lokální AI model  : {model_name}", flush=True)
-    print(f" Jazyk (UI + AI)   : {get_language_display(lang_code)}", flush=True)
+    print(f" Lokální AI model     : {model_name}", flush=True)
+    print(f" Jazyk (UI + AI)      : {get_language_display(lang_code)}", flush=True)
     print(
-        f" Hloubka myšlení   : {level_disp} (max {tier_cfg['num_predict']} tokenů, kontext {tier_cfg['num_ctx']})",
+        f" Hloubka myšlení      : {level_disp} (max {tier_cfg['num_predict']} tokenů, kontext {tier_cfg['num_ctx']})",
         flush=True,
     )
-    print(" Zkratky           : [Alt + F8]  |  [F8]  |  [Ctrl + Alt + Shift + G]", flush=True)
-    print(" Plovoucí tlačítko : Nahoře vpravo na obrazovce 'AI Lens (Alt+F8)'", flush=True)
-    print(" Zavření overlaye  : Klávesa [Esc] nebo pravé tlačítko myši", flush=True)
-    print(" Ochrana soukromí  : 100% RAM-only (okamžité vymazání výřezu i chatu po zavření)", flush=True)
+    print(f" Výpočet / Akcelerace : {dev_disp}", flush=True)
+    print(" Zkratky              : [Alt + F8]  |  [F8]  |  [Ctrl + Alt + Shift + G]", flush=True)
+    print(" Plovoucí tlačítko    : Nahoře vpravo na obrazovce 'AI Lens (Alt+F8)'", flush=True)
+    print(" Zavření overlaye     : Klávesa [Esc] nebo pravé tlačítko myši", flush=True)
+    print(" Ochrana soukromí     : 100% RAM-only (okamžité vymazání výřezu i chatu po zavření)", flush=True)
     print("=" * 74, flush=True)
 
     if open_immediately:

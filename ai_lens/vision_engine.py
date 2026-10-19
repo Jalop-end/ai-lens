@@ -78,27 +78,13 @@ LANGUAGE_ALIASES: dict[str, str] = {
 
 
 # Thinking & Quality Tiers (Low / Medium / High)
-# Designed so all 3 tiers remain runnable locally even on weaker PCs (8-16 GB RAM),
-# while trading off generation time & KV-cache RAM for deeper reasoning and higher token limits.
+# Boosted tiers:
+#   - Low    : Set to former Medium (think=True, 2560 tokens, 4096 ctx, 1024px)
+#   - Medium : Boosted above former High (think=True, 5120 tokens, 10240 ctx, 1408px)
+#   - High   : Maximum encyclopedic depth (think=True, 8192 tokens, 16384 ctx, 1600px) with safe RAM/VRAM cap
 THINKING_LEVELS: dict[str, dict[str, Any]] = {
     "low": {
         "label": "Low",
-        "think": False,
-        "num_ctx": 2048,
-        "num_predict": 1024,
-        "max_image_side": 768,
-        "temperature": 0.2,
-        "top_p": 0.9,
-        "repeat_penalty": 1.05,
-        "accuracy_cs": "Základní / Rychlá (okamžitá identifikace hlavního objektu či textu)",
-        "accuracy_en": "Standard / Fast (instant identification of main object or text)",
-        "context_info_cs": "Stručný kontext (2–4 věty: přesné určení + 1–2 základní informace o zvířeti, věci či textu)",
-        "context_info_en": "Concise context (2–4 sentences: accurate identification + 1–2 basic facts about the animal, object, or text)",
-        "desc_cs": "Rychlý režim (nízké nároky na RAM, nejrychlejší odpověď, stručný kontext o zvířeti/objektu/textu)",
-        "desc_en": "Fast mode (lowest RAM usage, fastest generation, concise context about the animal/object/text)",
-    },
-    "medium": {
-        "label": "Medium",
         "think": True,
         "num_ctx": 4096,
         "num_predict": 2560,
@@ -106,28 +92,44 @@ THINKING_LEVELS: dict[str, dict[str, Any]] = {
         "temperature": 0.15,
         "top_p": 0.9,
         "repeat_penalty": 1.07,
-        "accuracy_cs": "Vysoká (pečlivé ověření vizuálních znaků, textu i otázek krok za krokem)",
-        "accuracy_en": "High (careful step-by-step verification of visual features, text, and questions)",
-        "context_info_cs": "Vyvážený, bohatý kontext (1–2 odstavce: u zvířete/rostliny/věci uvede druh, výskyt, potravu/funkci a zajímavost; u textu vysvětlí význam a souvislosti)",
-        "context_info_en": "Balanced, rich context (1–2 paragraphs: for animals/objects covers species, habitat, diet/function & key facts; for text explains meaning & background)",
-        "desc_cs": "Vyvážený režim (vysoká přesnost, 2560 tokenů, bohaté informace o zakroužkovaném zvířeti, věci či textu)",
-        "desc_en": "Balanced mode (high accuracy, 2560 tokens, rich background information on circled animals, objects, or text)",
+        "accuracy_cs": "Vysoká (pečlivé ověření vizuálních znaků, textu i otázek krok za krokem — dříve Medium)",
+        "accuracy_en": "High (careful step-by-step verification of visual features, text, and questions — formerly Medium)",
+        "context_info_cs": "Vyvážený, bohatý kontext (1–2 odstavce: u zvířete/rostliny/věci uvede druh/plemeno, výskyt, potravu/funkci a zajímavost; u textu vysvětlí význam a souvislosti)",
+        "context_info_en": "Balanced, rich context (1–2 paragraphs: for animals/objects covers species/breed, habitat, diet/function & key facts; for text explains meaning & background)",
+        "desc_cs": "Rychlý vyvážený režim (dříve Medium: 2560 tokenů, kontext 4096, zapnuté přemýšlení a bohaté informace)",
+        "desc_en": "Fast balanced mode (formerly Medium: 2560 tokens, 4096 context, active thinking & rich background info)",
+    },
+    "medium": {
+        "label": "Medium",
+        "think": True,
+        "num_ctx": 10240,
+        "num_predict": 5120,
+        "max_image_side": 1408,
+        "temperature": 0.12,
+        "top_p": 0.88,
+        "repeat_penalty": 1.09,
+        "accuracy_cs": "Velmi vysoká (hloubková kontrola detailů, rozlišení podobných druhů/plemen a řešení chytáků — vyšší než dřívější High)",
+        "accuracy_en": "Very High (deep detail verification, distinguishing look-alike species/breeds & solving tricky questions — above former High)",
+        "context_info_cs": "Rozšířený hloubkový kontext (2–3 detailní odstavce: přesný druh/plemeno, diagnostické znaky, biotop/výskyt, potrava/chování či princip fungování a souvislosti)",
+        "context_info_en": "Extended deep context (2–3 detailed paragraphs: exact species/breed, diagnostic traits, habitat, diet/behavior or mechanism & background)",
+        "desc_cs": "Rozšířený režim (vyšší než dřívější High: 5120 tokenů, kontext 10240, výřez 1408px, hloubkový rozbor)",
+        "desc_en": "Extended mode (higher than former High: 5120 tokens, 10240 context, 1408px crop, deep analysis)",
     },
     "high": {
         "label": "High",
         "think": True,
-        "num_ctx": 8192,
-        "num_predict": 4096,
-        "max_image_side": 1344,
-        "temperature": 0.1,
+        "num_ctx": 16384,
+        "num_predict": 8192,
+        "max_image_side": 1600,
+        "temperature": 0.08,
         "top_p": 0.85,
         "repeat_penalty": 1.1,
-        "accuracy_cs": "Maximální (hloubková kontrola detailů, rozlišení podobných druhů/pojmů, nulová tolerance k drobným chybám)",
-        "accuracy_en": "Maximum (deep verification of fine details, distinguishing look-alike species/concepts, zero tolerance for small errors)",
-        "context_info_cs": "Hluboký encyklopedický kontext (kompletní profil: přesné zařazení/druh, anatomie/vlastnosti, prostředí, způsob života/fungování, význam a zajímavé souvislosti)",
-        "context_info_en": "Deep encyclopedic context (comprehensive profile: exact species/classification, anatomy/properties, habitat, behavior/mechanism, significance & facts)",
-        "desc_cs": "Hluboké myšlení (maximální přesnost, 4096 tokenů, hluboký encyklopedický kontext o zvířatech/věcech/textu a pečlivé řešení chytáků; delší doba generování)",
-        "desc_en": "Deep thinking (maximum accuracy, 4096 tokens, deep encyclopedic context on animals/objects/text & tricky puzzles; longer generation time)",
+        "accuracy_cs": "Maximální encyklopedická (víceúrovňová verifikace jemných detailů, šupin, zorniček, srsti i diakritiky)",
+        "accuracy_en": "Maximum Encyclopedic (multi-pass verification of fine details, scales, pupils, coat patterns & diacritics)",
+        "context_info_cs": "Vyčerpávající encyklopedický profil (kompletní taxonomie, anatomické znaky ze snímku, výskyt, ekologie, jedovatost/záměny, historie a vědecké zajímavosti)",
+        "context_info_en": "Exhaustive encyclopedic profile (full taxonomy, anatomical traits from image, habitat, ecology, venom/look-alikes, history & scientific facts)",
+        "desc_cs": "Maximální režim (8192 tokenů, kontext 16384, výřez 1600px – maximální detail i kontext s bezpečným limitem RAM)",
+        "desc_en": "Maximum mode (8192 tokens, 16384 context, 1600px crop – maximum detail & context with safe RAM cap)",
     },
 }
 
@@ -523,6 +525,45 @@ def is_recognized_thinking_level(arg: str) -> bool:
     return cleaned in THINKING_LEVEL_ALIASES
 
 
+COMPUTE_DEVICE_ALIASES: dict[str, str] = {
+    "gpu": "gpu",
+    "cuda": "gpu",
+    "rocm": "gpu",
+    "vulkan": "gpu",
+    "&&gpu": "gpu",
+    "&gpu": "gpu",
+    "cpu": "cpu",
+    "procesor": "cpu",
+    "&&cpu": "cpu",
+    "&cpu": "cpu",
+}
+
+
+def normalize_compute_device(device: Optional[str]) -> str:
+    """Normalizes compute device ('gpu' or 'cpu'). Defaults to 'gpu'."""
+    if not device:
+        return "gpu"
+    cleaned = device.strip().lower().lstrip("-").replace(" ", "")
+    return COMPUTE_DEVICE_ALIASES.get(cleaned, "gpu")
+
+
+def is_recognized_compute_device(arg: Optional[str]) -> bool:
+    """Returns True if `arg` represents a compute device selector ('CPU', 'GPU', '&&CPU', etc.)."""
+    if not arg:
+        return False
+    cleaned = arg.strip().lower().lstrip("-").replace(" ", "")
+    return cleaned in COMPUTE_DEVICE_ALIASES
+
+
+def get_compute_device_display(device: Optional[str], lang: Optional[str] = "cs") -> str:
+    """Returns a human-readable label for the active compute device ('GPU' vs 'CPU')."""
+    norm = normalize_compute_device(device)
+    code = normalize_language_code(lang)
+    if norm == "cpu":
+        return "CPU (Vynucený procesor — && CPU)" if code in ("cs", "sk") else "CPU (Forced Processor — && CPU)"
+    return "GPU (Výchozí akcelerace)" if code in ("cs", "sk") else "GPU (Default Acceleration)"
+
+
 def get_thinking_level_config(level: Optional[str]) -> dict[str, Any]:
     """Returns the parameter dictionary for the given thinking level ('low', 'medium', 'high')."""
     norm = normalize_thinking_level(level)
@@ -596,20 +637,25 @@ def build_system_prompt(lang: Optional[str] = "cs", thinking_level: Optional[str
 
     if level == "low":
         thinking_instruction = (
-            "Keep your internal reasoning concise and direct, but always verify the exact visual details, "
-            "numbers, diacritics, and context both before and after any blank (_) before answering."
+            "Think carefully step by step before answering (4096 context / 2560 tokens):\n"
+            "  - Read every character, diacritic, number, math sign, and visual detail accurately.\n"
+            "  - Whenever solving a question, sequence, math problem, or fill-in-the-blank, inspect the full context both BEFORE and AFTER any missing part '_' "
+            "so you avoid careless mistakes.\n"
+            "  - Double-check your conclusion before writing the final response."
         )
         context_depth_instruction = (
-            "FACTUAL CONTEXT & ACCURACY LEVEL (LOW — CONCISE):\n"
-            "- Provide a clear, accurate, concise response (2-4 sentences): accurately identify what is in the image "
-            "(e.g. if an animal, plant, object, or text is circled, state what it is and give 1-2 key factual highlights about it)."
+            "FACTUAL CONTEXT & ACCURACY LEVEL (LOW — BALANCED & INFORMATIVE, FORMERLY MEDIUM):\n"
+            "- Provide high accuracy along with well-structured, informative context (1-2 paragraphs):\n"
+            "  - If an animal, plant, or object is circled, accurately identify its species/breed/category, describe what is visible, "
+            "and share useful factual information about it (habitat or function, diet/traits, and key characteristics).\n"
+            "  - If text, code, or a concept is circled, explain its meaning and relevant context clearly."
         )
     elif level == "high":
         thinking_instruction = (
-            "THINK DEEPLY, CRITICALLY, AND METHODICALLY STEP BY STEP before producing your answer:\n"
-            "  a) Visual & OCR Precision: Carefully inspect every visual detail (body shape, markings, anatomy of animals/plants, "
-            "object structure, diagrams, symbols, numbers, math operators +, -, ×, ÷, =, <, >, and fine diacritical marks). "
-            "Distinguish look-alike species, objects, or terms accurately—never guess from a superficial glance.\n"
+            "THINK DEEPLY, CRITICALLY, AND EXHAUSTIVELY STEP BY STEP before producing your answer (16384 context / 8192 tokens):\n"
+            "  a) Ultra-High Visual & OCR Precision: Carefully inspect every visual detail (body shape, markings, scale/coat patterns, eye pupils, "
+            "anatomy of animals/plants, object structure, diagrams, symbols, numbers, math operators +, -, ×, ÷, =, <, >, and fine diacritical marks). "
+            "Distinguish look-alike species, breeds, objects, or terms rigorously—never guess from a superficial glance.\n"
             "  b) Context Around Blanks / Missing Elements: Whenever a letter, word, number, or step is missing ('_', '___', '...', '?'), "
             "explicitly examine BOTH what comes immediately BEFORE the blank AND what comes immediately AFTER the blank. "
             "Make sure your answer bridges both sides logically without duplicating an element already written right next to the blank.\n"
@@ -617,28 +663,31 @@ def build_system_prompt(lang: Optional[str] = "cs", thinking_level: Optional[str
             "  d) Final Self-Check: Verify there is zero contradiction between the visual evidence and your conclusion."
         )
         context_depth_instruction = (
-            "FACTUAL CONTEXT & ACCURACY LEVEL (HIGH — DEEP & ENCYCLOPEDIC):\n"
-            "- Deliver maximum factual accuracy and rich, comprehensive background context:\n"
-            "  - When an animal, plant, or natural subject is circled: identify the exact species/group, describe its visible features, "
-            "and provide rich encyclopedic context (where it lives/habitat, diet, typical behavior, notable traits, and an interesting fact).\n"
-            "  - When an object, device, landmark, person, or artwork is circled: identify it precisely and explain its purpose, how it works, "
-            "origin/history, and key characteristics.\n"
-            "  - When text, a term, code, or a question is circled: explain the full meaning, background context, and step-by-step reasoning."
+            "FACTUAL CONTEXT & ACCURACY LEVEL (HIGH — MAXIMUM ENCYCLOPEDIC PROFILE):\n"
+            "- Deliver maximum factual accuracy and an exhaustive, encyclopedic background profile:\n"
+            "  - When an animal, reptile, bird, plant, or natural subject is circled: identify the exact species/subspecies/breed (including Latin name), "
+            "describe its visible anatomical/diagnostic features, compare it with possible look-alike species/breeds, and provide rich encyclopedic context "
+            "(habitat & distribution, diet, behavior/ecology, venomous/safety status, and notable scientific facts).\n"
+            "  - When an object, device, landmark, person, or artwork is circled: identify it precisely and explain its purpose, mechanism, "
+            "origin/history, technical characteristics, and significance.\n"
+            "  - When text, a term, code, or a question is circled: explain the full meaning, background context, and complete step-by-step reasoning."
         )
-    else:  # medium
+    else:  # medium (boosted above former High: 10240 context / 5120 tokens)
         thinking_instruction = (
-            "Think carefully step by step before answering:\n"
-            "  - Read every character, diacritic, number, math sign, and visual detail accurately.\n"
-            "  - Whenever solving a question, sequence, math problem, or fill-in-the-blank, inspect the full context both BEFORE and AFTER any missing part '_' "
-            "so you avoid careless mistakes.\n"
-            "  - Double-check your conclusion before writing the final response."
+            "THINK DEEPLY AND METHODICALLY STEP BY STEP before producing your answer (10240 context / 5120 tokens):\n"
+            "  a) Visual & OCR Precision: Carefully inspect all visual details (markings, anatomy of animals/plants, object structure, "
+            "numbers, operators, and fine diacritical marks) and distinguish similar species, breeds, or concepts.\n"
+            "  b) Context Around Blanks: Always examine BOTH what comes immediately BEFORE and AFTER any blank ('_', '___', '...') "
+            "so your answer fits seamlessly without repeating adjacent characters/words.\n"
+            "  c) Self-Verification: Verify math, logic, and quiz options carefully before writing the final response."
         )
         context_depth_instruction = (
-            "FACTUAL CONTEXT & ACCURACY LEVEL (MEDIUM — BALANCED & INFORMATIVE):\n"
-            "- Provide high accuracy along with well-structured, informative context (1-2 paragraphs):\n"
-            "  - If an animal, plant, or object is circled, accurately identify it, describe what is visible, and share useful factual information "
-            "about it (such as its species/category, habitat or function, diet/traits, and key characteristics).\n"
-            "  - If text, code, or a concept is circled, explain its meaning and relevant context clearly."
+            "FACTUAL CONTEXT & ACCURACY LEVEL (MEDIUM — EXTENDED DEEP CONTEXT, ABOVE FORMER HIGH):\n"
+            "- Provide very high accuracy and an extended, detailed profile (2-3 rich paragraphs):\n"
+            "  - When an animal, plant, or natural subject is circled: identify the species/breed, describe visible diagnostic traits, "
+            "mention possible look-alikes if not 100% certain, and cover habitat, diet, behavior, and interesting facts.\n"
+            "  - When an object, device, or landmark is circled: explain what it is, how it works, its origin, and key facts.\n"
+            "  - When text, code, or a question is circled: provide a thorough explanation, context, and step-by-step verification."
         )
 
     return (
@@ -659,12 +708,12 @@ def build_system_prompt(lang: Optional[str] = "cs", thinking_level: Optional[str
         f"and provide factual information/context about it matching the active {level.upper()} context level. Never claim to see an animal or object that is not in the image, "
         f"and never invent absurd stories to connect a wrong guess with a label.\n"
         f"2. Exact Species, Breed & Variant Recognition: When an animal, plant, mushroom, object, vehicle, or landmark is circled, NEVER settle for a generic category like \"had\", \"pták\", \"kočka\", \"strom\", or \"auto\"! "
-        f"Always identify the EXACT SPECIES, BREED, or MODEL:\n"
+        f"Always identify the most likely EXACT SPECIES, BREED, or MODEL:\n"
         f"   - For snakes: determine the exact species (e.g. Zmije obecná / Vipera berus, Užovka obojková / Natrix natrix, Užovka hladká, Kobra, Krajta) and explicitly state whether it is venomous (jedovatý) or harmless (nejedovatý).\n"
-        f"   - For felines/cats: distinguish wild species (Lev pustinný / Panthera leo, Tygr, Gepard, Rys ostrovid) from domestic breeds (Britská krátkosrstá, Mainská mývalí, Siamská, Perská, Sphynx, Běžná evropská kočka).\n"
+        f"   - For felines/cats: distinguish wild species (Lev pustinný / Panthera leo, Tygr, Gepard, Rys ostrovid) from domestic breeds (Britská krátkosrstá, Ruská modrá, Kartouzská, Mainská mývalí, Siamská, Perská, Sphynx, Evropská domácí kočka).\n"
         f"   - For dogs: identify the specific breed (Německý ovčák, Zlatý retrívr, Border kolie, Jezevčík, Francouzský buldoček, atd.).\n"
         f"   - For birds, plants, mushrooms, cars: specify the exact species or make/model.\n"
-        f"   - Cite visible diagnostic features: head shape, eye pupils (slit vs round), scale/fur/feather patterns (e.g. dorsal zig-zag, yellow neck spots), ear tufts, and body proportions.\n"
+        f"   - Cite visible diagnostic features (head shape, eye pupils, scale/fur/feather patterns, body proportions) AND mention if another similar species/breed could look similar.\n"
         f"3. Standard Questions / Quizzes / Tests / Logic & Math Problems: If the circled region contains a question, test item, multiple-choice quiz, or problem, "
         f"describe what is shown, ALWAYS provide the direct, verified answer to the question, and clearly explain WHY that answer is correct.\n"
         f"4. Fill-in-the-Blank / Incomplete Sentences / Missing Elements (e.g. 'něco je _____ proto', '...', '___', or any text/sequence where a word or character is clearly missing): "
@@ -673,10 +722,16 @@ def build_system_prompt(lang: Optional[str] = "cs", thinking_level: Optional[str
         f"(that there is an incomplete sentence, sequence, or exercise with a missing part, quoting the visible text in double quotes \"...\").\n"
         f"   - SECOND (only AFTER describing what you see): Provide the exact missing word/character/answer (verified against both the preceding and following context) "
         f"and clearly explain WHY it belongs there.\n"
-        f"5. Accuracy Probability & Confidence Score (%): At the very end of your response, on its own final line, ALWAYS provide a realistic estimated confidence score in percent, formatted strictly like this:\n"
+        f"5. Accuracy Probability & Confidence Score (%) — STRICT SKEPTICAL CALIBRATION FOR ANIMALS:\n"
+        f"   At the very end of your response, on its own final line, ALWAYS provide a realistic estimated confidence score in percent, formatted strictly like this:\n"
         f"   [Jistota: XX %]\n"
         f"   (or in English: [Confidence: XX %])\n"
-        f"   Follow it with 1 brief sentence explaining the confidence rationale (e.g. unmistakable diagnostic traits = 95-99 %; harder species/cat breeds with similar look-alikes or partial angles = 75-88 %; obscured/blurry subjects = 55-70 % with possible alternatives).\n\n"
+        f"   CRITICAL RULE FOR ANIMALS, SPECIES & BREEDS:\n"
+        f"   - NEVER overestimate confidence on animals! If the circled subject is an animal (snake, cat breed, dog breed, bird, insect, fish, wildlife) and its exact species or purebred status is NOT 100% unmistakably verified from crystal-clear textbook traits or an explicit label, you MUST significantly LOWER the probability:\n"
+        f"     * Unverified animal species / domestic cat & dog breeds / snakes without crystal-clear head & pupil close-ups / look-alike species: output **38 % to 65 %** (or **25 % to 45 %** if partially obscured, distant, or ambiguous).\n"
+        f"     * Only give **85 % to 95 %** for an animal if it is 100% unmistakable with zero possible look-alikes (e.g. an adult male lion with full mane, a zebra, or explicitly labeled).\n"
+        f"     * For clear text, math, or unambiguous quizzes, you may use **90 % to 99 %** when verified.\n"
+        f"   - Follow the tag with 1 brief sentence explaining WHY the confidence is at that level (for animals, explicitly note which diagnostic feature is uncertain or which similar species/breed is also possible).\n\n"
         f"FORMATTING, HIGHLIGHTING & CITATION RULES:\n"
         f"- Always highlight the main answer, species name, and the most important generated keywords/conclusions using Markdown bold **like this** "
         f"(do not overuse bold on whole paragraphs; use **bold** specifically on the answer, species, and key terms so they stand out larger and thicker).\n"
@@ -762,17 +817,26 @@ def warmup_local_model(
     model: str = "gemma4:latest",
     keep_alive: str = "30m",
     temperature: float = 0.15,
+    compute_device: str = "gpu",
+    num_ctx: int = 4096,
 ) -> bool:
     """
     Preloads the VLM into VRAM/RAM via the local loopback Ollama API so that
     subsequent hotkey triggers respond without cold-start disk loading delay.
+    Uses GPU by default (`num_gpu: -1`) or CPU (`num_gpu: 0`) when requested via `&& CPU`.
     """
     safe_host = validate_local_ollama_host(ollama_host)
+    norm_dev = normalize_compute_device(compute_device)
+    num_gpu = 0 if norm_dev == "cpu" else -1
     url = f"{safe_host}/api/chat"
     payload = {
         "model": model,
         "messages": [],
-        "options": {"temperature": temperature},
+        "options": {
+            "temperature": temperature,
+            "num_gpu": num_gpu,
+            "num_ctx": int(num_ctx),
+        },
         "keep_alive": keep_alive,
     }
     for attempt in range(2):
@@ -808,6 +872,7 @@ class VisionInferenceWorker(QThread):
         model: str = "gemma4:latest",
         language: str = "cs",
         thinking_level: str = "medium",
+        compute_device: str = "gpu",
         system_prompt: Optional[str] = None,
         think: Optional[bool] = None,
         temperature: Optional[float] = None,
@@ -821,6 +886,7 @@ class VisionInferenceWorker(QThread):
         self.model = model
         self.language = normalize_language_code(language)
         self.thinking_level = normalize_thinking_level(thinking_level)
+        self.compute_device = normalize_compute_device(compute_device)
         self.tier_cfg = get_thinking_level_config(self.thinking_level)
 
         self.system_prompt = (
@@ -886,7 +952,8 @@ class VisionInferenceWorker(QThread):
         t0 = time.perf_counter()
         url = f"{self.ollama_host}/api/chat"
         ui = get_ui_strings(self.language)
-        max_side = int(self.tier_cfg.get("max_image_side", 1024))
+        max_side = int(self.tier_cfg.get("max_image_side", 1408))
+        num_gpu = 0 if self.compute_device == "cpu" else -1
         b64_img = ""
         messages: list[dict[str, Any]] = []
 
@@ -930,16 +997,17 @@ class VisionInferenceWorker(QThread):
                 "think": self.think,
                 "options": {
                     "temperature": self.temperature,
-                    "num_ctx": int(self.tier_cfg.get("num_ctx", 4096)),
-                    "num_predict": int(self.tier_cfg.get("num_predict", 2560)),
-                    "top_p": float(self.tier_cfg.get("top_p", 0.9)),
-                    "repeat_penalty": float(self.tier_cfg.get("repeat_penalty", 1.07)),
+                    "num_gpu": num_gpu,
+                    "num_ctx": int(self.tier_cfg.get("num_ctx", 10240)),
+                    "num_predict": int(self.tier_cfg.get("num_predict", 5120)),
+                    "top_p": float(self.tier_cfg.get("top_p", 0.88)),
+                    "repeat_penalty": float(self.tier_cfg.get("repeat_penalty", 1.09)),
                 },
                 "stream": True,
                 "keep_alive": "30m",
             }
 
-            timeout_sec = 240.0 if self.thinking_level == "high" else 150.0
+            timeout_sec = 300.0 if self.thinking_level == "high" else 180.0
 
             with httpx.Client(timeout=httpx.Timeout(timeout_sec, connect=5.0), trust_env=False) as client:
                 ok, err_body = self._stream_chat(client, url, payload)

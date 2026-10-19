@@ -32,23 +32,25 @@ flowchart TD
         LASSO --> CROP[Padded Bounding Box Crop and Base64 in RAM]
     end
 
-    subgraph S3 [3. 100% Offline Local AI Inference]
+    subgraph S3 [3. 100% Offline Local AI Inference (GPU / CPU)]
         direction TB
         CROP --> TIER{Active Thinking Tier}
-        TIER -->|Low| TL[Low Mode: 1024 tokens - 768px - Concise]
-        TIER -->|Medium| TM[Medium Mode: 2560 tokens - 1024px - Balanced]
-        TIER -->|High| TH[High Mode: 4096 tokens - 1344px - Deep]
+        TIER -->|Low| TL[Low Mode: 2560 tokens · 4096 ctx · 1024px · Former Medium Boost]
+        TIER -->|Medium| TM[Medium Mode: 5120 tokens · 10240 ctx · 1408px · Ultra Balanced]
+        TIER -->|High| TH[High Mode: 8192 tokens · 16384 ctx · 1600px · Encyclopedic Depth]
         TL --> STREAM[Real-Time Token Streaming via QThread]
         TM --> STREAM
         TH --> STREAM
-        STREAM --> OLLAMA[Local Ollama on 127.0.0.1:11434]
+        STREAM --> OLLAMA[Local Ollama on 127.0.0.1:11434 · GPU by default or CPU switch]
     end
 
     subgraph S4 [4. Floating Popover and Zero-Retention Wipe]
         direction TB
         STREAM --> POP[Floating Popover Card next to selection]
         POP --> RENDER[16px Bold Answers and Serif Citations]
+        POP --> ACC[Calibrated Confidence Badge: e.g. 🎯 54 % or 🎯 92 %]
         RENDER --> BADGE[Status Badge: Done in 9.4s]
+        ACC --> BADGE
         BADGE --> CHAT[Follow-up question or Esc to close]
         CHAT --> CLEAN[Zero-Retention: Immediate RAM Wipe and gc.collect]
     end
@@ -63,12 +65,17 @@ flowchart TD
 ## Key Features
 
 - **100% Local & Private:** Runs entirely on `127.0.0.1` via local Ollama. Zero external cloud APIs, zero tracking, zero telemetry.
-- **3 Configurable Thinking Depth & Quality Tiers (`Low`, `Medium`, `High`):**
-  - Choose directly from the terminal (`ai-lens cs High`, `ai-lens en Medium`, `ai-lens Low`) how deeply the model thinks, how many tokens it can generate (`1024` / `2560` / `4096`), and what image resolution it inspects (`768px` / `1024px` / `1344px`).
-  - Engineered to remain **lightweight enough to run locally even on weaker PCs** across all three tiers.
-- **Fine-Grained Species, Breed & Variant Recognition with Confidence Badges (`🎯 XX %`):**
-  - **Exact Biological Classification:** When circling an animal, reptile, bird, plant, or object, AI Lens identifies the **exact species, subspecies, or domestic breed** (e.g., distinguishing *Zmije obecná / Vipera berus* from harmless *Užovka obojková*, detailing pupil shape, scale patterns, and venom status; or distinguishing wild felines like *Lev pustinný* from domestic cat breeds like *Britská krátkosrstá*, *Mainská mývalí*, etc.).
-  - **Estimated Accuracy / Confidence Score Badge (`🎯 XX %`):** Based on visible diagnostic features and image clarity, the model provides an estimated confidence score. This is dynamically extracted and displayed as a sleek pill badge in the PopoverCard header (`🎯 92 %`: green for ≥85%, sky blue for 70–84%, amber for <70%) and inline with explanatory rationales.
+- **GPU Accelerated by Default with Instant `&& CPU` Terminal Switch:**
+  - By default, AI Lens runs on your **GPU** (`num_gpu: -1` offloading all layers) for maximum responsiveness.
+  - Switch to pure **CPU** execution anytime by adding **`&& CPU`** to your launch command (e.g. `.\ai-lens.bat cs High && CPU`).
+- **3 Powerfully Boosted Thinking Depth & Factual Context Tiers (`Low`, `Medium`, `High`):**
+  - **`Low`** is now boosted to the power of former Medium (`2560` tokens / `4096` context window / `1024px` image / `think=True`).
+  - **`Medium`** is expanded above former High (`5120` tokens / `10240` context window / `1408px` image / `think=True`).
+  - **`High`** is maximized for encyclopedic depth (`8192` tokens / `16384` context window / `1600px` image / `think=True`), while keeping KV-cache safely bounded to ~1.1–1.4 GB so it never exhausts RAM.
+- **Calibrated Biological Recognition & Skeptical Animal Confidence Scores (`🎯 XX %`):**
+  - **Strictly Calibrated for Animals & Domestic Breeds:** Distinguishing domestic cat breeds, mixed-breed dogs, or reptiles without close-up head scale/pupil details is challenging. AI Lens uses a skeptical, realistic probability range (**38–65%** for ambiguous look-alikes or partial views; **25–45%** if distant/blurry) and reserves high confidence (**85–95%**) exclusively for textbook unmistakable specimens with zero look-alikes (e.g., an adult male lion with full mane, giraffe, zebra).
+  - Every probability estimate is followed by a **1-sentence rationale** explaining which visual traits confirmed the identification or which alternative look-alike species could not be ruled out.
+  - Dynamically rendered in the Popover header as a sleek badge (🟢 **≥85%**, 🔵 **70–84%**, 🟡 **<70%**).
 - **Smart Question, Sequence & Fill-in-the-Blank Solver:**
   - **Standard Questions & Quizzes:** Describes what is visible, **always provides the direct verified answer**, and **explains why** it is correct.
   - **Fill-in-the-Blank Sentences (`"něco je _____ proto"`, `...`, `___`):** Follows a strict two-step rule—**first** describes what is shown on the screen (without giving away the answer in the first sentence), and **second** provides the missing answer and explains why.
@@ -77,29 +84,29 @@ flowchart TD
   - **Highlighted Answers (`**...**`):** Rendered in the same clean text color (`#E5E7EB`), but **larger (`16px`) and extra bold (`font-weight: 800`)** so key answers stand out immediately.
   - **Citations (`"..."`):** Automatically enclosed in standard double quotes `""` and styled in an **italic serif citation font** (`Georgia`, `Cambria`, `Times New Roman`).
 - **Full 15-Language Localization (AI Responses + Entire UI):**
-  - Switching language (`ai-lens cs`, `ai-lens en`, `ai-lens de`, `ai-lens sk`, etc.) localizes **both** the AI's answers and **all UI elements**: generation time badges (`Hotovo · doba generování 12.0 s` / `Done · generation time 12.0 s`), thinking/streaming indicators, input placeholders, tooltips, and the top overlay HUD banner.
+  - Switching language (`ai-lens cs`, `ai-lens en`, `ai-lens de`, `ai-lens sk`, etc.) localizes **both** the AI's answers and **all UI elements**: generation time badges, thinking/streaming indicators, input placeholders, tooltips, and the top overlay HUD banner.
 - **Ultra-Fast Capture (< 15 ms) & Triple-Engine Hotkeys:**
   - Captures the screen buffer directly into RAM with automatic high-DPI scaling (up to 4K+).
-  - Supports **`Alt + F8`**, **`F8`**, **`Ctrl + Alt + Shift + G`**, and a draggable **Collapsible Mini-Dock** (`🔍 AI Lens [CS · Medium] (Alt+F8)`).
+  - Supports **`Alt + F8`**, **`F8`**, **`Ctrl + Alt + Shift + G`**, and a draggable **Collapsible Mini-Dock** (`🔍 AI Lens [CS · High · GPU] (Alt+F8)`).
   - **Minimizes to a thin dash (`—` / "čárka"):** Click the `—` button or double-click to shrink the dock into a razor-thin 8px bar that covers nothing on screen. Click it once or double-click anywhere to expand it back!
 
 ---
 
-## Thinking Depth, Answer Accuracy & Factual Context Tiers (`Low` / `Medium` / `High`)
+## Boosted Thinking Depth, Answer Accuracy & Factual Context Tiers (`Low` / `Medium` / `High`)
 
 You can control **answer accuracy**, **factual background context** (how much information you get when circling an animal, plant, object, or text), and **token/context capacity** by passing **`Low`**, **`Medium`**, or **`High`** directly in the terminal.
 
-All three tiers run **100% locally on your hardware (even on weaker PCs with 8–16 GB RAM)**, allowing you to trade off **generation speed & temporary RAM usage** against **answer accuracy & richness of factual context**:
+All three tiers run **100% locally on your hardware**, with **GPU acceleration enabled by default** (or CPU on demand via `&& CPU`):
 
 | Tier | CLI Command Example | Answer Accuracy & Factual Context (e.g. Circling an Animal, Object, or Text) | Tokens (`num_predict`) / Window (`num_ctx`) | Max Image Detail (`max_side`) | Typical Generation Time & Trade-Off |
 |---|---|---|---|---|---|
-| **`Low`** | `.\ai-lens.bat en Low`<br>`.\ai-lens.bat cs Low` | **Basic / Fast Accuracy & Concise Context (2–4 sentences):** Identifies the animal, plant, object, or text and gives 1–2 key facts or a direct summary. (`think=False`) | `1024` / `2048` tokens | `768 px` | **Fastest (~1–4 s), lowest RAM overhead.** Ideal for quick visual lookups or simple translations on weaker laptops. |
-| **`Medium`** *(Default)* | `.\ai-lens.bat en Medium`<br>`.\ai-lens.bat cs Medium` | **High Accuracy & Balanced Factual Context (1–2 paragraphs):** When an animal/plant/object is circled, states its species/category, habitat/origin, diet/function, and key traits; for text/questions, explains meaning and context clearly. (`think=True`) | `2560` / `4096` tokens | `1024 px` | **Balanced (~5–12 s), moderate RAM usage.** High accuracy and informative context while keeping responses snappy. |
-| **`High`** | `.\ai-lens.bat en High`<br>`.\ai-lens.bat cs High` | **Maximum Accuracy & Deep Encyclopedic Context:** Distinguishes look-alike species/objects/concepts, provides a rich encyclopedic profile (taxonomy, anatomy/features, habitat, diet/behavior, history/purpose, and interesting facts), and verifies tricky questions/blanks (`_`) step by step. (`think=True`) | `4096` / `8192` tokens | `1344 px` | **Maximum accuracy (~10–25 s), higher token & KV-cache RAM usage.** Inspects fine visual details and diacritics at high resolution and delivers comprehensive context. |
+| **`Low`** *(Boosted to former Medium)* | `.\ai-lens.bat en Low`<br>`.\ai-lens.bat cs Low` | **High Accuracy & Balanced Context (1–2 paragraphs):** Boosted to the former Medium tier! Identifies the animal/plant/object/text, explains key traits, function, and habitat with active step-by-step reasoning (`think=True`). | `2560` / `4096` tokens | `1024 px` | **Fast (~3–7 s on GPU), minimal RAM overhead (~350–500 MB).** Great everyday balance. |
+| **`Medium`** *(Expanded above former High)* | `.\ai-lens.bat en Medium`<br>`.\ai-lens.bat cs Medium` | **Very High Accuracy & Deep Context (2–3 paragraphs):** Exceeds the former High tier. Thorough visual verification, taxonomy/origin, comprehensive diet/mechanics, and nuanced analysis of tricky questions (`think=True`). | `5120` / `10240` tokens | `1408 px` | **High detail (~6–14 s on GPU), moderate KV-cache (~700–900 MB).** Recommended for most analytical tasks. |
+| **`High`** *(Maximally Boosted Encyclopedic Depth)* | `.\ai-lens.bat en High`<br>`.\ai-lens.bat cs High` | **Maximum Accuracy & Encyclopedic Profile:** Distinguishes look-alikes and tricky variants, provides exhaustive biological profiles (species, subspecies, look-alike comparisons, anatomical details, behavior, history) or step-by-step mathematical/linguistic proofs (`think=True`). | `8192` / `16384` tokens | `1600 px` *(ultra-fine details & diacritics)* | **Deepest reasoning (~10–25 s on GPU).** Bounded memory footprint (~1.1–1.4 GB KV cache) prevents RAM starvation. |
 
 > [!NOTE]
-> **Why does `High` take longer to generate?**
-> In `High` mode, the local VLM processes a higher-resolution crop (`1344 px`), runs a deep multi-step verification pass, and generates a richer encyclopedic profile of the circled subject or problem. You pay with a few extra seconds of generation time and slightly more RAM during the query, and in return get maximum accuracy and comprehensive background information.
+> **RAM Safety on Weak PCs:**
+> Even in `High` mode with 16,384 context tokens, AI Lens explicitly bounds Ollama's context allocation (`num_ctx: 16384`), preventing Ollama from defaulting to a 65,536-token context (~10 GB overhead). This ensures smooth local execution without freezing system memory.
 
 ---
 
@@ -159,11 +166,15 @@ On Windows, you can launch AI Lens directly from PowerShell or Command Prompt us
 Pass an optional language shortcut (`cs`, `en`, `de`, `sk`, etc.) and/or thinking tier (`Low`, `Medium`, `High`) in any order:
 
 ```powershell
-# Launch in English with High thinking depth:
+# Launch in English with High thinking depth on GPU (default):
 .\ai-lens.bat en High
 
-# Launch in Czech with High thinking depth (best for tricky questions, sequences & puzzles):
+# Launch in Czech with High thinking depth on GPU:
 .\ai-lens.bat cs High
+
+# Switch execution to CPU on demand using `&& CPU`:
+.\ai-lens.bat cs High && CPU
+.\ai-lens.bat en Medium && CPU
 
 # Launch in Czech with Medium thinking depth (default balanced mode):
 .\ai-lens.bat cs Medium
@@ -180,7 +191,13 @@ Pass an optional language shortcut (`cs`, `en`, `de`, `sk`, etc.) and/or thinkin
 # ai-lens en High
 ```
 
-- A floating pill **`🔍 AI Lens [EN · High] (Alt+F8)`** appears in the top-right corner of your screen.
+> [!TIP]
+> **GPU vs. CPU Execution & PowerShell 5.1 Syntax:**
+> - **GPU is default:** AI Lens automatically runs with GPU acceleration enabled (`num_gpu: -1`).
+> - **`&& CPU` Switch:** Adding `&& CPU` at the end switches execution to pure CPU (`num_gpu: 0`).
+> - **In Windows PowerShell 5.1:** If you are using Windows PowerShell 5.1 where `&&` is not built-in, run `.\enable-cpu-syntax.ps1` once per session, or quote it as `.\ai-lens.bat cs High "&&" CPU`. In Command Prompt (`cmd.exe`) and PowerShell 7+, `&& CPU` works natively out of the box!
+
+- A floating pill **`🔍 AI Lens [CS · High · GPU] (Alt+F8)`** (or `[CS · High · CPU]`) appears in the top-right corner of your screen.
   - **Minimize to a thin dash (`—`):** Click the `—` button (or double-click the pill) to collapse it into a discreet 8px horizontal line that never covers tabs or text.
   - **Expand back:** Click the thin dash once (or double-click) to restore the full pill.
   - **Right-click menu:** Right-click either the pill or dash to minimize, expand, trigger capture, or quit.

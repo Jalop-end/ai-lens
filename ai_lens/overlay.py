@@ -35,11 +35,13 @@ from ai_lens.vision_engine import (
     THINKING_LEVELS,
     VisionInferenceWorker,
     encode_pil_to_base64,
+    get_compute_device_display,
     get_default_prompt,
     get_language_display,
     get_thinking_level_config,
     get_thinking_level_display,
     get_ui_strings,
+    normalize_compute_device,
     normalize_language_code,
     normalize_thinking_level,
     validate_local_ollama_host,
@@ -80,8 +82,9 @@ def load_config(config_path: Path = DEFAULT_CONFIG_PATH) -> dict[str, Any]:
         "model": "gemma4:latest",
         "language": "cs",
         "thinking_level": "medium",
+        "compute_device": "gpu",
         "think": True,
-        "temperature": 0.15,
+        "temperature": 0.12,
         "default_prompt": get_default_prompt("cs"),
     }
     if config_path.exists():
@@ -96,6 +99,9 @@ def load_config(config_path: Path = DEFAULT_CONFIG_PATH) -> dict[str, Any]:
     defaults["thinking_level"] = normalize_thinking_level(
         str(defaults.get("thinking_level", "medium"))
     )
+    defaults["compute_device"] = normalize_compute_device(
+        str(defaults.get("compute_device", "gpu"))
+    )
     defaults["ollama_host"] = validate_local_ollama_host(str(defaults.get("ollama_host", "")))
     try:
         defaults["padding"] = max(0, min(200, int(defaults.get("padding", 20))))
@@ -106,9 +112,9 @@ def load_config(config_path: Path = DEFAULT_CONFIG_PATH) -> dict[str, Any]:
     except Exception:
         defaults["border_width"] = 3
     try:
-        defaults["temperature"] = max(0.0, min(2.0, float(defaults.get("temperature", 0.15))))
+        defaults["temperature"] = max(0.0, min(2.0, float(defaults.get("temperature", 0.12))))
     except Exception:
-        defaults["temperature"] = 0.15
+        defaults["temperature"] = 0.12
     return defaults
 
 
@@ -134,6 +140,19 @@ def set_thinking_level_in_config(level: str, config_path: Path = DEFAULT_CONFIG_
     cfg["thinking_level"] = norm
     cfg["think"] = bool(tier["think"])
     cfg["temperature"] = float(tier["temperature"])
+    try:
+        with open(config_path, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2, ensure_ascii=False)
+    except Exception:
+        pass
+    return norm
+
+
+def set_compute_device_in_config(device: str, config_path: Path = DEFAULT_CONFIG_PATH) -> str:
+    """Updates the active compute device ('gpu' or 'cpu') in config.json."""
+    cfg = load_config(config_path)
+    norm = normalize_compute_device(device)
+    cfg["compute_device"] = norm
     try:
         with open(config_path, "w", encoding="utf-8") as f:
             json.dump(cfg, f, indent=2, ensure_ascii=False)
@@ -417,6 +436,7 @@ class OverlayWindow(QWidget):
         ollama_host = str(self.config.get("ollama_host", "http://127.0.0.1:11434"))
         lang_code = normalize_language_code(str(self.config.get("language", "cs")))
         thinking_level = normalize_thinking_level(str(self.config.get("thinking_level", "medium")))
+        compute_device = normalize_compute_device(str(self.config.get("compute_device", "gpu")))
         tier_cfg = get_thinking_level_config(thinking_level)
         ui = get_ui_strings(lang_code)
 
@@ -425,7 +445,7 @@ class OverlayWindow(QWidget):
         level_disp = get_thinking_level_display(thinking_level, lang_code)
         system_prompt = self.config.get("system_prompt")
         self.popover.title_label.setText(
-            f"AI Lens · {model_name} [{lang_code.upper()} · {level_short}]"
+            f"AI Lens · {model_name} [{lang_code.upper()} · {level_short} · {compute_device.upper()}]"
         )
 
         if not is_followup:
@@ -434,7 +454,7 @@ class OverlayWindow(QWidget):
                 ui["loading_init"].format(
                     model=model_name,
                     lang=get_language_display(lang_code),
-                    level=level_disp,
+                    level=f"{level_disp} · {compute_device.upper()}",
                 )
             )
         else:
@@ -448,6 +468,7 @@ class OverlayWindow(QWidget):
             model=model_name,
             language=lang_code,
             thinking_level=thinking_level,
+            compute_device=compute_device,
             system_prompt=str(system_prompt) if system_prompt else None,
             history=self._chat_history if is_followup else None,
             parent=self,
@@ -480,7 +501,7 @@ class OverlayWindow(QWidget):
                 b64_img = encode_pil_to_base64(
                     self._last_cropped_image,
                     fmt="JPEG",
-                    max_side=int(tier_cfg.get("max_image_side", 1024)),
+                    max_side=int(tier_cfg.get("max_image_side", 1408)),
                 )
                 self._chat_history.append(
                     {"role": "user", "content": prompt, "images": [b64_img]}
@@ -580,11 +601,15 @@ class OverlayWindow(QWidget):
         # 5. Draw localized top-center HUD pill so the user immediately sees AI Lens is active
         lang_code = normalize_language_code(str(self.config.get("language", "cs")))
         thinking_level = normalize_thinking_level(str(self.config.get("thinking_level", "medium")))
+        compute_device = normalize_compute_device(str(self.config.get("compute_device", "gpu")))
         tier_cfg = get_thinking_level_config(thinking_level)
         ui = get_ui_strings(lang_code)
-        hud_text = ui["hud_banner"].format(lang=lang_code.upper(), level=tier_cfg["label"])
+        hud_text = ui["hud_banner"].format(
+            lang=lang_code.upper(),
+            level=f"{tier_cfg['label']} · {compute_device.upper()}",
+        )
 
-        pill_w, pill_h = 560, 38
+        pill_w, pill_h = 590, 38
         pill_x = (self.width() - pill_w) // 2
         pill_y = 18
         pill_rect = QRectF(float(pill_x), float(pill_y), float(pill_w), float(pill_h))
@@ -613,6 +638,7 @@ class OverlayWindow(QWidget):
 def run_overlay_mvp(
     language: Optional[str] = None,
     thinking_level: Optional[str] = None,
+    compute_device: Optional[str] = None,
 ) -> None:
     """Standalone launcher for immediate screen capture + overlay."""
     _ensure_utf8_stdio()
@@ -620,15 +646,19 @@ def run_overlay_mvp(
         set_language_in_config(language)
     if thinking_level:
         set_thinking_level_in_config(thinking_level)
+    if compute_device:
+        set_compute_device_in_config(compute_device)
     app = QApplication.instance() or QApplication(sys.argv)
     overlay = OverlayWindow(daemon_mode=False)
     capture_ms = overlay.activate_overlay()
     lang_code = str(overlay.config.get("language", "cs"))
     lang_disp = get_language_display(lang_code)
     level_disp = get_thinking_level_display(str(overlay.config.get("thinking_level", "medium")), lang_code)
+    dev_disp = get_compute_device_display(str(overlay.config.get("compute_device", "gpu")), lang_code)
     print(f"[AI Lens] Obrazovka zachycena do RAM za {capture_ms:.2f} ms.")
     print(
-        f"[AI Lens] Lokální VLM ({overlay.config.get('model')}, jazyk: {lang_disp}, hloubka myšlení: {level_disp}) připraven. "
+        f"[AI Lens] Lokální VLM ({overlay.config.get('model')}, jazyk: {lang_disp}, "
+        f"hloubka myšlení: {level_disp}, výpočet: {dev_disp}) připraven. "
         "Zakroužkuj oblast myší, odpověď se bude streamovat v reálném čase. [Esc] pro zavření."
     )
     sys.exit(app.exec())

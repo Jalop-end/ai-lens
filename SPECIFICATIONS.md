@@ -46,8 +46,8 @@ Spotřeba systémových prostředků se dělí na samotnou aplikaci **AI Lens (P
 
 ### B. Lokální AI Engine (`ollama` proces během dotazu)
 
-* **Pokud má PC dedikovanou GPU (NVIDIA / AMD / Apple Silicon):** Váhy modelu i KV-cache běží ve **VRAM grafické karty**, vytížení systémového CPU během generování je pouze **3 % – 10 %**.
-* **Pokud PC běží čistě na CPU / integrované GPU (slabší PC):** Model běží v systémové **RAM** a během samotného generování odpovědi využívá **40 % – 85 % CPU** po dobu několika sekund (mimo generování **0 % CPU**).
+* **Výchozí běh na GPU (GPU by default):** Aplikace ve výchozím stavu odesílá do Ollamy `num_gpu: -1`, což přesouvá všechny vrstvy modelu i KV-cache přímo do **VRAM grafické karty (NVIDIA / AMD / Apple Silicon)**. Generování je bleskové a vytížení systémového procesoru je minimální (**3 % – 10 % CPU**).
+* **Přepnutí na čisté CPU (`&& CPU`):** Pokud uživatel při spuštění zadá za příkaz `&& CPU` (např. `.\ai-lens.bat cs High && CPU`), AI Lens nastaví `num_gpu: 0`. Model běží kompletně v systémové **RAM** a během inference vytěžuje CPU (**40 % – 85 % CPU** po dobu několika sekund; mimo generování **0 % CPU**).
 
 ---
 
@@ -57,35 +57,38 @@ Pojem **„kontext“** v režimech **`Low`**, **`Medium`** a **`High`** zahrnuj
 1. **Přesnost odpovědi a bohatost faktických informací o zakroužkovaném objektu/textu** (např. když zakroužkuješ zvíře, rostlinu, předmět, budovu nebo odborný pojem, kolik souvisejících informací a jak hluboký popis o něm dostaneš).
 2. **Technickou kapacitu modelu** (velikost kontextového okna `num_ctx`, maximální počet generovaných tokenů `num_predict`, rozlišení výřezu a hloubku interního ověřování).
 
-Všechny tři úrovně jsou navrženy tak, aby **běžely lokálně i na slabších počítačích**:
+Všechny tři úrovně jsou navrženy tak, aby **běžely lokálně s GPU akcelerací (případně CPU)** a měly bezpečně zastropovanou spotřebu paměti:
 
-| Parametr | `Low` (Rychlý režim) | `Medium` (Vyvážený – Výchozí) | `High` (Hluboké myšlení & Encyklopedický kontext) |
+| Parametr | `Low` (Posíleno na úroveň dřívějšího Medium) | `Medium` (Zvýšeno nad dřívější High) | `High` (Maximálně posílená encyklopedická hloubka) |
 |---|---|---|---|
 | **Spuštění z terminálu (Windows)** | `.\ai-lens.bat en Low`<br>`.\ai-lens.bat cs Low` | `.\ai-lens.bat en Medium`<br>`.\ai-lens.bat cs Medium` | `.\ai-lens.bat en High`<br>`.\ai-lens.bat cs High` |
-| **Přesnost odpovědí** | **Základní / Rychlá** (okamžitá identifikace hlavního objektu či textu) | **Vysoká** (pečlivé ověření vizuálních znaků, textu i otázek krok za krokem) | **Maximální** (hloubková kontrola detailů, rozlišení podobných druhů/pojmů, nulová tolerance k drobným chybám) |
-| **Faktický kontext (např. když zakroužkuješ zvíře / rostlinu / věc)** | **Stručný kontext (2–4 věty):** přesně určí, o jaké zvíře/věc jde, a přidá 1–2 nejdůležitější fakta. | **Vyvážený, bohatý kontext (1–2 odstavce):** určí druh/kategorii, popíše vzhled na snímku a doplní výskyt (kde žije), potravu/funkci a zajímavost. | **Hluboký encyklopedický kontext (kompletní profil):** přesné druhové zařazení, rozlišení od podobných druhů, anatomické znaky, prostředí, potrava, chování/fungování, historie a zajímavé souvislosti. |
-| **Faktický kontext u textu, kódu a otázek** | Rychlé shrnutí významu nebo přímá odpověď se stručným důvodem. | Jasné vysvětlení významu, kontextu věty/kódu a srozumitelné zdůvodnění správné odpovědi. | Kompletní rozbor významu, kontrola kontextu před i za vynechaným místem (`_`), odhalení chytáků a podrobný postup krok za krokem. |
-| **Interní přemýšlení (`think`)** | `False` (vypnuto – přímá odpověď) | `True` (zapnuto – krok za krokem) | `True` (hluboká víceúrovňová verifikace) |
-| **Velikost kontextu (`num_ctx`)** | **2 048 tokenů** | **4 096 tokenů** | **8 192 tokenů** |
-| **Max. počet tokenů (`num_predict`)** | **1 024 tokenů** | **2 560 tokenů** | **4 096 tokenů** |
-| **Max. rozlišení výřezu (`max_side`)** | **768 px** | **1 024 px** | **1 344 px** *(vysoká ostrost detailů a diakritiky)* |
-| **Teplota (`temperature`)** | `0.20` | `0.15` | `0.10` *(maximální přesnost bez tipování)* |
-| **Top-P / Repeat Penalty** | `0.90` / `1.05` | `0.90` / `1.07` | `0.85` / `1.10` |
-| **Extra spotřeba RAM (KV-cache)** | **+ ~150 – 250 MB RAM** | **+ ~350 – 500 MB RAM** | **+ ~650 – 950 MB RAM** |
-| **Typická doba generování** | **~1 – 4 s** | **~5 – 12 s** | **~10 – 25 s** *(dle výkonu CPU/GPU)* |
+| **Spuštění na CPU (přepínač `&& CPU`)** | `.\ai-lens.bat cs Low && CPU` | `.\ai-lens.bat cs Medium && CPU` | `.\ai-lens.bat cs High && CPU` |
+| **Přesnost odpovědí** | **Vysoká & Vyvážená** (krok za krokem, identifikace detailů a znaků) | **Velmi vysoká** (hloubkové rozlišení podobných variant a jemných detailů) | **Maximální** (kompletní verifikace, nulová tolerance chyb, hluboký rozbor) |
+| **Faktický kontext (např. když zakroužkuješ zvíře / rostlinu / věc)** | **Bohatý vyvážený kontext (1–2 odstavce):** přesně určí druh/kategorii, popíše znaky na snímku, výskyt, potravu/funkci a klíčovou zajímavost. | **Velmi hluboký kontext (2–3 odstavce):** detailní taxonomie, původ/biotop, anatomické znaky, potrava, chování, rozlišení od příbuzných. | **Kompletní encyklopedický profil:** vyčerpávající biologický profil (taxonomie, poddruhy, srovnání záměn, anatomické detaily, biotop, etologie, historie). |
+| **Faktický kontext u textu, kódu a otázek** | Jasné vysvětlení významu, kontextu a zdůvodnění odpovědi. | Detailní rozbor významu, kontrola souvislostí a postupné řešení. | Kompletní rozbor včetně kontroly textu před i za prázdným místem (`_`), odhalení chytáků a exaktní důkaz. |
+| **Interní přemýšlení (`think`)** | `True` (zapnuto) | `True` (zapnuto) | `True` (hluboká víceúrovňová verifikace) |
+| **Velikost kontextu (`num_ctx`)** | **4 096 tokenů** | **10 240 tokenů** | **16 384 tokenů** |
+| **Max. počet tokenů (`num_predict`)** | **2 560 tokenů** | **5 120 tokenů** | **8 192 tokenů** |
+| **Max. rozlišení výřezu (`max_side`)** | **1 024 px** | **1 408 px** | **1 600 px** *(extrémní ostrost detailů, šupin a diakritiky)* |
+| **Teplota (`temperature`)** | `0.15` | `0.12` | `0.08` *(maximální determinismus a přesnost)* |
+| **Top-P / Repeat Penalty** | `0.90` / `1.07` | `0.88` / `1.08` | `0.85` / `1.10` |
+| **Extra spotřeba RAM / VRAM (KV-cache)** | **+ ~350 – 500 MB** | **+ ~700 – 900 MB** | **+ ~1.1 – 1.4 GB** *(bezpečný strop)* |
+| **Typická doba generování (GPU)** | **~3 – 7 s** | **~6 – 14 s** | **~10 – 25 s** *(dle GPU)* |
 
-### 4.1 Rozpoznávání druhů zvířat, plemen a odhadovaná pravděpodobnost správnosti (`🎯 XX %`)
+### 4.1 Kalibrované rozpoznávání druhů zvířat, plemen a realistická skepse u pravděpodobnosti (`🎯 XX %`)
 
-Model byl vyladěn tak, aby při zakroužkování zvířat, plazů, rostlin nebo předmětů neurčoval pouze obecnou kategorii, ale **přesný biologický druh, poddruh či konkrétní plemeno**:
-- **Plazi a hadi:** Identifikuje přesný druh (např. *Zmije obecná / Vipera berus* vs. nejedovatá *Užovka obojková / Natrix natrix*), všímá si diagnostických znaků (tvar zorniček – štěrbinovité vs. kulaté, klikatá hřbetní čára, šupiny, tvar hlavy) a uvádí status jedovatosti.
-- **Kočkovité šelmy a plemena koček:** Spolehlivě rozlišuje divoké druhy (*Lev pustinný*, *Tygr džunglový*, *Puma americká*) od konkrétních domácích plemen (*Britská krátkosrstá*, *Mainská mývalí*, *Bengálská kočka*, *Ragdoll*, *Perská kočka*) na základě stavby těla, barvy srsti a tvaru uší/hlavy.
-- **Odhad pravděpodobnosti správnosti (Confidence Score):**
-  - Model na konci odpovědi generuje realistický odhad jistoty ve formátu `[Jistota: XX %]` (v angličtině `[Confidence: XX %]`), odvozený z ostrosti snímku a viditelnosti klíčových diagnostických znaků (např. nezaměnitelný samec lva = 95–99 %; hůře rozlišitelná domácí plemena či částečně zakrytí hadi = 75–88 %).
-  - **Zobrazení v UI:** Hodnota je dynamicky parsována a zobrazena v hlavičce karty `PopoverCard` vedle názvu jako barevný odznáček:
-    - 🟢 **≥ 85 %:** Zelený odznak (např. `🎯 92 %`) – vysoká jistota.
-    - 🔵 **70 – 84 %:** Modrý odznak (např. `🎯 78 %`) – dobrá jistota, možná záměna s blízkým příbuzným.
-    - 🟡 **< 70 %:** Žlutý odznak (např. `🎯 65 %`) – zhoršená viditelnost nebo nejednoznačné znaky.
-  - V textu odpovědi je navíc uveden stručný důvod, proč byla jistota ohodnocena právě tímto číslem.
+Model byl instrukcemi striktně kalibrován tak, aby **nepřestřeloval jistotu u zvířat a obtížně rozlišitelných plemen**:
+- **Přísná skepse u koček, psů a divoké zvěře:**
+  - Domácí plemena koček (např. *Britská krátkosrstá*, *Evropská krátkosrstá*, *Ruská modrá*) nebo kříženci mají často velmi podobné zbarvení. Pokud není vidět rodokmen či naprosto specifický tělesný znak, model **záměrně snižuje pravděpodobnost do realistického rozmezí 38–65 %** (nebo **25–45 %**, pokud je zvíře z dálky, rozmazané či částečně zakryté).
+  - Hadi a plazi bez křišťálově ostrého detailu šupin na hlavě a zorniček rovněž dostávají sníženou jistotu s výčtem možných záměn.
+  - **Vysoká jistota 85–95 %** (nikdy slepých 99 %) je vyhrazena **výhradně nezaměnitelným exemplářům bez jakýchkoliv dvojníků** (např. dospělý lev s hřívou, zebra, žirafa, slon).
+- **Povinné zdůvodnění (Rationale):**
+  - Za každým procentem následuje **1 věta vysvětlující**, jaké znaky byly potvrzeny a které alternativní druhy či křížence nelze ze snímku stoprocentně vyloučit.
+- **Zobrazení v UI:**
+  - Hodnota je dynamicky extrahována a v hlavičce `PopoverCard` vykreslena jako barevný odznak:
+    - 🟢 **≥ 85 %:** Zelený odznak (např. `🎯 92 %`) – učebnicový, nezaměnitelný druh.
+    - 🔵 **70 – 84 %:** Modrý odznak (např. `🎯 78 %`) – dobrá shoda hlavních znaků.
+    - 🟡 **< 70 %:** Žlutý odznak (např. `🎯 54 %` nebo `🎯 42 %`) – realistická skepse u kříženců, plemen či chybějících mikro-detailů.
 
 ---
 
@@ -137,5 +140,9 @@ ai-lens diagnostika
 # Výpis samotných úrovní myšlení, přesnosti odpovědí a šíře kontextu:
 ai-lens levels
 .\ai-lens.bat levels
+
+# Spuštění s GPU (výchozí) vs. s vynuceným CPU:
+.\ai-lens.bat cs High            # GPU
+.\ai-lens.bat cs High && CPU     # CPU
 ```
 

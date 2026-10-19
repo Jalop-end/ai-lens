@@ -20,17 +20,21 @@ from ai_lens.overlay import (
     _ensure_utf8_stdio,
     load_config,
     run_overlay_mvp,
+    set_compute_device_in_config,
     set_language_in_config,
     set_thinking_level_in_config,
 )
 from ai_lens.vision_engine import (
     SUPPORTED_LANGUAGES,
     THINKING_LEVELS,
+    get_compute_device_display,
     get_language_display,
     get_thinking_level_config,
     get_thinking_level_display,
+    is_recognized_compute_device,
     is_recognized_language_arg,
     is_recognized_thinking_level,
+    normalize_compute_device,
     normalize_language_code,
     normalize_thinking_level,
     validate_local_ollama_host,
@@ -39,19 +43,147 @@ from ai_lens.vision_engine import (
 _ensure_utf8_stdio()
 
 DIAG_ALIASES = {"diag", "diagnostika", "diagnostics", "security", "specs", "specifikace"}
+_CLI_DETECTED_DEVICE: Optional[str] = None
+
+
+def _detect_device_from_shell_and_args() -> Optional[str]:
+    """
+    Detects whether CPU mode is requested via:
+      1. Direct CLI arguments: `&& CPU`, `CPU`, `--cpu`, `-c`, `&&CPU`
+      2. Environment variable: `AI_LENS_DEVICE=cpu`
+      3. Shell history or parent CMDCMDLINE or active Console Screen Buffer (`CONOUT$`)
+         when run as `.\\ai-lens.bat cs High && CPU` in CMD or PowerShell 7+.
+    """
+    import re
+    import time
+
+    # 1. Environment variable
+    env_dev = os.environ.get("AI_LENS_DEVICE", "").strip().lower()
+    if env_dev in ("cpu", "procesor"):
+        return "cpu"
+    if env_dev == "gpu":
+        return "gpu"
+
+    # 2. Windows CMDCMDLINE
+    cmdcmdline = os.environ.get("CMDCMDLINE", "")
+    if re.search(r"ai-lens.*(&&\s*cpu|--cpu|\bcpu\b)", cmdcmdline, re.I):
+        return "cpu"
+
+    # 3. PSReadLine history (within last 8 seconds)
+    try:
+        appdata = os.environ.get("APPDATA", "")
+        if appdata:
+            p = (
+                Path(appdata)
+                / "Microsoft"
+                / "Windows"
+                / "PowerShell"
+                / "PSReadLine"
+                / "ConsoleHost_history.txt"
+            )
+            if p.exists() and (time.time() - p.stat().st_mtime) < 8.0:
+                lines = p.read_text(encoding="utf-8", errors="replace").splitlines()
+                if lines and re.search(r"ai-lens.*(&&\s*cpu|--cpu|\bcpu\b)", lines[-1], re.I):
+                    return "cpu"
+                if lines and re.search(r"ai-lens.*(&&\s*gpu|--gpu|\bgpu\b)", lines[-1], re.I):
+                    return "gpu"
+    except Exception:
+        pass
+
+    # 4. Windows Console Screen Buffer (CONOUT$)
+    if sys.platform == "win32":
+        try:
+            k32 = ctypes.windll.kernel32
+
+            class COORD(ctypes.Structure):
+                _fields_ = [("X", ctypes.c_short), ("Y", ctypes.c_short)]
+
+            class SMALL_RECT(ctypes.Structure):
+                _fields_ = [
+                    ("Left", ctypes.c_short),
+                    ("Top", ctypes.c_short),
+                    ("Right", ctypes.c_short),
+                    ("Bottom", ctypes.c_short),
+                ]
+
+            class CSBI(ctypes.Structure):
+                _fields_ = [
+                    ("dwSize", COORD),
+                    ("dwCursorPosition", COORD),
+                    ("wAttributes", ctypes.c_ushort),
+                    ("srWindow", SMALL_RECT),
+                    ("dwMaximumWindowSize", COORD),
+                ]
+
+            h = k32.CreateFileW("CONOUT$", 0xC0000000, 3, None, 3, 0, None)
+            if h and h != -1:
+                csbi = CSBI()
+                if k32.GetConsoleScreenBufferInfo(h, ctypes.byref(csbi)):
+                    w = csbi.dwSize.X
+                    y_start = max(0, csbi.dwCursorPosition.Y - 4)
+                    for r in range(y_start, csbi.dwCursorPosition.Y + 1):
+                        buf = ctypes.create_unicode_buffer(w)
+                        read = ctypes.c_ulong()
+                        k32.ReadConsoleOutputCharacterW(h, buf, w, COORD(0, r), ctypes.byref(read))
+                        line_str = buf.value.strip()
+                        if re.search(r"ai-lens.*(&&\s*cpu|--cpu)", line_str, re.I):
+                            k32.CloseHandle(h)
+                            return "cpu"
+                k32.CloseHandle(h)
+        except Exception:
+            pass
+
+    return None
 
 
 def _normalize_cli_argv() -> None:
     """
-    Allows launching AI Lens directly with a language code and/or thinking level
-    as positional arguments right after `ai-lens`:
-      - `ai-lens cs`
-      - `ai-lens en High`
-      - `ai-lens High`
-      - `ai-lens Medium cs`
-    and normalizes Czech/English diagnostic aliases (`diagnostika`, `diagnostics`, `security`, `specs`)
-    to `diag` before Typer parses commands.
+    Normalizes CLI arguments before Typer parses commands:
+      - Strips `&& CPU` / `CPU` / `--cpu` and sets `_CLI_DETECTED_DEVICE = "cpu"`
+      - Allows launching AI Lens directly with language/level positional arguments (`ai-lens cs High`)
+      - Normalizes diagnostic aliases (`diagnostika`, `diagnostics`, `security`, `specs`) to `diag`
     """
+    global _CLI_DETECTED_DEVICE
+
+    # 1. Scan and extract any CPU/GPU flags from sys.argv
+    new_argv = [sys.argv[0]]
+    skip_next = False
+    for i in range(1, len(sys.argv)):
+        if skip_next:
+            skip_next = False
+            continue
+        arg = sys.argv[i].strip()
+        cleaned = arg.lower().lstrip("-").replace(" ", "")
+
+        if arg in ("&&", "&") and i + 1 < len(sys.argv):
+            next_arg = sys.argv[i + 1].strip().lower()
+            if next_arg == "cpu":
+                _CLI_DETECTED_DEVICE = "cpu"
+                skip_next = True
+                continue
+            if next_arg == "gpu":
+                _CLI_DETECTED_DEVICE = "gpu"
+                skip_next = True
+                continue
+
+        if cleaned in ("cpu", "&&cpu", "&cpu"):
+            _CLI_DETECTED_DEVICE = "cpu"
+            continue
+        if cleaned in ("gpu", "&&gpu", "&gpu"):
+            _CLI_DETECTED_DEVICE = "gpu"
+            continue
+
+        new_argv.append(arg)
+
+    sys.argv = new_argv
+
+    # 2. Check shell/console buffer if not passed directly in argv
+    if _CLI_DETECTED_DEVICE is None:
+        detected = _detect_device_from_shell_and_args()
+        if detected:
+            _CLI_DETECTED_DEVICE = detected
+
+    # 3. Handle diagnostic aliases and direct language/level shortcuts
     if len(sys.argv) > 1:
         first = sys.argv[1]
         if first.strip().lower() in DIAG_ALIASES:
@@ -61,30 +193,36 @@ def _normalize_cli_argv() -> None:
             sys.argv[1:1] = ["start"]
 
 
-def _resolve_lang_and_level(
+def _resolve_lang_and_level_and_device(
     arg1: Optional[str],
     arg2: Optional[str],
-    opt_lang: Optional[str],
-    opt_level: Optional[str],
-) -> tuple[Optional[str], Optional[str]]:
+    arg3: Optional[str] = None,
+    opt_lang: Optional[str] = None,
+    opt_level: Optional[str] = None,
+    opt_device: Optional[str] = None,
+) -> tuple[Optional[str], Optional[str], Optional[str]]:
     """
-    Resolves `(language, thinking_level)` from up to two flexible positional arguments
-    (in any order, e.g. `cs High` or `High cs`) combined with `--lang` and `--level` options.
+    Resolves `(language, thinking_level, compute_device)` from flexible positional arguments
+    and command options.
     """
     detected_lang: Optional[str] = opt_lang
     detected_level: Optional[str] = opt_level
+    detected_device: Optional[str] = opt_device or _CLI_DETECTED_DEVICE
 
-    for raw in (arg1, arg2):
+    for raw in (arg1, arg2, arg3):
         if not raw:
             continue
-        if is_recognized_thinking_level(raw) and detected_level is None:
+        cleaned = raw.strip().lower().lstrip("-")
+        if is_recognized_compute_device(cleaned) and detected_device is None:
+            detected_device = normalize_compute_device(cleaned)
+        elif is_recognized_thinking_level(raw) and detected_level is None:
             detected_level = normalize_thinking_level(raw)
         elif is_recognized_language_arg(raw) and detected_lang is None:
             detected_lang = normalize_language_code(raw)
         elif detected_lang is None:
             detected_lang = normalize_language_code(raw)
 
-    return detected_lang, detected_level
+    return detected_lang, detected_level, detected_device
 
 
 _normalize_cli_argv()
@@ -116,23 +254,50 @@ def main(
         "-q",
         help="Hloubka myšlení a kvalita odpovědi: Low, Medium, nebo High.",
     ),
+    device: Optional[str] = typer.Option(
+        None,
+        "--device",
+        "-d",
+        help="Výpočetní jednotka: gpu (výchozí) nebo cpu (vynucený procesor při '&& CPU').",
+    ),
+    cpu: bool = typer.Option(
+        False,
+        "--cpu",
+        help="Vynutí běh čistě na CPU (ekvivalent spuštění s '&& CPU').",
+    ),
+    gpu: bool = typer.Option(
+        False,
+        "--gpu",
+        help="Vynutí běh na GPU s plnou akcelerací (výchozí stav).",
+    ),
 ) -> None:
     """
     Spustí AI Lens z příkazové řádky v pohotovosti (poslouchá na Alt+F8 / F8).
+    Výchozí akcelerace běží na GPU; přidáním '&& CPU' se přepne na procesor.
     """
     if ctx.invoked_subcommand is None:
-        run_daemon(open_immediately=False, language=lang, thinking_level=level)
+        target_device = _CLI_DETECTED_DEVICE or device or ("cpu" if cpu else ("gpu" if gpu else "gpu"))
+        run_daemon(
+            open_immediately=False,
+            language=lang,
+            thinking_level=level,
+            compute_device=target_device,
+        )
 
 
 @app.command("start")
 def start(
     arg1: Optional[str] = typer.Argument(
         None,
-        help="Volitelná zkratka jazyka (např. cs, en, de, sk) nebo úroveň myšlení (Low, Medium, High).",
+        help="Volitelná zkratka jazyka (např. cs, en, de, sk), úroveň myšlení (Low, Medium, High) nebo zařízení (CPU, GPU).",
     ),
     arg2: Optional[str] = typer.Argument(
         None,
         help="Volitelný druhý parametr – úroveň myšlení (Low, Medium, High) nebo jazyk (např. `ai-lens cs High`).",
+    ),
+    arg3: Optional[str] = typer.Argument(
+        None,
+        help="Volitelný třetí parametr – výpočetní jednotka (CPU, GPU).",
     ),
     lang: Optional[str] = typer.Option(
         None,
@@ -146,6 +311,22 @@ def start(
         "-q",
         help="Nastaví hloubku myšlení a počet tokenů: Low, Medium, nebo High.",
     ),
+    device: Optional[str] = typer.Option(
+        None,
+        "--device",
+        "-d",
+        help="Výpočetní jednotka: gpu (výchozí) nebo cpu (při '&& CPU').",
+    ),
+    cpu: bool = typer.Option(
+        False,
+        "--cpu",
+        help="Vynutí běh na CPU.",
+    ),
+    gpu: bool = typer.Option(
+        False,
+        "--gpu",
+        help="Vynutí běh na GPU.",
+    ),
     now: bool = typer.Option(
         False,
         "--now",
@@ -153,9 +334,23 @@ def start(
         help="Otevře překryvný overlay rovnou při startu a poté zůstane v pohotovosti.",
     ),
 ) -> None:
-    """Spustí aplikaci s volitelnou zkratkou jazyka a hloubkou myšlení (např. `ai-lens cs High` nebo `ai-lens en Low`)."""
-    chosen_lang, chosen_level = _resolve_lang_and_level(arg1, arg2, lang, level)
-    run_daemon(open_immediately=now, language=chosen_lang, thinking_level=chosen_level)
+    """Spustí aplikaci s volitelnou zkratkou jazyka, hloubkou myšlení a výpočtem (např. `ai-lens cs High` nebo `ai-lens cs High && CPU`)."""
+    chosen_lang, chosen_level, chosen_dev = _resolve_lang_and_level_and_device(
+        arg1, arg2, arg3, lang, level, device
+    )
+    if cpu:
+        chosen_dev = "cpu"
+    elif gpu:
+        chosen_dev = "gpu"
+    elif chosen_dev is None:
+        chosen_dev = "gpu"
+
+    run_daemon(
+        open_immediately=now,
+        language=chosen_lang,
+        thinking_level=chosen_level,
+        compute_device=chosen_dev,
+    )
 
 
 @app.command("trigger")
@@ -167,6 +362,10 @@ def trigger(
     arg2: Optional[str] = typer.Argument(
         None,
         help="Volitelná úroveň myšlení (Low, Medium, High) nebo jazyk.",
+    ),
+    arg3: Optional[str] = typer.Argument(
+        None,
+        help="Volitelná výpočetní jednotka (CPU, GPU).",
     ),
     lang: Optional[str] = typer.Option(
         None,
@@ -180,9 +379,17 @@ def trigger(
         "-q",
         help="Nastaví hloubku myšlení: Low, Medium, nebo High.",
     ),
+    device: Optional[str] = typer.Option(
+        None,
+        "--device",
+        "-d",
+        help="Výpočetní jednotka: gpu nebo cpu.",
+    ),
 ) -> None:
     """Okamžitě vyfotí obrazovku do RAM a otevře fullscreen overlay."""
-    chosen_lang, chosen_level = _resolve_lang_and_level(arg1, arg2, lang, level)
+    chosen_lang, chosen_level, chosen_dev = _resolve_lang_and_level_and_device(
+        arg1, arg2, arg3, lang, level, device
+    )
     if chosen_lang:
         code = set_language_in_config(chosen_lang)
         typer.echo(f"[AI Lens] Jazyk (UI + AI) nastaven na: {get_language_display(code)}")
@@ -192,33 +399,43 @@ def trigger(
         typer.echo(
             f"[AI Lens] Hloubka myšlení nastavena na: {get_thinking_level_display(lvl, cfg_lang)}"
         )
+    if chosen_dev:
+        d = set_compute_device_in_config(chosen_dev)
+        cfg_lang = str(load_config().get("language", "cs"))
+        typer.echo(f"[AI Lens] Výpočetní jednotka nastavena na: {get_compute_device_display(d, cfg_lang)}")
 
     resp = send_daemon_command("TRIGGER")
     if resp == "OK:TRIGGERED":
         typer.echo("[AI Lens] Signál odeslán běžící instanci -> overlay aktivován.")
     else:
-        run_overlay_mvp(language=chosen_lang, thinking_level=chosen_level)
+        run_overlay_mvp(
+            language=chosen_lang,
+            thinking_level=chosen_level,
+            compute_device=chosen_dev,
+        )
 
 
 @app.command("status")
 def status() -> None:
-    """Zkontroluje, zda běží AI Lens proces, a vypíše aktivní jazyk i úroveň myšlení."""
+    """Zkontroluje, zda běží AI Lens proces, a vypíše aktivní jazyk, úroveň myšlení i akceleraci (GPU/CPU)."""
     resp = send_daemon_command("STATUS")
     cfg = load_config()
     lang_code = str(cfg.get("language", "cs"))
     lang_disp = get_language_display(lang_code)
     level_code = str(cfg.get("thinking_level", "medium"))
     level_disp = get_thinking_level_display(level_code, lang_code)
+    dev_code = str(cfg.get("compute_device", "gpu"))
+    dev_disp = get_compute_device_display(dev_code, lang_code)
     tier_cfg = get_thinking_level_config(level_code)
     if resp == "OK:RUNNING":
         typer.echo(
             f"[AI Lens] Proces BĚŽÍ (zkratka: {cfg.get('hotkey')} / F8, model: {cfg.get('model')}, "
-            f"jazyk: {lang_disp}, myšlení: {level_disp} [{tier_cfg['num_predict']} tokenů])."
+            f"jazyk: {lang_disp}, myšlení: {level_disp} [{tier_cfg['num_predict']} tokenů], výpočet: {dev_disp})."
         )
     else:
         typer.echo(
-            f"[AI Lens] Proces momentálně neběží (jazyk: {lang_disp}, myšlení: {level_disp} [{tier_cfg['num_predict']} tokenů]). "
-            "Spusť jej např. příkazem: .\\ai-lens.bat cs High (nebo .\\ai-lens.bat en High)"
+            f"[AI Lens] Proces momentálně neběží (jazyk: {lang_disp}, myšlení: {level_disp} [{tier_cfg['num_predict']} tokenů], výpočet: {dev_disp}). "
+            "Spusť jej např. příkazem: .\\ai-lens.bat cs High (GPU) nebo .\\ai-lens.bat cs High && CPU"
         )
 
 
@@ -353,14 +570,17 @@ def diag_cmd() -> None:
     typer.echo("=" * 108)
 
     # 1. Stav běhu a AI modelu
+    dev_code = str(cfg.get("compute_device", "gpu"))
+    dev_disp = get_compute_device_display(dev_code, lang_code)
     typer.echo("\n[1/5] STAV APLIKACE & AI MODELU (RUNTIME)")
     typer.echo(
-        f"  • Stav procesu na pozadí : {'BĚŽÍ (připraven na ' + hotkey + ' / F8)' if daemon_running else 'NEBĚŽÍ (spusť: .\\ai-lens.bat cs High nebo .\\ai-lens.bat en High)'}"
+        f"  • Stav procesu na pozadí : {'BĚŽÍ (připraven na ' + hotkey + ' / F8)' if daemon_running else 'NEBĚŽÍ (spusť: .\\ai-lens.bat cs High nebo .\\ai-lens.bat cs High && CPU)'}"
     )
     typer.echo(
         f"  • Lokální Ollama engine  : {'ONLINE a model připraven (' + ollama_url + ')' if ollama_online else 'OFFLINE nebo model není stažen (' + ollama_url + ')'}"
     )
     typer.echo(f"  • Aktivní VLM model      : {model_name} (doporučená lehká alternativa: qwen2.5vl:3b)")
+    typer.echo(f"  • Výpočet / Akcelerace   : {dev_disp} (výchozí: GPU; přepnutí: zadej '&& CPU' při spuštění)")
     typer.echo(f"  • Aktivní jazyk (UI+AI)  : {lang_disp}")
     typer.echo(
         f"  • Aktivní úroveň myšlení : {level_disp} (max {tier_cfg['num_predict']} tokenů, kontext {tier_cfg['num_ctx']}, výřez {tier_cfg['max_image_side']}px)"
@@ -383,7 +603,7 @@ def diag_cmd() -> None:
     for key, info in THINKING_LEVELS.items():
         active_tag = "[AKTIVNÍ]" if key == level_code else "         "
         typer.echo(
-            f"  {active_tag} {info['label']:<6} | Tokeny: {info['num_predict']:<4} | Okno: {info['num_ctx']:<4} "
+            f"  {active_tag} {info['label']:<6} | Tokeny: {info['num_predict']:<4} | Okno: {info['num_ctx']:<5} "
             f"| Výřez: {info['max_image_side']}px | Teplota: {info['temperature']}"
         )
         typer.echo(f"             ├─ Přesnost odpovědí       : {info['accuracy_cs']}")
@@ -454,6 +674,12 @@ def config_cmd(
         "-q",
         help="Nastaví hloubku myšlení: Low, Medium, nebo High",
     ),
+    device: Optional[str] = typer.Option(
+        None,
+        "--device",
+        "-d",
+        help="Nastaví výpočetní jednotku: gpu nebo cpu",
+    ),
     model: Optional[str] = typer.Option(
         None, "--model", "-m", help="Nastaví lokální VLM model (např. gemma4:latest, qwen2.5vl:3b)"
     ),
@@ -469,6 +695,8 @@ def config_cmd(
         set_language_in_config(lang)
     if level is not None:
         set_thinking_level_in_config(level)
+    if device is not None:
+        set_compute_device_in_config(device)
 
     cfg = load_config()
     updated = False
@@ -486,7 +714,7 @@ def config_cmd(
         with open(DEFAULT_CONFIG_PATH, "w", encoding="utf-8") as f:
             json.dump(cfg, f, indent=2, ensure_ascii=False)
 
-    if updated or lang is not None or level is not None:
+    if updated or lang is not None or level is not None or device is not None:
         typer.echo("[AI Lens] Konfigurace uložena do config.json:")
 
     typer.echo(json.dumps(cfg, indent=2, ensure_ascii=False))
