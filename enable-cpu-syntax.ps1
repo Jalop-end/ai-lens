@@ -1,22 +1,26 @@
 # enable-cpu-syntax.ps1
-# Umožňuje používat syntaxi `&& CPU` i ve Windows PowerShell 5.1
-# Ve Windows PowerShell 5.1 není operátor && nativní (byl přidán až v PowerShell 7).
-# Tento skript zaregistruje PSReadLine handler pro klávesu Enter, který před odesláním
-# automaticky převede '&& CPU' na bezpečný parametr pro ai-lens.
+# Umoznuje pouzivat syntaxi `@\` i ve Windows PowerShell bez nutnosti uvozovek.
+# Ve Windows PowerShell je znak @ rezervovany pro pole a splatting.
+# Tento skript zaregistruje PSReadLine handler pro klavesu Enter, ktery pred odeslanim
+# automaticky uzavre `@\` do uvozovek "@\" pro bezchybne zpracovani.
 
 if (Get-Module -ListAvailable -Name PSReadLine) {
     Set-PSReadLineKeyHandler -Key Enter -ScriptBlock {
         $line = $null
         $cursor = $null
         [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState([ref]$line, [ref]$cursor)
-        if ($line -match 'ai-lens.*&&\s*cpu') {
-            $newLine = $line -replace '&&\s*cpu', '"&&" CPU'
+        if ($line -match 'ai-lens.*(?<!["''])@\\') {
+            $newLine = $line -replace '(?<!["''])@\\', '"@\"'
+            [Microsoft.PowerShell.PSConsoleReadLine]::RevertLine()
+            [Microsoft.PowerShell.PSConsoleReadLine]::Insert($newLine)
+        } elseif ($line -match 'ai-lens.*&&\s*cpu') {
+            $newLine = $line -replace '&&\s*cpu', '"@\"'
             [Microsoft.PowerShell.PSConsoleReadLine]::RevertLine()
             [Microsoft.PowerShell.PSConsoleReadLine]::Insert($newLine)
         }
         [Microsoft.PowerShell.PSConsoleReadLine]::AcceptLine()
     }
-    Write-Host "[AI Lens] Podpora pro '&& CPU' byla uspesne aktivovana v PowerShellu." -ForegroundColor Green
+    Write-Host "[AI Lens] Podpora pro '@\' byla uspesne aktivovana v PowerShellu." -ForegroundColor Green
 } else {
-    Write-Host "[AI Lens] PSReadLine neni k dispozici. V PowerShell 5.1 pouzijte: .\ai-lens.bat cs High `"&&`" CPU nebo CMD." -ForegroundColor Yellow
+    Write-Host "[AI Lens] PSReadLine neni k dispozici. V PowerShellu pouzijte: .\ai-lens.bat cs High `"@\`"" -ForegroundColor Yellow
 }

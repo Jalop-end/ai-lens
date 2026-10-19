@@ -65,9 +65,9 @@ flowchart TD
 ## Key Features
 
 - **100% Local & Private:** Runs entirely on `127.0.0.1` via local Ollama. Zero external cloud APIs, zero tracking, zero telemetry.
-- **GPU Accelerated by Default with Instant `&& CPU` Terminal Switch:**
+- **GPU Accelerated by Default with Instant `@\` Terminal Switch:**
   - By default, AI Lens runs on your **GPU** (`num_gpu: -1` offloading all layers) for maximum responsiveness.
-  - Switch to pure **CPU** execution anytime by adding **`&& CPU`** to your launch command (e.g. `.\ai-lens.bat cs High && CPU`).
+  - Switch to pure **CPU** execution anytime by adding **`@\`** (or `"@\"`) to your launch command (e.g. `.\ai-lens.bat cs High @\` or in PowerShell `.\ai-lens.bat cs High "@\"`).
 - **3 Powerfully Boosted Thinking Depth & Factual Context Tiers (`Low`, `Medium`, `High`):**
   - **`Low`** is now boosted to the power of former Medium (`2560` tokens / `4096` context window / `1024px` image / `think=True`).
   - **`Medium`** is expanded above former High (`5120` tokens / `10240` context window / `1408px` image / `think=True`).
@@ -96,7 +96,7 @@ flowchart TD
 
 You can control **answer accuracy**, **factual background context** (how much information you get when circling an animal, plant, object, or text), and **token/context capacity** by passing **`Low`**, **`Medium`**, or **`High`** directly in the terminal.
 
-All three tiers run **100% locally on your hardware**, with **GPU acceleration enabled by default** (or CPU on demand via `&& CPU`):
+All three tiers run **100% locally on your hardware**, with **GPU acceleration enabled by default** (or CPU on demand via `@\`):
 
 | Tier | CLI Command Example | Answer Accuracy & Factual Context (e.g. Circling an Animal, Object, or Text) | Tokens (`num_predict`) / Window (`num_ctx`) | Max Image Detail (`max_side`) | Typical Generation Time & Trade-Off |
 |---|---|---|---|---|---|
@@ -172,9 +172,10 @@ Pass an optional language shortcut (`cs`, `en`, `de`, `sk`, etc.) and/or thinkin
 # Launch in Czech with High thinking depth on GPU:
 .\ai-lens.bat cs High
 
-# Switch execution to CPU on demand using `&& CPU`:
-.\ai-lens.bat cs High && CPU
-.\ai-lens.bat en Medium && CPU
+# Switch execution to CPU on demand using `@\` (or `"@\"` in PowerShell):
+.\ai-lens.bat cs High @\
+.\ai-lens.bat cs High "@\"
+.\ai-lens.bat en Medium "@\"
 
 # Launch in Czech with Medium thinking depth (default balanced mode):
 .\ai-lens.bat cs Medium
@@ -192,10 +193,10 @@ Pass an optional language shortcut (`cs`, `en`, `de`, `sk`, etc.) and/or thinkin
 ```
 
 > [!TIP]
-> **GPU vs. CPU Execution & PowerShell 5.1 Syntax:**
+> **GPU vs. CPU Execution (`@\` Switch):**
 > - **GPU is default:** AI Lens automatically runs with GPU acceleration enabled (`num_gpu: -1`).
-> - **`&& CPU` Switch:** Adding `&& CPU` at the end switches execution to pure CPU (`num_gpu: 0`).
-> - **In Windows PowerShell 5.1:** If you are using Windows PowerShell 5.1 where `&&` is not built-in, run `.\enable-cpu-syntax.ps1` once per session, or quote it as `.\ai-lens.bat cs High "&&" CPU`. In Command Prompt (`cmd.exe`) and PowerShell 7+, `&& CPU` works natively out of the box!
+> - **`@\` Switch:** Adding **`@\`** (or **`"@\"`**) switches execution to pure CPU (`num_gpu: 0`).
+> - **In Windows PowerShell:** Type `.\ai-lens.bat cs High "@\"` (with quotes) or run `.\enable-cpu-syntax.ps1` once per session to enable unquoted `@\`. In Command Prompt (`cmd.exe`), `.\ai-lens.bat cs High @\` works directly without quotes!
 
 - A floating pill **`🔍 AI Lens [CS · High · GPU] (Alt+F8)`** (or `[CS · High · CPU]`) appears in the top-right corner of your screen.
   - **Minimize to a thin dash (`—`):** Click the `—` button (or double-click the pill) to collapse it into a discreet 8px horizontal line that never covers tabs or text.

@@ -47,7 +47,7 @@ Spotřeba systémových prostředků se dělí na samotnou aplikaci **AI Lens (P
 ### B. Lokální AI Engine (`ollama` proces během dotazu)
 
 * **Výchozí běh na GPU (GPU by default):** Aplikace ve výchozím stavu odesílá do Ollamy `num_gpu: -1`, což přesouvá všechny vrstvy modelu i KV-cache přímo do **VRAM grafické karty (NVIDIA / AMD / Apple Silicon)**. Generování je bleskové a vytížení systémového procesoru je minimální (**3 % – 10 % CPU**).
-* **Přepnutí na čisté CPU (`&& CPU`):** Pokud uživatel při spuštění zadá za příkaz `&& CPU` (např. `.\ai-lens.bat cs High && CPU`), AI Lens nastaví `num_gpu: 0`. Model běží kompletně v systémové **RAM** a během inference vytěžuje CPU (**40 % – 85 % CPU** po dobu několika sekund; mimo generování **0 % CPU**).
+* **Přepnutí na čisté CPU (`@\`):** Pokud uživatel při spuštění zadá za příkaz `@\` (např. `.\ai-lens.bat cs High @\` nebo v PowerShellu `.\ai-lens.bat cs High "@\"`), AI Lens nastaví `num_gpu: 0`. Model běží kompletně v systémové **RAM** a během inference vytěžuje CPU (**40 % – 85 % CPU** po dobu několika sekund; mimo generování **0 % CPU**).
 
 ---
 
@@ -62,7 +62,7 @@ Všechny tři úrovně jsou navrženy tak, aby **běžely lokálně s GPU akcele
 | Parametr | `Low` (Posíleno na úroveň dřívějšího Medium) | `Medium` (Zvýšeno nad dřívější High) | `High` (Maximálně posílená encyklopedická hloubka) |
 |---|---|---|---|
 | **Spuštění z terminálu (Windows)** | `.\ai-lens.bat en Low`<br>`.\ai-lens.bat cs Low` | `.\ai-lens.bat en Medium`<br>`.\ai-lens.bat cs Medium` | `.\ai-lens.bat en High`<br>`.\ai-lens.bat cs High` |
-| **Spuštění na CPU (přepínač `&& CPU`)** | `.\ai-lens.bat cs Low && CPU` | `.\ai-lens.bat cs Medium && CPU` | `.\ai-lens.bat cs High && CPU` |
+| **Spuštění na CPU (přepínač `@\`)** | `.\ai-lens.bat cs Low @\` | `.\ai-lens.bat cs Medium @\` | `.\ai-lens.bat cs High @\` |
 | **Přesnost odpovědí** | **Vysoká & Vyvážená** (krok za krokem, identifikace detailů a znaků) | **Velmi vysoká** (hloubkové rozlišení podobných variant a jemných detailů) | **Maximální** (kompletní verifikace, nulová tolerance chyb, hluboký rozbor) |
 | **Faktický kontext (např. když zakroužkuješ zvíře / rostlinu / věc)** | **Bohatý vyvážený kontext (1–2 odstavce):** přesně určí druh/kategorii, popíše znaky na snímku, výskyt, potravu/funkci a klíčovou zajímavost. | **Velmi hluboký kontext (2–3 odstavce):** detailní taxonomie, původ/biotop, anatomické znaky, potrava, chování, rozlišení od příbuzných. | **Kompletní encyklopedický profil:** vyčerpávající biologický profil (taxonomie, poddruhy, srovnání záměn, anatomické detaily, biotop, etologie, historie). |
 | **Faktický kontext u textu, kódu a otázek** | Jasné vysvětlení významu, kontextu a zdůvodnění odpovědi. | Detailní rozbor významu, kontrola souvislostí a postupné řešení. | Kompletní rozbor včetně kontroly textu před i za prázdným místem (`_`), odhalení chytáků a exaktní důkaz. |
@@ -143,6 +143,6 @@ ai-lens levels
 
 # Spuštění s GPU (výchozí) vs. s vynuceným CPU:
 .\ai-lens.bat cs High            # GPU
-.\ai-lens.bat cs High && CPU     # CPU
+.\ai-lens.bat cs High @\         # CPU (nebo v PowerShellu ".\ai-lens.bat cs High `"@\`"")
 ```
 

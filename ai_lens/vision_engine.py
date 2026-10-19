@@ -532,10 +532,19 @@ COMPUTE_DEVICE_ALIASES: dict[str, str] = {
     "vulkan": "gpu",
     "&&gpu": "gpu",
     "&gpu": "gpu",
+    "@\\gpu": "gpu",
+    "@/gpu": "gpu",
+    "@gpu": "gpu",
     "cpu": "cpu",
     "procesor": "cpu",
     "&&cpu": "cpu",
     "&cpu": "cpu",
+    "@\\": "cpu",
+    "@/": "cpu",
+    "@": "cpu",
+    "@\\cpu": "cpu",
+    "@/cpu": "cpu",
+    "@cpu": "cpu",
 }
 
 
@@ -543,15 +552,15 @@ def normalize_compute_device(device: Optional[str]) -> str:
     """Normalizes compute device ('gpu' or 'cpu'). Defaults to 'gpu'."""
     if not device:
         return "gpu"
-    cleaned = device.strip().lower().lstrip("-").replace(" ", "")
+    cleaned = device.strip().lower().lstrip("-").replace(" ", "").replace('"', '').replace("'", "")
     return COMPUTE_DEVICE_ALIASES.get(cleaned, "gpu")
 
 
 def is_recognized_compute_device(arg: Optional[str]) -> bool:
-    """Returns True if `arg` represents a compute device selector ('CPU', 'GPU', '&&CPU', etc.)."""
+    """Returns True if `arg` represents a compute device selector ('CPU', 'GPU', '@\\', etc.)."""
     if not arg:
         return False
-    cleaned = arg.strip().lower().lstrip("-").replace(" ", "")
+    cleaned = arg.strip().lower().lstrip("-").replace(" ", "").replace('"', '').replace("'", "")
     return cleaned in COMPUTE_DEVICE_ALIASES
 
 
@@ -560,7 +569,7 @@ def get_compute_device_display(device: Optional[str], lang: Optional[str] = "cs"
     norm = normalize_compute_device(device)
     code = normalize_language_code(lang)
     if norm == "cpu":
-        return "CPU (Vynucený procesor — && CPU)" if code in ("cs", "sk") else "CPU (Forced Processor — && CPU)"
+        return "CPU (Vynucený procesor — @\\)" if code in ("cs", "sk") else "CPU (Forced Processor — @\\)"
     return "GPU (Výchozí akcelerace)" if code in ("cs", "sk") else "GPU (Default Acceleration)"
 
 
