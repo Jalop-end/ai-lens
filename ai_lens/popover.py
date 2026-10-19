@@ -14,6 +14,29 @@ _HEADING_RE = re.compile(r"^(#{1,4})\s+(.*)$")
 _BULLET_RE = re.compile(r"^\s*[-*•]\s+(.*)$")
 _NUMBERED_RE = re.compile(r"^\s*(\d+\.)\s+(.*)$")
 
+_CONFIDENCE_TAG_RE = re.compile(
+    r"^\[(?:Jistota|Pravděpodobnost|Confidence|Přesnost|Accuracy|Surety)[^0-9%]*(\d{1,3})\s*%\s*\]$",
+    re.IGNORECASE,
+)
+_CONFIDENCE_EXTRACT_RE = re.compile(
+    r"(?:\[(?:Jistota|Pravděpodobnost|Confidence|Přesnost|Accuracy|Surety)[^0-9%]*(\d{1,3})\s*%\s*\]"
+    r"|(?:\*\*|#|\b)(?:Jistota|Pravděpodobnost|Confidence|Přesnost|Accuracy)[^\n\r\d]*(\d{1,3})\s*%)",
+    re.IGNORECASE,
+)
+
+
+def extract_confidence_score(text: str) -> Optional[int]:
+    """Extracts the estimated confidence percentage score (1..100) from markdown text."""
+    matches = list(_CONFIDENCE_EXTRACT_RE.finditer(text))
+    if not matches:
+        return None
+    val = matches[-1].group(1) or matches[-1].group(2)
+    try:
+        pct = int(val)
+        return max(1, min(100, pct))
+    except (ValueError, TypeError):
+        return None
+
 
 def _format_inline_Runs(text: str) -> str:
     """
@@ -99,6 +122,20 @@ def render_styled_markdown_html(markdown_text: str) -> str:
             if stripped in ("---", "***", "___"):
                 html_blocks.append(
                     '<hr style="border: none; border-top: 1px solid rgba(255,255,255,0.16); margin: 8px 0;" />'
+                )
+                continue
+
+            conf_tag_m = _CONFIDENCE_TAG_RE.match(stripped)
+            if conf_tag_m:
+                pct = int(conf_tag_m.group(1))
+                color = "#34D399" if pct >= 85 else ("#38BDF8" if pct >= 70 else "#FBBF24")
+                bg = "rgba(16, 185, 129, 0.16)" if pct >= 85 else ("rgba(56, 189, 248, 0.16)" if pct >= 70 else "rgba(245, 158, 11, 0.16)")
+                border = "rgba(52, 211, 153, 0.40)" if pct >= 85 else ("rgba(56, 189, 248, 0.40)" if pct >= 70 else "rgba(251, 191, 36, 0.40)")
+                html_blocks.append(
+                    f'<div style="margin: 6px 0; display: inline-block; background-color: {bg}; '
+                    f'border: 1px solid {border}; border-radius: 6px; padding: 2px 8px; '
+                    f'color: {color}; font-size: 11.5px; font-weight: 700;">'
+                    f'🎯 Odhad jistoty / pravděpodobnost: {pct} %</div>'
                 )
                 continue
 
@@ -280,6 +317,13 @@ class PopoverCard(QFrame):
                 font-size: 11px;
                 font-weight: 500;
             }
+            QLabel#ConfidenceBadge {
+                font-family: "Segoe UI", system-ui, sans-serif;
+                font-size: 11px;
+                font-weight: 700;
+                padding: 1px 7px;
+                border-radius: 5px;
+            }
             QPushButton#CloseButton {
                 background-color: transparent;
                 color: #9CA3AF;
@@ -330,6 +374,10 @@ class PopoverCard(QFrame):
         self.title_label = QLabel("AI Lens")
         self.title_label.setObjectName("HeaderTitle")
 
+        self.confidence_badge = QLabel("", self)
+        self.confidence_badge.setObjectName("ConfidenceBadge")
+        self.confidence_badge.setVisible(False)
+
         self.status_label = QLabel("Připraveno")
         self.status_label.setObjectName("StatusBadge")
 
@@ -339,6 +387,8 @@ class PopoverCard(QFrame):
         self.close_btn.clicked.connect(self.closeRequested.emit)
 
         header_layout.addWidget(self.title_label)
+        header_layout.addSpacing(6)
+        header_layout.addWidget(self.confidence_badge)
         header_layout.addStretch(1)
         header_layout.addWidget(self.status_label)
         header_layout.addSpacing(6)
@@ -360,12 +410,41 @@ class PopoverCard(QFrame):
         layout.addWidget(self.response_browser, stretch=1)
         layout.addWidget(self.prompt_input)
 
+    def _update_confidence_badge(self) -> None:
+        pct = extract_confidence_score(self._raw_markdown)
+        if pct is not None:
+            if pct >= 85:
+                bg = "rgba(16, 185, 129, 0.22)"
+                border = "rgba(52, 211, 153, 0.65)"
+                color = "#34D399"
+            elif pct >= 70:
+                bg = "rgba(56, 189, 248, 0.22)"
+                border = "rgba(56, 189, 248, 0.65)"
+                color = "#38BDF8"
+            else:
+                bg = "rgba(245, 158, 11, 0.22)"
+                border = "rgba(251, 191, 36, 0.65)"
+                color = "#FBBF24"
+
+            self.confidence_badge.setStyleSheet(
+                f"background-color: {bg}; border: 1px solid {border}; color: {color};"
+            )
+            self.confidence_badge.setText(f"🎯 {pct} %")
+            self.confidence_badge.setToolTip(
+                f"Odhadovaná pravděpodobnost správnosti / jistota modelu: {pct} %"
+            )
+            self.confidence_badge.setVisible(True)
+        else:
+            self.confidence_badge.setVisible(False)
+
     def clear_sensitive_data(self) -> None:
         """Immediately wipes all conversation text, DOM content, and input buffers from RAM."""
         self._loading_timer.stop()
         self._raw_markdown = ""
         self._loading_step = 0
         self._thinking_tokens = 0
+        self.confidence_badge.clear()
+        self.confidence_badge.setVisible(False)
         self.response_browser.clear()
         self.response_browser.setHtml("")
         self.prompt_input.clear()
@@ -401,6 +480,8 @@ class PopoverCard(QFrame):
         self._raw_markdown = ""
         self._loading_step = 0
         self._thinking_tokens = 0
+        self.confidence_badge.clear()
+        self.confidence_badge.setVisible(False)
         self.status_label.setText(f"{ui['analyzing']}.")
         if message:
             self.response_browser.setHtml(render_styled_markdown_html(f"*{message}*"))
@@ -425,11 +506,13 @@ class PopoverCard(QFrame):
         ui = get_ui_strings(self._language)
         self._loading_timer.stop()
         self.status_label.setText(status_text or ui["ready"])
+        self._update_confidence_badge()
 
     def set_markdown_content(self, markdown_text: str) -> None:
         """Replaces the displayed Markdown text using styled HTML rendering."""
         self._raw_markdown = markdown_text
         self.response_browser.setHtml(render_styled_markdown_html(self._raw_markdown))
+        self._update_confidence_badge()
         sb = self.response_browser.verticalScrollBar()
         if sb is not None:
             sb.setValue(sb.maximum())
@@ -442,6 +525,7 @@ class PopoverCard(QFrame):
         self.status_label.setText(ui["streaming"])
         self._raw_markdown += token
         self.response_browser.setHtml(render_styled_markdown_html(self._raw_markdown))
+        self._update_confidence_badge()
         sb = self.response_browser.verticalScrollBar()
         if sb is not None:
             sb.setValue(sb.maximum())

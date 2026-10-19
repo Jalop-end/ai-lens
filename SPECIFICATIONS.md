@@ -74,6 +74,19 @@ Všechny tři úrovně jsou navrženy tak, aby **běžely lokálně i na slabš�
 | **Extra spotřeba RAM (KV-cache)** | **+ ~150 – 250 MB RAM** | **+ ~350 – 500 MB RAM** | **+ ~650 – 950 MB RAM** |
 | **Typická doba generování** | **~1 – 4 s** | **~5 – 12 s** | **~10 – 25 s** *(dle výkonu CPU/GPU)* |
 
+### 4.1 Rozpoznávání druhů zvířat, plemen a odhadovaná pravděpodobnost správnosti (`🎯 XX %`)
+
+Model byl vyladěn tak, aby při zakroužkování zvířat, plazů, rostlin nebo předmětů neurčoval pouze obecnou kategorii, ale **přesný biologický druh, poddruh či konkrétní plemeno**:
+- **Plazi a hadi:** Identifikuje přesný druh (např. *Zmije obecná / Vipera berus* vs. nejedovatá *Užovka obojková / Natrix natrix*), všímá si diagnostických znaků (tvar zorniček – štěrbinovité vs. kulaté, klikatá hřbetní čára, šupiny, tvar hlavy) a uvádí status jedovatosti.
+- **Kočkovité šelmy a plemena koček:** Spolehlivě rozlišuje divoké druhy (*Lev pustinný*, *Tygr džunglový*, *Puma americká*) od konkrétních domácích plemen (*Britská krátkosrstá*, *Mainská mývalí*, *Bengálská kočka*, *Ragdoll*, *Perská kočka*) na základě stavby těla, barvy srsti a tvaru uší/hlavy.
+- **Odhad pravděpodobnosti správnosti (Confidence Score):**
+  - Model na konci odpovědi generuje realistický odhad jistoty ve formátu `[Jistota: XX %]` (v angličtině `[Confidence: XX %]`), odvozený z ostrosti snímku a viditelnosti klíčových diagnostických znaků (např. nezaměnitelný samec lva = 95–99 %; hůře rozlišitelná domácí plemena či částečně zakrytí hadi = 75–88 %).
+  - **Zobrazení v UI:** Hodnota je dynamicky parsována a zobrazena v hlavičce karty `PopoverCard` vedle názvu jako barevný odznáček:
+    - 🟢 **≥ 85 %:** Zelený odznak (např. `🎯 92 %`) – vysoká jistota.
+    - 🔵 **70 – 84 %:** Modrý odznak (např. `🎯 78 %`) – dobrá jistota, možná záměna s blízkým příbuzným.
+    - 🟡 **< 70 %:** Žlutý odznak (např. `🎯 65 %`) – zhoršená viditelnost nebo nejednoznačné znaky.
+  - V textu odpovědi je navíc uveden stručný důvod, proč byla jistota ohodnocena právě tímto číslem.
+
 ---
 
 ## 5. Okamžité mazání dat po uzavření chatu (Zero-Retention RAM Policy)

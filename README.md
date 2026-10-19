@@ -66,6 +66,9 @@ flowchart TD
 - **3 Configurable Thinking Depth & Quality Tiers (`Low`, `Medium`, `High`):**
   - Choose directly from the terminal (`ai-lens cs High`, `ai-lens en Medium`, `ai-lens Low`) how deeply the model thinks, how many tokens it can generate (`1024` / `2560` / `4096`), and what image resolution it inspects (`768px` / `1024px` / `1344px`).
   - Engineered to remain **lightweight enough to run locally even on weaker PCs** across all three tiers.
+- **Fine-Grained Species, Breed & Variant Recognition with Confidence Badges (`🎯 XX %`):**
+  - **Exact Biological Classification:** When circling an animal, reptile, bird, plant, or object, AI Lens identifies the **exact species, subspecies, or domestic breed** (e.g., distinguishing *Zmije obecná / Vipera berus* from harmless *Užovka obojková*, detailing pupil shape, scale patterns, and venom status; or distinguishing wild felines like *Lev pustinný* from domestic cat breeds like *Britská krátkosrstá*, *Mainská mývalí*, etc.).
+  - **Estimated Accuracy / Confidence Score Badge (`🎯 XX %`):** Based on visible diagnostic features and image clarity, the model provides an estimated confidence score. This is dynamically extracted and displayed as a sleek pill badge in the PopoverCard header (`🎯 92 %`: green for ≥85%, sky blue for 70–84%, amber for <70%) and inline with explanatory rationales.
 - **Smart Question, Sequence & Fill-in-the-Blank Solver:**
   - **Standard Questions & Quizzes:** Describes what is visible, **always provides the direct verified answer**, and **explains why** it is correct.
   - **Fill-in-the-Blank Sentences (`"něco je _____ proto"`, `...`, `___`):** Follows a strict two-step rule—**first** describes what is shown on the screen (without giving away the answer in the first sentence), and **second** provides the missing answer and explains why.
