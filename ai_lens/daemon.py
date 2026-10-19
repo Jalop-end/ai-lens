@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
     QApplication,
     QFrame,
     QHBoxLayout,
+    QMenu,
     QPushButton,
     QWidget,
 )
@@ -137,13 +138,74 @@ def _parse_win32_hotkey(hotkey_str: str) -> tuple[int, int, list[int]]:
 
 class FloatingTriggerBar(QFrame):
     """
-    Sleek, draggable floating mini-pill on the screen edge ('AI Lens [Alt+F8]')
-    that gives immediate visual confirmation AI Lens is active and allows 1-click capture
-    even if keyboard shortcuts are blocked.
+    Sleek, draggable floating mini-dock on the screen edge ('AI Lens [Alt+F8]').
+    Can be minimized into a razor-thin unobtrusive 'čárka' (dash) that covers nothing,
+    and expanded back on a single click or double-click.
     """
 
     triggerClicked = pyqtSignal()
     quitClicked = pyqtSignal()
+
+    STYLE_EXPANDED = """
+        QFrame#FloatingTriggerBar {
+            background-color: rgba(15, 23, 42, 235);
+            border: 1.5px solid #38BDF8;
+            border-radius: 18px;
+        }
+        QPushButton#ActionBtn {
+            background-color: transparent;
+            color: #F8FAFC;
+            border: none;
+            font-family: "Segoe UI", system-ui, sans-serif;
+            font-size: 12px;
+            font-weight: 600;
+            padding: 6px 12px;
+        }
+        QPushButton#ActionBtn:hover {
+            color: #38BDF8;
+        }
+        QPushButton#MinBtn {
+            background-color: transparent;
+            color: #94A3B8;
+            border: none;
+            font-size: 14px;
+            font-weight: bold;
+            padding: 4px 6px;
+        }
+        QPushButton#MinBtn:hover {
+            color: #38BDF8;
+        }
+        QPushButton#QuitBtn {
+            background-color: transparent;
+            color: #94A3B8;
+            border: none;
+            font-size: 12px;
+            font-weight: bold;
+            padding: 4px 8px;
+        }
+        QPushButton#QuitBtn:hover {
+            color: #F87171;
+        }
+    """
+
+    STYLE_MINIMIZED = """
+        QFrame#FloatingTriggerBar {
+            background-color: rgba(15, 23, 42, 220);
+            border: 1px solid rgba(56, 189, 248, 180);
+            border-radius: 5px;
+        }
+        QFrame#FloatingTriggerBar:hover {
+            background-color: rgba(30, 41, 59, 245);
+            border: 1.5px solid #38BDF8;
+        }
+        QFrame#DashLine {
+            background-color: #38BDF8;
+            border-radius: 1.5px;
+        }
+        QFrame#FloatingTriggerBar:hover QFrame#DashLine {
+            background-color: #7DD3FC;
+        }
+    """
 
     def __init__(self, language: str = "cs", thinking_level: str = "medium") -> None:
         super().__init__(None)
@@ -155,65 +217,70 @@ class FloatingTriggerBar(QFrame):
         )
         self.setAttribute(Qt.WidgetAttribute.WA_QuitOnClose, False)
         self._drag_offset: Optional[QPoint] = None
+        self._drag_start_pos: Optional[QPoint] = None
+        self._has_dragged = False
+        self._is_minimized = False
 
-        self.setStyleSheet(
-            """
-            QFrame#FloatingTriggerBar {
-                background-color: rgba(15, 23, 42, 235);
-                border: 1.5px solid #38BDF8;
-                border-radius: 18px;
-            }
-            QPushButton#ActionBtn {
-                background-color: transparent;
-                color: #F8FAFC;
-                border: none;
-                font-family: "Segoe UI", system-ui, sans-serif;
-                font-size: 12px;
-                font-weight: 600;
-                padding: 6px 12px;
-            }
-            QPushButton#ActionBtn:hover {
-                color: #38BDF8;
-            }
-            QPushButton#QuitBtn {
-                background-color: transparent;
-                color: #94A3B8;
-                border: none;
-                font-size: 12px;
-                font-weight: bold;
-                padding: 4px 8px;
-            }
-            QPushButton#QuitBtn:hover {
-                color: #F87171;
-            }
-            """
-        )
+        self.lang_code = normalize_language_code(language)
+        self.level_norm = normalize_thinking_level(thinking_level)
+        self.tier_cfg = get_thinking_level_config(self.level_norm)
+        self.ui = get_ui_strings(self.lang_code)
 
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(6, 2, 6, 2)
-        layout.setSpacing(2)
+        # Root layout
+        root_layout = QHBoxLayout(self)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setSpacing(0)
 
-        lang_code = normalize_language_code(language)
-        level_norm = normalize_thinking_level(thinking_level)
-        tier_cfg = get_thinking_level_config(level_norm)
-        ui = get_ui_strings(lang_code)
+        # 1. Full Container (Expanded Mode)
+        self._full_container = QWidget(self)
+        full_layout = QHBoxLayout(self._full_container)
+        full_layout.setContentsMargins(6, 2, 6, 2)
+        full_layout.setSpacing(2)
 
         self.trigger_btn = QPushButton(
-            f"🔍 AI Lens [{lang_code.upper()} · {tier_cfg['label']}] (Alt+F8)"
+            f"🔍 AI Lens [{self.lang_code.upper()} · {self.tier_cfg['label']}] (Alt+F8)",
+            self._full_container,
         )
         self.trigger_btn.setObjectName("ActionBtn")
         self.trigger_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.trigger_btn.setToolTip(ui["dock_tooltip"])
+        self.trigger_btn.setToolTip(self.ui["dock_tooltip"])
         self.trigger_btn.clicked.connect(self.triggerClicked.emit)
 
-        self.quit_btn = QPushButton("✕")
+        self.min_btn = QPushButton("—", self._full_container)
+        self.min_btn.setObjectName("MinBtn")
+        self.min_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.min_btn.setToolTip(
+            self.ui.get("dock_minimize_tooltip", "Zmenšit do tenké čárky (aby nic nezakrýval)")
+        )
+        self.min_btn.clicked.connect(self.collapse)
+
+        self.quit_btn = QPushButton("✕", self._full_container)
         self.quit_btn.setObjectName("QuitBtn")
         self.quit_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.quit_btn.setToolTip(ui["dock_quit_tooltip"])
+        self.quit_btn.setToolTip(self.ui["dock_quit_tooltip"])
         self.quit_btn.clicked.connect(self.quitClicked.emit)
 
-        layout.addWidget(self.trigger_btn)
-        layout.addWidget(self.quit_btn)
+        full_layout.addWidget(self.trigger_btn)
+        full_layout.addWidget(self.min_btn)
+        full_layout.addWidget(self.quit_btn)
+
+        # 2. Dash Container (Minimized 'Čárka' Mode)
+        self._dash_container = QWidget(self)
+        dash_layout = QHBoxLayout(self._dash_container)
+        dash_layout.setContentsMargins(8, 2, 8, 2)
+        dash_layout.setSpacing(0)
+
+        self._dash_line = QFrame(self._dash_container)
+        self._dash_line.setObjectName("DashLine")
+        self._dash_line.setFixedHeight(3)
+        self._dash_line.setFixedWidth(36)
+        dash_layout.addWidget(self._dash_line, alignment=Qt.AlignmentFlag.AlignCenter)
+        self._dash_container.hide()
+
+        root_layout.addWidget(self._full_container)
+        root_layout.addWidget(self._dash_container)
+
+        self.setStyleSheet(self.STYLE_EXPANDED)
         self.adjustSize()
 
         # Position at top-right of primary screen
@@ -224,19 +291,114 @@ class FloatingTriggerBar(QFrame):
             y = geom.top() + 18
             self.move(max(10, x), max(10, y))
 
+    def collapse(self) -> None:
+        """Minimizes the floating pill into a sleek, unobtrusive thin dash ('čárka')."""
+        if self._is_minimized:
+            return
+        top_right = self.geometry().topRight()
+        self._is_minimized = True
+        self._full_container.hide()
+        self._dash_container.show()
+        self.setStyleSheet(self.STYLE_MINIMIZED)
+        self.setFixedSize(54, 9)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setToolTip(self.ui.get("dock_expand_tooltip", "AI Lens (kliknutím rozbalit / Alt+F8)"))
+
+        # Keep anchored to the top-right position
+        self.move(max(10, top_right.x() - 54), top_right.y())
+
+    def expand(self) -> None:
+        """Expands the thin dash back into the full mini-dock."""
+        if not self._is_minimized:
+            return
+        top_right = self.geometry().topRight()
+        self._is_minimized = False
+        self._dash_container.hide()
+        self._full_container.show()
+        self.setStyleSheet(self.STYLE_EXPANDED)
+        self.setMinimumSize(0, 0)
+        self.setMaximumSize(16777215, 16777215)
+        self.adjustSize()
+        self.setCursor(Qt.CursorShape.ArrowCursor)
+        self.setToolTip("")
+
+        # Anchor to top-right without overflowing left edge
+        target_x = max(10, top_right.x() - self.width())
+        self.move(target_x, top_right.y())
+
+    def toggle_minimized(self) -> None:
+        """Toggles between full mini-dock and thin dash ('čárka')."""
+        if self._is_minimized:
+            self.expand()
+        else:
+            self.collapse()
+
     def mousePressEvent(self, event: QMouseEvent) -> None:  # noqa: N802
         if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_start_pos = event.globalPosition().toPoint()
             self._drag_offset = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            self._has_dragged = False
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:  # noqa: N802
         if self._drag_offset is not None and (event.buttons() & Qt.MouseButton.LeftButton):
+            if self._drag_start_pos is not None:
+                delta = (event.globalPosition().toPoint() - self._drag_start_pos).manhattanLength()
+                if delta > 4:
+                    self._has_dragged = True
             self.move(event.globalPosition().toPoint() - self._drag_offset)
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:  # noqa: N802
-        self._drag_offset = None
+        if event.button() == Qt.MouseButton.LeftButton:
+            # If user clicked on the minimized dash without dragging -> expand!
+            if self._is_minimized and not self._has_dragged:
+                self.expand()
+            self._drag_offset = None
+            self._drag_start_pos = None
+            self._has_dragged = False
         super().mouseReleaseEvent(event)
+
+    def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:  # noqa: N802
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.toggle_minimized()
+        super().mouseDoubleClickEvent(event)
+
+    def contextMenuEvent(self, event) -> None:  # noqa: N802
+        menu = QMenu(self)
+        menu.setStyleSheet(
+            """
+            QMenu {
+                background-color: #0F172A;
+                color: #F8FAFC;
+                border: 1px solid #38BDF8;
+                border-radius: 8px;
+                padding: 4px;
+                font-family: "Segoe UI", system-ui, sans-serif;
+                font-size: 12px;
+            }
+            QMenu::item {
+                padding: 6px 14px;
+                border-radius: 4px;
+            }
+            QMenu::item:selected {
+                background-color: #1E293B;
+                color: #38BDF8;
+            }
+            """
+        )
+        toggle_label = "🔍 Rozbalit panel" if self._is_minimized else "— Zmenšit do čárky"
+        toggle_action = menu.addAction(toggle_label)
+        toggle_action.triggered.connect(self.toggle_minimized)
+
+        trigger_action = menu.addAction("📷 Spustit výběr (Alt+F8)")
+        trigger_action.triggered.connect(self.triggerClicked.emit)
+
+        menu.addSeparator()
+        quit_action = menu.addAction("✕ Ukončit AI Lens")
+        quit_action.triggered.connect(self.quitClicked.emit)
+
+        menu.exec(event.globalPos())
 
 
 def _is_pid_alive(pid: int) -> bool:

@@ -59,7 +59,8 @@ With a single hotkey (**`Alt + F8`**) or one click on the floating mini-dock, yo
   - Switching language (`ai-lens cs`, `ai-lens en`, `ai-lens de`, `ai-lens sk`, etc.) localizes **both** the AI's answers and **all UI elements**: generation time badges (`Hotovo · doba generování 12.0 s` / `Done · generation time 12.0 s`), thinking/streaming indicators, input placeholders, tooltips, and the top overlay HUD banner.
 - **Ultra-Fast Capture (< 15 ms) & Triple-Engine Hotkeys:**
   - Captures the screen buffer directly into RAM with automatic high-DPI scaling (up to 4K+).
-  - Supports **`Alt + F8`**, **`F8`**, **`Ctrl + Alt + Shift + G`**, and a draggable **Floating Mini-Dock** (`🔍 AI Lens [CS · Medium] (Alt+F8)`).
+  - Supports **`Alt + F8`**, **`F8`**, **`Ctrl + Alt + Shift + G`**, and a draggable **Collapsible Mini-Dock** (`🔍 AI Lens [CS · Medium] (Alt+F8)`).
+  - **Minimizes to a thin dash (`—` / "čárka"):** Click the `—` button or double-click to shrink the dock into a razor-thin 8px bar that covers nothing on screen. Click it once or double-click anywhere to expand it back!
 
 ---
 
@@ -192,6 +193,9 @@ Pass an optional language shortcut (`cs`, `en`, `de`, `sk`, etc.) and/or thinkin
 ```
 
 - A floating pill **`🔍 AI Lens [EN · High] (Alt+F8)`** appears in the top-right corner of your screen.
+  - **Minimize to a thin dash (`—`):** Click the `—` button (or double-click the pill) to collapse it into a discreet 8px horizontal line that never covers tabs or text.
+  - **Expand back:** Click the thin dash once (or double-click) to restore the full pill.
+  - **Right-click menu:** Right-click either the pill or dash to minimize, expand, trigger capture, or quit.
 - Press **`Alt + F8`** (or **`F8`**, or click the floating pill) and draw a circle with your left mouse button around any region.
 - Press **`Esc`** or right-click anywhere to return to standby.
 
