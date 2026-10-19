@@ -61,22 +61,22 @@ Pojem **„kontext“** v režimech **`Low`**, **`Medium`** a **`High`** zahrnuj
 
 ---
 
-### 4.A GPU Profil (Výchozí akcelerace — plný encyklopedický výkon)
+#### 4.A GPU Profil (Výchozí akcelerace — plný encyklopedický výkon)
 
-| Parametr | `Low` (Posíleno na dřívější Medium) | `Medium` (Zvýšeno nad dřívější High) | `High` (Maximálně posílená encyklopedická hloubka) |
+| Parametr | `Low` (Bleskový vyvážený režim) | `Medium` (Zvýšeno nad dřívější High) | `High` (Maximálně posílená encyklopedická hloubka) |
 |---|---|---|---|
 | **Spuštění z terminálu (Windows)** | `.\ai-lens.bat en Low`<br>`.\ai-lens.bat cs Low` | `.\ai-lens.bat en Medium`<br>`.\ai-lens.bat cs Medium` | `.\ai-lens.bat en High`<br>`.\ai-lens.bat cs High` |
-| **Přesnost odpovědí** | **Vysoká & Vyvážená** (krok za krokem, identifikace detailů a znaků) | **Velmi vysoká** (hloubkové rozlišení podobných variant a jemných detailů) | **Maximální** (kompletní verifikace, nulová tolerance chyb, hluboký rozbor) |
+| **Přesnost odpovědí** | **Vysoká & Blesková** (přímá odpověď a ověření znaků bez čekání na `<thought>`) | **Velmi vysoká** (hloubkové rozlišení podobných variant a jemných detailů) | **Maximální** (kompletní verifikace, nulová tolerance chyb, hluboký rozbor) |
 | **Faktický kontext (např. zvíře / rostlina / věc)** | **Bohatý vyvážený kontext (1–2 odstavce):** přesně určí druh/kategorii, popíše znaky na snímku, výskyt, potravu/funkci a klíčovou zajímavost. | **Velmi hluboký kontext (2–3 odstavce):** detailní taxonomie, původ/biotop, anatomické znaky, potrava, chování, rozlišení od příbuzných. | **Kompletní encyklopedický profil:** vyčerpávající biologický profil (taxonomie, poddruhy, srovnání záměn, anatomické detaily, biotop, etologie, historie). |
 | **Faktický kontext u textu, kódu a otázek** | Jasné vysvětlení významu, kontextu a zdůvodnění odpovědi. | Detailní rozbor významu, kontrola souvislostí a postupné řešení. | Kompletní rozbor včetně kontroly textu před i za prázdným místem (`_`), odhalení chytáků a exaktní důkaz. |
-| **Interní přemýšlení (`think`)** | `True` (zapnuto) | `True` (zapnuto) | `True` (hluboká víceúrovňová verifikace) |
-| **Velikost kontextu (`num_ctx`)** | **4 096 tokenů** | **10 240 tokenů** | **16 384 tokenů** |
-| **Max. počet tokenů (`num_predict`)** | **2 560 tokenů** | **5 120 tokenů** | **8 192 tokenů** |
-| **Max. rozlišení výřezu (`max_side`)** | **1 024 px** | **1 408 px** | **1 600 px** *(extrémní ostrost detailů, šupin a diakritiky)* |
+| **Interní přemýšlení (`think`)** | **`False`** *(bleskový start streamu za 1–2 s)* | **`True`** *(zapnuto, důkladné ověření)* | **`True`** *(hluboká víceúrovňová verifikace)* |
+| **Velikost kontextu (`num_ctx`)** | **4 096 tokenů** | **8 192 tokenů** | **10 240 tokenů** |
+| **Max. počet tokenů (`num_predict`)** | **2 560 tokenů** | **4 096 tokenů** | **5 120 tokenů** |
+| **Max. rozlišení výřezu (`max_side`)** | **1 024 px** | **1 280 px** | **1 280 px** *(ostrost detailů bez zahlcení paměti)* |
 | **Teplota (`temperature`)** | `0.15` | `0.12` | `0.08` *(maximální determinismus a přesnost)* |
-| **Top-P / Repeat Penalty** | `0.90` / `1.07` | `0.88` / `1.08` | `0.85` / `1.10` |
-| **Extra spotřeba RAM / VRAM (KV-cache)** | **+ ~350 – 500 MB** | **+ ~700 – 900 MB** | **+ ~1.1 – 1.4 GB** *(bezpečný strop)* |
-| **Typická doba generování (GPU)** | **~3 – 7 s** | **~6 – 14 s** | **~10 – 25 s** *(dle GPU)* |
+| **Top-P / Repeat Penalty** | `0.90` / `1.07` | `0.88` / `1.09` | `0.85` / `1.10` |
+| **Extra spotřeba RAM / VRAM (KV-cache)** | **+ ~350 – 500 MB** | **+ ~600 – 800 MB** | **+ ~800 – 1 100 MB** *(bezpečný strop)* |
+| **Typická doba generování (GPU)** | **~1.5 – 3 s** | **~4 – 8 s** | **~6 – 14 s** *(dle GPU)* |
 
 ---
 

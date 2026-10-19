@@ -48,91 +48,14 @@ _CLI_DETECTED_DEVICE: Optional[str] = None
 
 def _detect_device_from_shell_and_args() -> Optional[str]:
     r"""
-    Detects whether CPU mode is requested via:
-      1. Direct CLI arguments: `@\`, `"@\"`, `@\ CPU`, `&& CPU`, `CPU`, `--cpu`, `-c`
-      2. Environment variable: `AI_LENS_DEVICE=cpu`
-      3. Shell history or parent CMDCMDLINE or active Console Screen Buffer (`CONOUT$`)
-         when run as `.\\ai-lens.bat cs High @\` in CMD or PowerShell.
+    Detects whether CPU or GPU mode is requested via environment variable AI_LENS_DEVICE.
+    Direct CLI arguments (CPU, @\, --cpu, etc.) are parsed directly from sys.argv.
     """
-    import re
-    import time
-
-    # 1. Environment variable
     env_dev = os.environ.get("AI_LENS_DEVICE", "").strip().lower()
     if env_dev in ("cpu", "procesor", "@\\", "@/"):
         return "cpu"
     if env_dev == "gpu":
         return "gpu"
-
-    # 2. Windows CMDCMDLINE
-    cmdcmdline = os.environ.get("CMDCMDLINE", "")
-    if re.search(r"ai-lens.*(@\\|@/|\"@\\\"|@\s*cpu|&&\s*cpu|--cpu|\bcpu\b)", cmdcmdline, re.I):
-        return "cpu"
-
-    # 3. PSReadLine history (within last 8 seconds)
-    try:
-        appdata = os.environ.get("APPDATA", "")
-        if appdata:
-            p = (
-                Path(appdata)
-                / "Microsoft"
-                / "Windows"
-                / "PowerShell"
-                / "PSReadLine"
-                / "ConsoleHost_history.txt"
-            )
-            if p.exists() and (time.time() - p.stat().st_mtime) < 8.0:
-                lines = p.read_text(encoding="utf-8", errors="replace").splitlines()
-                if lines and re.search(r"ai-lens.*(@\\|@/|\"@\\\"|@\s*cpu|&&\s*cpu|--cpu|\bcpu\b)", lines[-1], re.I):
-                    return "cpu"
-                if lines and re.search(r"ai-lens.*(@\\gpu|&&\s*gpu|--gpu|\bgpu\b)", lines[-1], re.I):
-                    return "gpu"
-    except Exception:
-        pass
-
-    # 4. Windows Console Screen Buffer (CONOUT$)
-    if sys.platform == "win32":
-        try:
-            k32 = ctypes.windll.kernel32
-
-            class COORD(ctypes.Structure):
-                _fields_ = [("X", ctypes.c_short), ("Y", ctypes.c_short)]
-
-            class SMALL_RECT(ctypes.Structure):
-                _fields_ = [
-                    ("Left", ctypes.c_short),
-                    ("Top", ctypes.c_short),
-                    ("Right", ctypes.c_short),
-                    ("Bottom", ctypes.c_short),
-                ]
-
-            class CSBI(ctypes.Structure):
-                _fields_ = [
-                    ("dwSize", COORD),
-                    ("dwCursorPosition", COORD),
-                    ("wAttributes", ctypes.c_ushort),
-                    ("srWindow", SMALL_RECT),
-                    ("dwMaximumWindowSize", COORD),
-                ]
-
-            h = k32.CreateFileW("CONOUT$", 0xC0000000, 3, None, 3, 0, None)
-            if h and h != -1:
-                csbi = CSBI()
-                if k32.GetConsoleScreenBufferInfo(h, ctypes.byref(csbi)):
-                    w = csbi.dwSize.X
-                    y_start = max(0, csbi.dwCursorPosition.Y - 4)
-                    for r in range(y_start, csbi.dwCursorPosition.Y + 1):
-                        buf = ctypes.create_unicode_buffer(w)
-                        read = ctypes.c_ulong()
-                        k32.ReadConsoleOutputCharacterW(h, buf, w, COORD(0, r), ctypes.byref(read))
-                        line_str = buf.value.strip()
-                        if re.search(r"ai-lens.*(@\\|@/|\"@\\\"|@\s*cpu|&&\s*cpu|--cpu|\bcpu\b)", line_str, re.I):
-                            k32.CloseHandle(h)
-                            return "cpu"
-                k32.CloseHandle(h)
-        except Exception:
-            pass
-
     return None
 
 

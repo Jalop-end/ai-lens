@@ -86,26 +86,26 @@ LANGUAGE_ALIASES: dict[str, str] = {
 THINKING_LEVELS_GPU: dict[str, dict[str, Any]] = {
     "low": {
         "label": "Low",
-        "think": True,
+        "think": False,
         "num_ctx": 4096,
         "num_predict": 2560,
         "max_image_side": 1024,
         "temperature": 0.15,
         "top_p": 0.9,
         "repeat_penalty": 1.07,
-        "accuracy_cs": "Vysoká (pečlivé ověření vizuálních znaků, textu i otázek krok za krokem — dříve Medium)",
-        "accuracy_en": "High (careful step-by-step verification of visual features, text, and questions — formerly Medium)",
-        "context_info_cs": "Vyvážený, bohatý kontext (1–2 odstavce: u zvířete/rostliny/věci uvede druh/plemeno, výskyt, potravu/funkci a zajímavost; u textu vysvětlí význam a souvislosti)",
-        "context_info_en": "Balanced, rich context (1–2 paragraphs: for animals/objects covers species/breed, habitat, diet/function & key facts; for text explains meaning & background)",
-        "desc_cs": "Rychlý vyvážený režim na GPU (2560 tokenů, kontext 4096, zapnuté přemýšlení a bohaté informace)",
-        "desc_en": "Fast balanced mode on GPU (2560 tokens, 4096 context, active thinking & rich background info)",
+        "accuracy_cs": "Vysoká (rychlé ověření vizuálních znaků, textu i otázek krok za krokem — dříve Medium)",
+        "accuracy_en": "High (quick step-by-step verification of visual features, text, and questions — formerly Medium)",
+        "context_info_cs": "Vyvážený, bohatý kontext (1–2 odstavce: u zvířete/rostliny/věci uvede druh/plemeno, výskyt, potravu/funkci a zajímavost; bleskový start bez čekání)",
+        "context_info_en": "Balanced, rich context (1–2 paragraphs: for animals/objects covers species/breed, habitat, diet/function & key facts; instant start without waiting)",
+        "desc_cs": "Bleskový vyvážený režim na GPU (2560 tokenů, kontext 4096, okamžitý start streamování do 1–2 s)",
+        "desc_en": "Instant balanced mode on GPU (2560 tokens, 4096 context, streams in 1–2 s)",
     },
     "medium": {
         "label": "Medium",
         "think": True,
-        "num_ctx": 10240,
-        "num_predict": 5120,
-        "max_image_side": 1408,
+        "num_ctx": 8192,
+        "num_predict": 4096,
+        "max_image_side": 1280,
         "temperature": 0.12,
         "top_p": 0.88,
         "repeat_penalty": 1.09,
@@ -113,15 +113,15 @@ THINKING_LEVELS_GPU: dict[str, dict[str, Any]] = {
         "accuracy_en": "Very High (deep detail verification, distinguishing look-alike species/breeds & solving tricky questions — above former High)",
         "context_info_cs": "Rozšířený hloubkový kontext (2–3 detailní odstavce: přesný druh/plemeno, diagnostické znaky, biotop/výskyt, potrava/chování či princip fungování a souvislosti)",
         "context_info_en": "Extended deep context (2–3 detailed paragraphs: exact species/breed, diagnostic traits, habitat, diet/behavior or mechanism & background)",
-        "desc_cs": "Rozšířený režim na GPU (vyšší než dřívější High: 5120 tokenů, kontext 10240, výřez 1408px, hloubkový rozbor)",
-        "desc_en": "Extended mode on GPU (higher than former High: 5120 tokens, 10240 context, 1408px crop, deep analysis)",
+        "desc_cs": "Rozšířený režim na GPU (vyšší než dřívější High: 4096 tokenů, kontext 8192, výřez 1280px, hloubkový rozbor)",
+        "desc_en": "Extended mode on GPU (higher than former High: 4096 tokens, 8192 context, 1280px crop, deep analysis)",
     },
     "high": {
         "label": "High",
         "think": True,
-        "num_ctx": 16384,
-        "num_predict": 8192,
-        "max_image_side": 1600,
+        "num_ctx": 10240,
+        "num_predict": 5120,
+        "max_image_side": 1280,
         "temperature": 0.08,
         "top_p": 0.85,
         "repeat_penalty": 1.1,
@@ -129,8 +129,8 @@ THINKING_LEVELS_GPU: dict[str, dict[str, Any]] = {
         "accuracy_en": "Maximum Encyclopedic (multi-pass verification of fine details, scales, pupils, coat patterns & diacritics)",
         "context_info_cs": "Vyčerpávající encyklopedický profil (kompletní taxonomie, anatomické znaky ze snímku, výskyt, ekologie, jedovatost/záměny, historie a vědecké zajímavosti)",
         "context_info_en": "Exhaustive encyclopedic profile (full taxonomy, anatomical traits from image, habitat, ecology, venom/look-alikes, history & scientific facts)",
-        "desc_cs": "Maximální režim na GPU (8192 tokenů, kontext 16384, výřez 1600px – maximální detail i kontext s bezpečným limitem RAM)",
-        "desc_en": "Maximum mode on GPU (8192 tokens, 16384 context, 1600px crop – maximum detail & context with safe RAM cap)",
+        "desc_cs": "Maximální režim na GPU (5120 tokenů, kontext 10240, výřez 1280px – encyklopedický profil s bleskovou GPU akcelerací)",
+        "desc_en": "Maximum mode on GPU (5120 tokens, 10240 context, 1280px crop – encyclopedic profile with fast GPU acceleration)",
     },
 }
 
@@ -950,22 +950,25 @@ def warmup_local_model(
     """
     safe_host = validate_local_ollama_host(ollama_host)
     norm_dev = normalize_compute_device(compute_device)
-    num_gpu = 0 if norm_dev == "cpu" else -1
     if num_ctx is None:
         cfg = get_thinking_level_config(thinking_level, norm_dev)
-        ctx_val = int(cfg.get("num_ctx", 10240 if norm_dev == "gpu" else 2560))
+        ctx_val = int(cfg.get("num_ctx", 8192 if norm_dev == "gpu" else 2560))
     else:
         ctx_val = int(num_ctx)
+
+    options: dict[str, Any] = {
+        "temperature": temperature,
+        "num_ctx": ctx_val,
+    }
+    # Only force CPU if explicitly in CPU mode. On GPU, omit num_gpu so Ollama offloads all layers.
+    if norm_dev == "cpu":
+        options["num_gpu"] = 0
 
     url = f"{safe_host}/api/chat"
     payload = {
         "model": model,
         "messages": [],
-        "options": {
-            "temperature": temperature,
-            "num_gpu": num_gpu,
-            "num_ctx": ctx_val,
-        },
+        "options": options,
         "keep_alive": keep_alive,
     }
     for attempt in range(2):
@@ -1081,8 +1084,7 @@ class VisionInferenceWorker(QThread):
         t0 = time.perf_counter()
         url = f"{self.ollama_host}/api/chat"
         ui = get_ui_strings(self.language)
-        max_side = int(self.tier_cfg.get("max_image_side", 1408))
-        num_gpu = 0 if self.compute_device == "cpu" else -1
+        max_side = int(self.tier_cfg.get("max_image_side", 1280))
         b64_img = ""
         messages: list[dict[str, Any]] = []
 
@@ -1120,18 +1122,22 @@ class VisionInferenceWorker(QThread):
                     }
                 )
 
+            options: dict[str, Any] = {
+                "temperature": self.temperature,
+                "num_ctx": int(self.tier_cfg.get("num_ctx", 8192)),
+                "num_predict": int(self.tier_cfg.get("num_predict", 4096)),
+                "top_p": float(self.tier_cfg.get("top_p", 0.88)),
+                "repeat_penalty": float(self.tier_cfg.get("repeat_penalty", 1.09)),
+            }
+            # Only set num_gpu when forcing CPU mode (0). On GPU, omit num_gpu so Ollama uses all GPU layers natively.
+            if self.compute_device == "cpu":
+                options["num_gpu"] = 0
+
             payload: dict[str, Any] = {
                 "model": self.model,
                 "messages": messages,
                 "think": self.think,
-                "options": {
-                    "temperature": self.temperature,
-                    "num_gpu": num_gpu,
-                    "num_ctx": int(self.tier_cfg.get("num_ctx", 10240)),
-                    "num_predict": int(self.tier_cfg.get("num_predict", 5120)),
-                    "top_p": float(self.tier_cfg.get("top_p", 0.88)),
-                    "repeat_penalty": float(self.tier_cfg.get("repeat_penalty", 1.09)),
-                },
+                "options": options,
                 "stream": True,
                 "keep_alive": "30m",
             }

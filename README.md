@@ -66,13 +66,13 @@ flowchart TD
 
 - **100% Local & Private:** Runs entirely on `127.0.0.1` via local Ollama. Zero external cloud APIs, zero tracking, zero telemetry.
 - **GPU Accelerated by Default with Instant `CPU` / `@\` Terminal Switch:**
-  - By default, AI Lens runs on your **GPU** (`num_gpu: -1` offloading all layers) for maximum responsiveness and encyclopedic depth.
+  - By default, AI Lens runs on your **GPU** offloading all layers directly to high-speed VRAM for maximum responsiveness and encyclopedic depth.
   - Switch to pure **CPU** execution anytime simply by appending **`CPU`** or **`@\`** to your command (e.g. `.\ai-lens.bat cs High CPU` or `.\ai-lens.bat cs Low CPU`).
   - **Dynamic Dual-Profile Tuning:** When running on CPU, AI Lens automatically applies a lightweight, responsive profile (shorter tokens, optimized crop, direct concise answers) to ensure fast completion in seconds instead of minutes.
 - **3 Powerfully Boosted Thinking Depth & Factual Context Tiers (`Low`, `Medium`, `High`):**
-  - **`Low`** on GPU is boosted to the power of former Medium (`2560` tokens / `4096` context window / `1024px` image / `think=True`). On CPU, it delivers instant direct answers in ~1.5–3 s (`384` tokens / `think=False`).
-  - **`Medium`** on GPU is expanded above former High (`5120` tokens / `10240` context window / `1408px` image / `think=True`). On CPU, it provides a balanced 1-paragraph summary in ~4–8 s (`768` tokens / `2560` context).
-  - **`High`** on GPU is maximized for encyclopedic depth (`8192` tokens / `16384` context window / `1600px` image / `think=True`). On CPU, it provides thorough verification in ~8–15 s (`1280` tokens / `4096` context).
+  - **`Low`** on GPU is boosted to the power of former Medium (`2560` tokens / `4096` context window / `1024px` image / `think=False` for instant ~1.5–3 s streaming). On CPU, it delivers instant direct answers in ~1.5–3 s (`384` tokens / `think=False`).
+  - **`Medium`** on GPU is expanded above former High (`4096` tokens / `8192` context window / `1280px` image / `think=True`). On CPU, it provides a balanced 1-paragraph summary in ~4–8 s (`768` tokens / `2560` context).
+  - **`High`** on GPU is maximized for encyclopedic depth (`5120` tokens / `10240` context window / `1280px` image / `think=True`). On CPU, it provides thorough verification in ~8–15 s (`1280` tokens / `4096` context).
 - **Calibrated Biological Recognition & Skeptical Animal Confidence Scores (`🎯 XX %`):**
   - **Strictly Calibrated for Animals & Domestic Breeds:** Distinguishing domestic cat breeds, mixed-breed dogs, or reptiles without close-up head scale/pupil details is challenging. AI Lens uses a skeptical, realistic probability range (**38–65%** for ambiguous look-alikes or partial views; **25–45%** if distant/blurry) and reserves high confidence (**85–95%**) exclusively for textbook unmistakable specimens with zero look-alikes (e.g., an adult male lion with full mane, giraffe, zebra).
   - Every probability estimate is followed by a **1-sentence rationale** explaining which visual traits confirmed the identification or which alternative look-alike species could not be ruled out.
@@ -103,17 +103,17 @@ AI Lens features a **Dual-Profile Architecture**:
 
 ### [1] GPU Profile (Default — Boosted Encyclopedic Depth)
 
-When running on GPU (`num_gpu: -1`), dedicated VRAM bandwidth (~300–1000 GB/s) and parallel tensor cores process tokens in milliseconds:
+When running on GPU (default hardware acceleration offloading all layers directly into VRAM), dedicated high-bandwidth memory (~300–1000 GB/s) and parallel tensor cores process tokens in milliseconds:
 
 | Tier | CLI Command Example | Answer Accuracy & Factual Context (e.g. Circling an Animal, Object, or Text) | Tokens (`num_predict`) / Window (`num_ctx`) | Max Image Detail (`max_side`) | Typical Generation Time & Trade-Off |
 |---|---|---|---|---|---|
-| **`Low`** *(Boosted to former Medium)* | `.\ai-lens.bat en Low`<br>`.\ai-lens.bat cs Low` | **High Accuracy & Balanced Context (1–2 paragraphs):** Boosted to the former Medium tier! Identifies the animal/plant/object/text, explains key traits, function, and habitat with active step-by-step reasoning (`think=True`). | `2560` / `4096` tokens | `1024 px` | **Fast (~3–7 s on GPU), minimal RAM overhead (~350–500 MB).** Great everyday balance. |
-| **`Medium`** *(Expanded above former High)* | `.\ai-lens.bat en Medium`<br>`.\ai-lens.bat cs Medium` | **Very High Accuracy & Deep Context (2–3 paragraphs):** Exceeds the former High tier. Thorough visual verification, taxonomy/origin, comprehensive diet/mechanics, and nuanced analysis of tricky questions (`think=True`). | `5120` / `10240` tokens | `1408 px` | **High detail (~6–14 s on GPU), moderate KV-cache (~700–900 MB).** Recommended for most analytical tasks. |
-| **`High`** *(Maximally Boosted Encyclopedic Depth)* | `.\ai-lens.bat en High`<br>`.\ai-lens.bat cs High` | **Maximum Accuracy & Encyclopedic Profile:** Distinguishes look-alikes and tricky variants, provides exhaustive biological profiles (species, subspecies, look-alike comparisons, anatomical details, behavior, history) or step-by-step mathematical/linguistic proofs (`think=True`). | `8192` / `16384` tokens | `1600 px` *(ultra-fine details & diacritics)* | **Deepest reasoning (~10–25 s on GPU).** Bounded memory footprint (~1.1–1.4 GB KV cache) prevents RAM starvation. |
+| **`Low`** *(Boosted & Bleskový)* | `.\ai-lens.bat en Low`<br>`.\ai-lens.bat cs Low` | **High Accuracy & Balanced Context (1–2 paragraphs):** Boosted to former Medium tokens! Direct instant answers without lengthy hidden thought pause (`think=False`). | `2560` / `4096` tokens | `1024 px` | **Bleskový (~1.5–3 s on GPU), minimal RAM overhead (~350–500 MB).** Great everyday balance. |
+| **`Medium`** *(Expanded above former High)* | `.\ai-lens.bat en Medium`<br>`.\ai-lens.bat cs Medium` | **Very High Accuracy & Deep Context (2–3 paragraphs):** Exceeds the former High tier. Thorough visual verification, taxonomy/origin, comprehensive diet/mechanics, and step-by-step reasoning (`think=True`). | `4096` / `8192` tokens | `1280 px` | **High detail (~4–8 s on GPU), moderate KV-cache (~600–800 MB).** Recommended for most analytical tasks. |
+| **`High`** *(Maximally Boosted Encyclopedic Depth)* | `.\ai-lens.bat en High`<br>`.\ai-lens.bat cs High` | **Maximum Accuracy & Encyclopedic Profile:** Distinguishes look-alikes and tricky variants, provides exhaustive biological profiles (species, subspecies, look-alike comparisons, anatomical details, behavior, history) with deep reasoning (`think=True`). | `5120` / `10240` tokens | `1280 px` *(fine details & diacritics without memory bloat)* | **Deepest reasoning (~6–14 s on GPU).** Bounded memory footprint (~800–1100 MB KV cache) prevents RAM starvation. |
 
 > [!NOTE]
 > **RAM Safety on Weak PCs:**
-> Even in `High` mode with 16,384 context tokens, AI Lens explicitly bounds Ollama's context allocation (`num_ctx: 16384`), preventing Ollama from defaulting to a 65,536-token context (~10 GB overhead). This ensures smooth local execution without freezing system memory.
+> Even in `High` mode with 10,240 context tokens, AI Lens explicitly bounds Ollama's context allocation (`num_ctx: 10240`), preventing Ollama from defaulting to a 65,536-token context (~10 GB overhead). This ensures smooth local execution without freezing system memory.
 
 ---
 
