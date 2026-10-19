@@ -90,8 +90,12 @@ THINKING_LEVELS: dict[str, dict[str, Any]] = {
         "temperature": 0.2,
         "top_p": 0.9,
         "repeat_penalty": 1.05,
-        "desc_cs": "Rychlý režim (nízké nároky na RAM, nejrychlejší odpověď, základní uvažování)",
-        "desc_en": "Fast mode (lowest RAM usage, fastest generation, basic reasoning)",
+        "accuracy_cs": "Základní / Rychlá (okamžitá identifikace hlavního objektu či textu)",
+        "accuracy_en": "Standard / Fast (instant identification of main object or text)",
+        "context_info_cs": "Stručný kontext (2–4 věty: přesné určení + 1–2 základní informace o zvířeti, věci či textu)",
+        "context_info_en": "Concise context (2–4 sentences: accurate identification + 1–2 basic facts about the animal, object, or text)",
+        "desc_cs": "Rychlý režim (nízké nároky na RAM, nejrychlejší odpověď, stručný kontext o zvířeti/objektu/textu)",
+        "desc_en": "Fast mode (lowest RAM usage, fastest generation, concise context about the animal/object/text)",
     },
     "medium": {
         "label": "Medium",
@@ -102,8 +106,12 @@ THINKING_LEVELS: dict[str, dict[str, Any]] = {
         "temperature": 0.15,
         "top_p": 0.9,
         "repeat_penalty": 1.07,
-        "desc_cs": "Vyvážený režim (střední hloubka myšlení, 2560 tokenů, pečlivá kontrola otázek a posloupností)",
-        "desc_en": "Balanced mode (medium thinking depth, 2560 tokens, careful verification of questions & sequences)",
+        "accuracy_cs": "Vysoká (pečlivé ověření vizuálních znaků, textu i otázek krok za krokem)",
+        "accuracy_en": "High (careful step-by-step verification of visual features, text, and questions)",
+        "context_info_cs": "Vyvážený, bohatý kontext (1–2 odstavce: u zvířete/rostliny/věci uvede druh, výskyt, potravu/funkci a zajímavost; u textu vysvětlí význam a souvislosti)",
+        "context_info_en": "Balanced, rich context (1–2 paragraphs: for animals/objects covers species, habitat, diet/function & key facts; for text explains meaning & background)",
+        "desc_cs": "Vyvážený režim (vysoká přesnost, 2560 tokenů, bohaté informace o zakroužkovaném zvířeti, věci či textu)",
+        "desc_en": "Balanced mode (high accuracy, 2560 tokens, rich background information on circled animals, objects, or text)",
     },
     "high": {
         "label": "High",
@@ -114,8 +122,12 @@ THINKING_LEVELS: dict[str, dict[str, Any]] = {
         "temperature": 0.1,
         "top_p": 0.85,
         "repeat_penalty": 1.1,
-        "desc_cs": "Hluboké myšlení (4096 tokenů, vysoké rozlišení detailů, krok-za-krokem kontrola abecedy, diakritiky a chytáků; delší doba generování)",
-        "desc_en": "Deep thinking (4096 tokens, high detail resolution, step-by-step verification of alphabets, diacritics & tricky puzzles; longer generation time)",
+        "accuracy_cs": "Maximální (hloubková kontrola detailů, rozlišení podobných druhů/pojmů, nulová tolerance k drobným chybám)",
+        "accuracy_en": "Maximum (deep verification of fine details, distinguishing look-alike species/concepts, zero tolerance for small errors)",
+        "context_info_cs": "Hluboký encyklopedický kontext (kompletní profil: přesné zařazení/druh, anatomie/vlastnosti, prostředí, způsob života/fungování, význam a zajímavé souvislosti)",
+        "context_info_en": "Deep encyclopedic context (comprehensive profile: exact species/classification, anatomy/properties, habitat, behavior/mechanism, significance & facts)",
+        "desc_cs": "Hluboké myšlení (maximální přesnost, 4096 tokenů, hluboký encyklopedický kontext o zvířatech/věcech/textu a pečlivé řešení chytáků; delší doba generování)",
+        "desc_en": "Deep thinking (maximum accuracy, 4096 tokens, deep encyclopedic context on animals/objects/text & tricky puzzles; longer generation time)",
     },
 }
 
@@ -581,28 +593,46 @@ def build_system_prompt(lang: Optional[str] = "cs", thinking_level: Optional[str
             "Keep your internal reasoning concise and direct, but always verify the exact visual details, "
             "numbers, diacritics, and context both before and after any blank (_) before answering."
         )
+        context_depth_instruction = (
+            "FACTUAL CONTEXT & ACCURACY LEVEL (LOW — CONCISE):\n"
+            "- Provide a clear, accurate, concise response (2-4 sentences): accurately identify what is in the image "
+            "(e.g. if an animal, plant, object, or text is circled, state what it is and give 1-2 key factual highlights about it)."
+        )
     elif level == "high":
         thinking_instruction = (
             "THINK DEEPLY, CRITICALLY, AND METHODICALLY STEP BY STEP before producing your answer:\n"
-            "  a) Visual & OCR Precision: Carefully inspect every visual detail, object, diagram, symbol, number, math operator "
-            "(+, -, ×, ÷, =, <, >), and letter including fine diacritical marks (e.g. carons/háčky č, ď, ě, ň, ř, š, ť, ž and accents á, é, í, ó, ú, ů, ý). "
-            "Never guess from a blurry first impression.\n"
+            "  a) Visual & OCR Precision: Carefully inspect every visual detail (body shape, markings, anatomy of animals/plants, "
+            "object structure, diagrams, symbols, numbers, math operators +, -, ×, ÷, =, <, >, and fine diacritical marks). "
+            "Distinguish look-alike species, objects, or terms accurately—never guess from a superficial glance.\n"
             "  b) Context Around Blanks / Missing Elements: Whenever a letter, word, number, or step is missing ('_', '___', '...', '?'), "
             "explicitly examine BOTH what comes immediately BEFORE the blank AND what comes immediately AFTER the blank. "
-            "Make sure your answer bridges both sides logically (for example, in a diacritic alphabet sequence like 'abc_dď' where 'd, ď' are already after '_', "
-            "the missing element is 'č'; in a number series, check the step between adjacent terms; in a sentence, check grammar and meaning on both sides). "
-            "Never propose an answer that duplicates an element already written right next to the blank.\n"
-            "  c) Logic, Math, Quizzes & Negations: For math or logic problems, compute step by step and verify by substituting the result back. "
-            "For multiple-choice questions (A/B/C/D), evaluate every option and watch out for negations ('NOT', 'NENÍ', 'NEPLATÍ').\n"
-            "  d) Final Self-Check: Ask yourself if there is any small trap, oversight, or contradiction between your conclusion and the image before writing the final response."
+            "Make sure your answer bridges both sides logically without duplicating an element already written right next to the blank.\n"
+            "  c) Logic, Math, Quizzes & Negations: Compute step by step, verify by substitution, and watch out for negations ('NOT', 'NENÍ', 'NEPLATÍ').\n"
+            "  d) Final Self-Check: Verify there is zero contradiction between the visual evidence and your conclusion."
+        )
+        context_depth_instruction = (
+            "FACTUAL CONTEXT & ACCURACY LEVEL (HIGH — DEEP & ENCYCLOPEDIC):\n"
+            "- Deliver maximum factual accuracy and rich, comprehensive background context:\n"
+            "  - When an animal, plant, or natural subject is circled: identify the exact species/group, describe its visible features, "
+            "and provide rich encyclopedic context (where it lives/habitat, diet, typical behavior, notable traits, and an interesting fact).\n"
+            "  - When an object, device, landmark, person, or artwork is circled: identify it precisely and explain its purpose, how it works, "
+            "origin/history, and key characteristics.\n"
+            "  - When text, a term, code, or a question is circled: explain the full meaning, background context, and step-by-step reasoning."
         )
     else:  # medium
         thinking_instruction = (
             "Think carefully step by step before answering:\n"
             "  - Read every character, diacritic, number, math sign, and visual detail accurately.\n"
             "  - Whenever solving a question, sequence, math problem, or fill-in-the-blank, inspect the full context both BEFORE and AFTER any missing part '_' "
-            "(e.g. checking adjacent letters/diacritics such as 'abc_dď' -> 'č', numerical steps, grammatical agreement, or quiz options) so you avoid careless mistakes.\n"
+            "so you avoid careless mistakes.\n"
             "  - Double-check your conclusion before writing the final response."
+        )
+        context_depth_instruction = (
+            "FACTUAL CONTEXT & ACCURACY LEVEL (MEDIUM — BALANCED & INFORMATIVE):\n"
+            "- Provide high accuracy along with well-structured, informative context (1-2 paragraphs):\n"
+            "  - If an animal, plant, or object is circled, accurately identify it, describe what is visible, and share useful factual information "
+            "about it (such as its species/category, habitat or function, diet/traits, and key characteristics).\n"
+            "  - If text, code, or a concept is circled, explain its meaning and relevant context clearly."
         )
 
     return (
@@ -614,12 +644,13 @@ def build_system_prompt(lang: Optional[str] = "cs", thinking_level: Optional[str
         f"REASONING & VERIFICATION DEPTH ({level.upper()} MODE):\n"
         f"{thinking_instruction}\n"
         f"(Also remember that text on screen may be in {en_name} or another language; e.g. in Czech 'had' means snake, not the English verb 'had'.)\n\n"
+        f"{context_depth_instruction}\n\n"
         f"LANGUAGE RULE:\n"
         f"- Always write your entire visible response in natural, fluent, grammatically correct {en_name} ({native_name}) "
         f"using standard everyday vocabulary (never invent nonexistent words or awkward literal translations).\n\n"
         f"CONTENT & QUESTION RULES:\n"
-        f"1. Visual Description: Always accurately describe what you actually see in the image (animals, plants, objects, people, places, UI, diagrams, or text) "
-        f"and share relevant, factual context like a classic AI model. Never claim to see an animal or object that is not in the image, "
+        f"1. Visual Description & Informative Context: Always accurately describe what you actually see in the image (animals, plants, objects, people, places, UI, diagrams, or text) "
+        f"and provide factual information/context about it matching the active {level.upper()} context level. Never claim to see an animal or object that is not in the image, "
         f"and never invent absurd stories to connect a wrong guess with a label.\n"
         f"2. Standard Questions / Quizzes / Tests / Logic & Math Problems: If the circled region contains a question, test item, multiple-choice quiz, or problem, "
         f"describe what is shown, ALWAYS provide the direct, verified answer to the question, and clearly explain WHY that answer is correct.\n"

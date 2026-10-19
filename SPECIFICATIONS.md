@@ -51,13 +51,20 @@ Spotřeba systémových prostředků se dělí na samotnou aplikaci **AI Lens (P
 
 ---
 
-## 4. Specifikace úrovní myšlení: `Low` vs. `Medium` vs. `High`
+## 4. Specifikace úrovní myšlení, přesnosti odpovědí a šíře kontextu: `Low` vs. `Medium` vs. `High`
 
-Úroveň hloubky myšlení určuje, kolik výpočetního prostoru (tokenů, kontextového okna a rozlišení obrazu) model dostane na analýzu zakroužkovaného výřezu. Všechny tři úrovně jsou navrženy tak, aby **běžely lokálně i na slabších počítačích**:
+Pojem **„kontext“** v režimech **`Low`**, **`Medium`** a **`High`** zahrnuje dvě věci:
+1. **Přesnost odpovědi a bohatost faktických informací o zakroužkovaném objektu/textu** (např. když zakroužkuješ zvíře, rostlinu, předmět, budovu nebo odborný pojem, kolik souvisejících informací a jak hluboký popis o něm dostaneš).
+2. **Technickou kapacitu modelu** (velikost kontextového okna `num_ctx`, maximální počet generovaných tokenů `num_predict`, rozlišení výřezu a hloubku interního ověřování).
 
-| Parametr | `Low` (Rychlý režim) | `Medium` (Vyvážený – Výchozí) | `High` (Hluboké myšlení) |
+Všechny tři úrovně jsou navrženy tak, aby **běžely lokálně i na slabších počítačích**:
+
+| Parametr | `Low` (Rychlý režim) | `Medium` (Vyvážený – Výchozí) | `High` (Hluboké myšlení & Encyklopedický kontext) |
 |---|---|---|---|
 | **Spuštění z terminálu** | `ai-lens cs Low` | `ai-lens cs Medium` *(nebo `ai-lens cs`)* | `ai-lens cs High` |
+| **Přesnost odpovědí** | **Základní / Rychlá** (okamžitá identifikace hlavního objektu či textu) | **Vysoká** (pečlivé ověření vizuálních znaků, textu i otázek krok za krokem) | **Maximální** (hloubková kontrola detailů, rozlišení podobných druhů/pojmů, nulová tolerance k drobným chybám) |
+| **Faktický kontext (např. když zakroužkuješ zvíře / rostlinu / věc)** | **Stručný kontext (2–4 věty):** přesně určí, o jaké zvíře/věc jde, a přidá 1–2 nejdůležitější fakta. | **Vyvážený, bohatý kontext (1–2 odstavce):** určí druh/kategorii, popíše vzhled na snímku a doplní výskyt (kde žije), potravu/funkci a zajímavost. | **Hluboký encyklopedický kontext (kompletní profil):** přesné druhové zařazení, rozlišení od podobných druhů, anatomické znaky, prostředí, potrava, chování/fungování, historie a zajímavé souvislosti. |
+| **Faktický kontext u textu, kódu a otázek** | Rychlé shrnutí významu nebo přímá odpověď se stručným důvodem. | Jasné vysvětlení významu, kontextu věty/kódu a srozumitelné zdůvodnění správné odpovědi. | Kompletní rozbor významu, kontrola kontextu před i za vynechaným místem (`_`), odhalení chytáků a podrobný postup krok za krokem. |
 | **Interní přemýšlení (`think`)** | `False` (vypnuto – přímá odpověď) | `True` (zapnuto – krok za krokem) | `True` (hluboká víceúrovňová verifikace) |
 | **Velikost kontextu (`num_ctx`)** | **2 048 tokenů** | **4 096 tokenů** | **8 192 tokenů** |
 | **Max. počet tokenů (`num_predict`)** | **1 024 tokenů** | **2 560 tokenů** | **4 096 tokenů** |
@@ -66,7 +73,6 @@ Spotřeba systémových prostředků se dělí na samotnou aplikaci **AI Lens (P
 | **Top-P / Repeat Penalty** | `0.90` / `1.05` | `0.90` / `1.07` | `0.85` / `1.10` |
 | **Extra spotřeba RAM (KV-cache)** | **+ ~150 – 250 MB RAM** | **+ ~350 – 500 MB RAM** | **+ ~650 – 950 MB RAM** |
 | **Typická doba generování** | **~1 – 4 s** | **~5 – 12 s** | **~10 – 25 s** *(dle výkonu CPU/GPU)* |
-| **Ideální použití** | Rychlý popis obrázků, běžný překlad textu na slabších noteboocích | Běžné otázky, doplňovačky, vysvětlení kódu a chybových hlášek | Chytáky, logické a matematické úlohy, posloupnosti, jemné znaky/diakritika, testy |
 
 ---
 
@@ -98,4 +104,25 @@ V rámci bezpečnostního auditu zdrojového kódu byly prověřeny všechny pot
 | **4. HTML / XSS / Link Injection v okně odpovědi (`QTextBrowser`)** | **CHRÁNĚNO** | Všechen text z modelu prochází přes `html.escape()` v [`ai_lens/popover.py`](ai_lens/popover.py), takže žádné HTML značky (`<script>`, `<img>`, `<iframe>`) ze snímku obrazovky se nemohou vykonat. Navíc má `QTextBrowser` nastaveno `setOpenExternalLinks(False)` i `setOpenLinks(False)`. |
 | **5. Visual Prompt Injection (škodlivé instrukce v textu na obrazovce)** | **CHRÁNĚNO** | Systémový prompt obsahuje explicitní `SECURITY & PROMPT-INJECTION GUARD` (veškerý text na snímku je brán jako nedůvěryhodná data, nikoli příkazy). Navíc model **nemá přístup k žádným systémovým nástrojům, souborům ani příkazové řádce** – generuje pouze čistý text. |
 | **6. Spouštění podprocesů (Command Injection / Binary Hijacking)** | **CHRÁNĚNO** | Funkce `_try_start_ollama_service()` nepoužívá shell (`shell=False`), ověřuje binárku přes `shutil.which("ollama")` a předává pevné pole argumentů `[ollama_bin, "serve"]` s odpojeným `stdin`/`stdout`/`stderr`. |
-| **7. Podvržení hodnôt v `config.json` (Buffer / UI DoS)** | **CHRÁNĚNO** | Funkce `load_config()` v [`ai_lens/overlay.py`](ai_lens/overlay.py) omezuje (clampuje) všechny číselné hodnoty do bezpečných mezí (`padding` 0–200 px, `border_width` 1–20 px, `temperature` 0.0–2.0). |
+| **7. Podvržení hodnot v `config.json` (Buffer / UI DoS)** | **CHRÁNĚNO** | Funkce `load_config()` v [`ai_lens/overlay.py`](ai_lens/overlay.py) omezuje (clampuje) všechny číselné hodnoty do bezpečných mezí (`padding` 0–200 px, `border_width` 1–20 px, `temperature` 0.0–2.0). |
+
+---
+
+## 7. Živá diagnostika přímo v příkazové řádce (CLI)
+
+Veškeré specifikace, aktuální vytížení systémové RAM/CPU, přehled přesnosti a kontextu (`Low` / `Medium` / `High`), kontrolu nulového zápisu na disk i 7-bodový bezpečnostní audit si můžeš kdykoliv vypsat přímo do terminálu příkazem:
+
+```powershell
+# Spuštění kompletní živé diagnostiky v příkazové řádce (fungují i aliasy diagnostika, security, specs)
+ai-lens diag
+ai-lens diagnostika
+
+# Nebo přes přiložený spouštěč bez nutnosti aktivovat venv:
+.\ai-lens.bat diag
+.\ai-lens.bat diagnostika
+
+# Výpis samotných úrovní myšlení, přesnosti odpovědí a šíře kontextu:
+ai-lens levels
+.\ai-lens.bat levels
+```
+

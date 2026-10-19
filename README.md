@@ -96,21 +96,21 @@ flowchart TD
 
 ---
 
-## Thinking Depth & Quality Tiers (`Low` / `Medium` / `High`)
+## Thinking Depth, Answer Accuracy & Factual Context Tiers (`Low` / `Medium` / `High`)
 
-You can control how deeply the local AI model thinks and how many tokens it allocates by passing **`Low`**, **`Medium`**, or **`High`** directly in the terminal.
+You can control **answer accuracy**, **factual background context** (how much information you get when circling an animal, plant, object, or text), and **token/context capacity** by passing **`Low`**, **`Medium`**, or **`High`** directly in the terminal.
 
-All three tiers run **100% locally on your hardware (even on weaker PCs with 8–16 GB RAM)**, allowing you to trade off **generation speed & temporary RAM usage** against **reasoning depth & accuracy on tricky questions**:
+All three tiers run **100% locally on your hardware (even on weaker PCs with 8–16 GB RAM)**, allowing you to trade off **generation speed & temporary RAM usage** against **answer accuracy & richness of factual context**:
 
-| Tier | CLI Command Example | Internal Thinking (`think`) | Max Output / Thinking Tokens (`num_predict`) | Context Window (`num_ctx`) | Max Image Detail (`max_side`) | Typical Generation Time & Trade-Off |
-|---|---|---|---|---|---|---|
-| **`Low`** | `ai-lens cs Low`<br>`ai-lens en Low` | `False` (Direct answer) | `1024` tokens | `2048` tokens | `768 px` | **Fastest (~1–4 s), lowest RAM overhead.** Ideal for quick visual descriptions, simple OCR, or translations on weaker laptops. |
-| **`Medium`** *(Default)* | `ai-lens cs Medium`<br>`ai-lens cs` | `True` (Step-by-step verification) | `2560` tokens | `4096` tokens | `1024 px` | **Balanced (~5–12 s), moderate RAM usage.** Verifies questions, fill-in-the-blanks, and sequences carefully while keeping responses snappy. |
-| **`High`** | `ai-lens cs High`<br>`ai-lens en High` | `True` (Deep multi-step self-check) | `4096` tokens | `8192` tokens | `1344 px` | **Maximum accuracy (~10–25 s), higher token & KV-cache RAM usage.** Inspects fine diacritics (`č`, `ď`, `ě`, `ř`) at high resolution and verifies character sequences (`abc_dď` → **`č`**), logic puzzles, and tricky test questions step by step before answering. Still runs smoothly on everyday local PCs. |
+| Tier | CLI Command Example | Answer Accuracy & Factual Context (e.g. Circling an Animal, Object, or Text) | Tokens (`num_predict`) / Window (`num_ctx`) | Max Image Detail (`max_side`) | Typical Generation Time & Trade-Off |
+|---|---|---|---|---|---|
+| **`Low`** | `ai-lens cs Low`<br>`ai-lens en Low` | **Basic / Fast Accuracy & Concise Context (2–4 sentences):** Identifies the animal, plant, object, or text and gives 1–2 key facts or a direct summary. (`think=False`) | `1024` / `2048` tokens | `768 px` | **Fastest (~1–4 s), lowest RAM overhead.** Ideal for quick visual lookups or simple translations on weaker laptops. |
+| **`Medium`** *(Default)* | `ai-lens cs Medium`<br>`ai-lens cs` | **High Accuracy & Balanced Factual Context (1–2 paragraphs):** When an animal/plant/object is circled, states its species/category, habitat/origin, diet/function, and key traits; for text/questions, explains meaning and context clearly. (`think=True`) | `2560` / `4096` tokens | `1024 px` | **Balanced (~5–12 s), moderate RAM usage.** High accuracy and informative context while keeping responses snappy. |
+| **`High`** | `ai-lens cs High`<br>`ai-lens en High` | **Maximum Accuracy & Deep Encyclopedic Context:** Distinguishes look-alike species/objects/concepts, provides a rich encyclopedic profile (taxonomy, anatomy/features, habitat, diet/behavior, history/purpose, and interesting facts), and verifies tricky questions/blanks (`_`) step by step. (`think=True`) | `4096` / `8192` tokens | `1344 px` | **Maximum accuracy (~10–25 s), higher token & KV-cache RAM usage.** Inspects fine visual details and diacritics at high resolution and delivers comprehensive context. |
 
 > [!NOTE]
 > **Why does `High` take longer to generate?**
-> In `High` mode, the local VLM first generates an internal chain-of-thought (transcribing characters before and after blanks, checking diacritics and alphabetical/mathematical rules, and double-checking its conclusion) before streaming the final answer. You pay with a few extra seconds of generation time and slightly more RAM during the question, and in return get significantly higher accuracy on subtle tasks.
+> In `High` mode, the local VLM processes a higher-resolution crop (`1344 px`), runs a deep multi-step verification pass, and generates a richer encyclopedic profile of the circled subject or problem. You pay with a few extra seconds of generation time and slightly more RAM during the query, and in return get maximum accuracy and comprehensive background information.
 
 ---
 
@@ -232,7 +232,8 @@ Pass any language code directly in the terminal (e.g. `ai-lens en High` or `.\ai
 | `ai-lens [lang] [Low\|Medium\|High]` | Starts AI Lens in standby mode with optional language & thinking depth (e.g., `ai-lens cs High`, `ai-lens en Low`, `ai-lens High`). |
 | `ai-lens start --now` | Starts the daemon and immediately opens the fullscreen capture overlay. |
 | `ai-lens trigger [lang] [level]` | Triggers the overlay on the running instance or runs a one-shot capture. |
-| `ai-lens levels` | Lists the `Low`, `Medium`, and `High` thinking tiers, token limits, and descriptions. |
+| `ai-lens diag` *(or `diagnostika`)* | Prints a live terminal report of active model, live RAM/CPU usage, `Low`/`Medium`/`High` accuracy & factual context specs, Zero-Retention RAM check, and 7-point security audit. |
+| `ai-lens levels` | Lists the `Low`, `Medium`, and `High` thinking tiers, answer accuracy, factual context depth, and token limits. |
 | `ai-lens languages` | Lists all 15 supported language codes and highlights the active language. |
 | `ai-lens status` | Displays the running state, active hotkey, model, language, and thinking level. |
 | `ai-lens stop` | Cleanly stops the running AI Lens background process. |
@@ -255,9 +256,19 @@ ai-lens config --padding 20
 
 ---
 
-## Specifications, Resource Usage & Security Audit
+## Specifications, Resource Usage & Live Security Diagnostics
 
-For full technical specifications—including exact **RAM / VRAM / CPU consumption**, **`Low` / `Medium` / `High` context & token parameters**, **Zero-Retention RAM erasure on chat close**, and the **Security & Threat Audit**—see [**`SPECIFICATIONS.md`**](SPECIFICATIONS.md).
+You can view the live system specifications, RAM/CPU usage, `Low`/`Medium`/`High` accuracy & context profiles, Zero-Retention memory status, and 7-point security audit directly in your terminal at any time:
+
+```powershell
+ai-lens diag
+# or in Czech:
+ai-lens diagnostika
+# or via the batch launcher:
+.\ai-lens.bat diag
+```
+
+For full technical documentation—including exact **RAM / VRAM / CPU consumption**, **`Low` / `Medium` / `High` factual context & accuracy parameters**, **Zero-Retention RAM erasure on chat close**, and the **Security & Threat Audit**—see [**`SPECIFICATIONS.md`**](SPECIFICATIONS.md).
 
 ---
 
