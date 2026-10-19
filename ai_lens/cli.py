@@ -155,6 +155,11 @@ def _normalize_cli_argv() -> None:
         arg = sys.argv[i].strip()
         cleaned = arg.lower().lstrip("-/\\").replace(" ", "").replace('"', '').replace("'", "")
 
+        prev_arg = sys.argv[i - 1].strip().lower() if i > 1 else ""
+        if prev_arg in ("--device", "-d"):
+            new_argv.append(arg)
+            continue
+
         # Chained or prefixed operators: `@\`, `@/`, `&&`, `&`, `@`
         if arg in ("@\\", "@/","@", '"@\\"', "'@\\'", "&&", "&") or cleaned in ("@\\", "@/"):
             if i + 1 < len(sys.argv):
@@ -427,11 +432,10 @@ def status() -> None:
     cfg = load_config()
     lang_code = str(cfg.get("language", "cs"))
     lang_disp = get_language_display(lang_code)
-    level_code = str(cfg.get("thinking_level", "medium"))
-    level_disp = get_thinking_level_display(level_code, lang_code)
     dev_code = str(cfg.get("compute_device", "gpu"))
     dev_disp = get_compute_device_display(dev_code, lang_code)
-    tier_cfg = get_thinking_level_config(level_code)
+    tier_cfg = get_thinking_level_config(level_code, dev_code)
+    level_disp = get_thinking_level_display(level_code, lang_code, dev_code)
     if resp == "OK:RUNNING":
         typer.echo(
             f"[AI Lens] Proces BĚŽÍ (zkratka: {cfg.get('hotkey')} / F8, model: {cfg.get('model')}, "
@@ -440,7 +444,7 @@ def status() -> None:
     else:
         typer.echo(
             f"[AI Lens] Proces momentálně neběží (jazyk: {lang_disp}, myšlení: {level_disp} [{tier_cfg['num_predict']} tokenů], výpočet: {dev_disp}). "
-            "Spusť jej např. příkazem: .\\ai-lens.bat cs High (GPU) nebo .\\ai-lens.bat cs High @\\ (CPU)"
+            "Spusť jej např. příkazem: .\\ai-lens.bat cs High (GPU) nebo .\\ai-lens.bat cs High CPU (CPU)"
         )
 
 
@@ -469,23 +473,41 @@ def languages_cmd() -> None:
 
 @app.command("levels")
 def levels_cmd() -> None:
-    """Vypíše úrovně hloubky myšlení (Low, Medium, High), přesnost odpovědí, kontext informací a počet tokenů."""
+    """Vypíše úrovně hloubky myšlení (Low, Medium, High) pro GPU i CPU."""
+    from ai_lens.vision_engine import THINKING_LEVELS_GPU, THINKING_LEVELS_CPU
     cfg = load_config()
-    current = normalize_thinking_level(str(cfg.get("thinking_level", "medium")))
-    typer.echo(
-        "Úrovně hloubky myšlení, přesnosti odpovědí a šíře faktického kontextu (použití: `.\\ai-lens.bat <jazyk> <Low|Medium|High>`, např. `.\\ai-lens.bat cs High`):"
-    )
-    typer.echo("=" * 112)
-    for key, info in THINKING_LEVELS.items():
-        marker = "* " if key == current else "  "
+    current_level = normalize_thinking_level(str(cfg.get("thinking_level", "medium")))
+    current_dev = _CLI_DETECTED_DEVICE or normalize_compute_device(str(cfg.get("compute_device", "gpu")))
+
+    typer.echo("=" * 114)
+    typer.echo("  AI LENS — ÚROVNĚ MYŠLENÍ, PŘESNOSTI A POČTU TOKENŮ PRO GPU A PRO CPU")
+    typer.echo("=" * 114)
+
+    typer.echo(f"\n[1] GPU PROFIL (Výchozí akcelerace — plný encyklopedický výkon a bohatý kontext)")
+    for key, info in THINKING_LEVELS_GPU.items():
+        marker = "* [AKTIVNÍ] " if (key == current_level and current_dev == "gpu") else "            "
         typer.echo(
-            f"{marker}{info['label']:<7} | max tokenů: {info['num_predict']:<4} | okno kontextu: {info['num_ctx']:<4} "
+            f"{marker}{info['label']:<6} | max tokenů: {info['num_predict']:<4} | okno kontextu: {info['num_ctx']:<5} "
             f"| výřez: {info['max_image_side']}px | teplota: {info['temperature']}"
         )
-        typer.echo(f"          ├─ Přesnost odpovědí : {info['accuracy_cs']}")
-        typer.echo(f"          ├─ Kontext a fakta   : {info['context_info_cs']}")
-        typer.echo(f"          └─ Charakteristika   : {info['desc_cs']}")
-        typer.echo("-" * 112)
+        typer.echo(f"              ├─ Přesnost odpovědí : {info['accuracy_cs']}")
+        typer.echo(f"              ├─ Kontext a fakta   : {info['context_info_cs']}")
+        typer.echo(f"              └─ Profil a rychlost : {info['desc_cs']}")
+        typer.echo("              " + "-" * 98)
+
+    typer.echo(f"\n[2] CPU PROFIL (Odlehčený režim — snížené tokeny a výřez pro svižnou odezvu bez přetížení)")
+    for key, info in THINKING_LEVELS_CPU.items():
+        marker = "* [AKTIVNÍ] " if (key == current_level and current_dev == "cpu") else "            "
+        typer.echo(
+            f"{marker}{info['label']:<6} | max tokenů: {info['num_predict']:<4} | okno kontextu: {info['num_ctx']:<5} "
+            f"| výřez: {info['max_image_side']}px | teplota: {info['temperature']}"
+        )
+        typer.echo(f"              ├─ Přesnost odpovědí : {info['accuracy_cs']}")
+        typer.echo(f"              ├─ Kontext a fakta   : {info['context_info_cs']}")
+        typer.echo(f"              └─ Profil a rychlost : {info['desc_cs']}")
+        typer.echo("              " + "-" * 98)
+
+    typer.echo("\nSpuštění: .\\ai-lens.bat <jazyk> <Low|Medium|High> (GPU) nebo .\\ai-lens.bat <jazyk> <Low|Medium|High> CPU (CPU)")
 
 
 def _get_system_memory_info() -> tuple[float, float, float, int]:
@@ -531,8 +553,10 @@ def diag_cmd() -> None:
     lang_code = normalize_language_code(str(cfg.get("language", "cs")))
     lang_disp = get_language_display(lang_code)
     level_code = normalize_thinking_level(str(cfg.get("thinking_level", "medium")))
-    level_disp = get_thinking_level_display(level_code, lang_code)
-    tier_cfg = get_thinking_level_config(level_code)
+    dev_code = _CLI_DETECTED_DEVICE or normalize_compute_device(str(cfg.get("compute_device", "gpu")))
+    dev_disp = get_compute_device_display(dev_code, lang_code)
+    tier_cfg = get_thinking_level_config(level_code, dev_code)
+    level_disp = get_thinking_level_display(level_code, lang_code, dev_code)
     model_name = str(cfg.get("model", "gemma4:latest"))
     ollama_url = str(cfg.get("ollama_url", "http://127.0.0.1:11434"))
     hotkey = str(cfg.get("hotkey", "<alt>+<f8>"))
@@ -575,17 +599,15 @@ def diag_cmd() -> None:
     typer.echo("=" * 108)
 
     # 1. Stav běhu a AI modelu
-    dev_code = str(cfg.get("compute_device", "gpu"))
-    dev_disp = get_compute_device_display(dev_code, lang_code)
     typer.echo("\n[1/5] STAV APLIKACE & AI MODELU (RUNTIME)")
     typer.echo(
-        f"  • Stav procesu na pozadí : {'BĚŽÍ (připraven na ' + hotkey + ' / F8)' if daemon_running else 'NEBĚŽÍ (spusť: .\\ai-lens.bat cs High nebo .\\ai-lens.bat cs High @\\)'}"
+        f"  • Stav procesu na pozadí : {'BĚŽÍ (připraven na ' + hotkey + ' / F8)' if daemon_running else 'NEBĚŽÍ (spusť: .\\ai-lens.bat cs High nebo .\\ai-lens.bat cs High CPU)'}"
     )
     typer.echo(
         f"  • Lokální Ollama engine  : {'ONLINE a model připraven (' + ollama_url + ')' if ollama_online else 'OFFLINE nebo model není stažen (' + ollama_url + ')'}"
     )
     typer.echo(f"  • Aktivní VLM model      : {model_name} (doporučená lehká alternativa: qwen2.5vl:3b)")
-    typer.echo(f"  • Výpočet / Akcelerace   : {dev_disp} (výchozí: GPU; přepnutí: zadej '@\\' při spuštění)")
+    typer.echo(f"  • Výpočet / Akcelerace   : {dev_disp} (výchozí: GPU; přepnutí: zadej 'CPU' při spuštění)")
     typer.echo(f"  • Aktivní jazyk (UI+AI)  : {lang_disp}")
     typer.echo(
         f"  • Aktivní úroveň myšlení : {level_disp} (max {tier_cfg['num_predict']} tokenů, kontext {tier_cfg['num_ctx']}, výřez {tier_cfg['max_image_side']}px)"
@@ -604,8 +626,10 @@ def diag_cmd() -> None:
     )
 
     # 3. Kontext, přesnost odpovědí a informace o zakroužkovaném objektu (Low / Medium / High)
-    typer.echo("\n[3/5] KONTEXT, PŘESNOST ODPOVĚDÍ A BOHATOST INFORMACÍ (LOW / MEDIUM / HIGH)")
-    for key, info in THINKING_LEVELS.items():
+    from ai_lens.vision_engine import THINKING_LEVELS_GPU, THINKING_LEVELS_CPU
+    active_levels = THINKING_LEVELS_CPU if dev_code == "cpu" else THINKING_LEVELS_GPU
+    typer.echo(f"\n[3/5] KONTEXT, PŘESNOST ODPOVĚDÍ A BOHATOST INFORMACÍ ({dev_code.upper()} REŽIM)")
+    for key, info in active_levels.items():
         active_tag = "[AKTIVNÍ]" if key == level_code else "         "
         typer.echo(
             f"  {active_tag} {info['label']:<6} | Tokeny: {info['num_predict']:<4} | Okno: {info['num_ctx']:<5} "

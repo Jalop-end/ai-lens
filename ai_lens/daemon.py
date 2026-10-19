@@ -232,7 +232,7 @@ class FloatingTriggerBar(QFrame):
         self.lang_code = normalize_language_code(language)
         self.level_norm = normalize_thinking_level(thinking_level)
         self.compute_device = normalize_compute_device(compute_device)
-        self.tier_cfg = get_thinking_level_config(self.level_norm)
+        self.tier_cfg = get_thinking_level_config(self.level_norm, self.compute_device)
         self.ui = get_ui_strings(self.lang_code)
 
         # Root layout
@@ -535,12 +535,11 @@ def run_daemon(
     if existing is not None:
         cfg_now = load_config()
         lang_code_now = str(cfg_now.get("language", "cs"))
-        lang_disp = get_language_display(lang_code_now)
-        level_disp = get_thinking_level_display(
-            str(cfg_now.get("thinking_level", "medium")), lang_code_now
-        )
         dev_now = str(cfg_now.get("compute_device", "gpu"))
         dev_disp = get_compute_device_display(dev_now, lang_code_now)
+        level_disp = get_thinking_level_display(
+            str(cfg_now.get("thinking_level", "medium")), lang_code_now, dev_now
+        )
         _log_debug(
             f"[AI Lens] Proces již běží (PID {existing['pid']}, jazyk: {lang_disp}, hloubka myšlení: {level_disp}, výpočet: {dev_disp}). Aktivuji překryvné okno…"
         )
@@ -554,7 +553,7 @@ def run_daemon(
     lang_code = str(config.get("language", "cs"))
     level_code = str(config.get("thinking_level", "medium"))
     dev_code = str(config.get("compute_device", "gpu"))
-    tier_cfg = get_thinking_level_config(level_code)
+    tier_cfg = get_thinking_level_config(level_code, dev_code)
 
     app = QApplication.instance() or QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)

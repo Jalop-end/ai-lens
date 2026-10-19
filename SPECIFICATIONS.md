@@ -46,25 +46,28 @@ Spotřeba systémových prostředků se dělí na samotnou aplikaci **AI Lens (P
 
 ### B. Lokální AI Engine (`ollama` proces během dotazu)
 
-* **Výchozí běh na GPU (GPU by default):** Aplikace ve výchozím stavu odesílá do Ollamy `num_gpu: -1`, což přesouvá všechny vrstvy modelu i KV-cache přímo do **VRAM grafické karty (NVIDIA / AMD / Apple Silicon)**. Generování je bleskové a vytížení systémového procesoru je minimální (**3 % – 10 % CPU**).
-* **Přepnutí na čisté CPU (`@\`):** Pokud uživatel při spuštění zadá za příkaz `@\` (např. `.\ai-lens.bat cs High @\` nebo v PowerShellu `.\ai-lens.bat cs High "@\"`), AI Lens nastaví `num_gpu: 0`. Model běží kompletně v systémové **RAM** a během inference vytěžuje CPU (**40 % – 85 % CPU** po dobu několika sekund; mimo generování **0 % CPU**).
+* **Výchozí běh na GPU (GPU by default):** Aplikace ve výchozím stavu odesílá do Ollamy `num_gpu: -1`, což přesouvá všechny vrstvy modelu i KV-cache přímo do **VRAM grafické karty (NVIDIA / AMD / Apple Silicon)**. Generování je bleskové díky masivní propustnosti VRAM paměti (300–1000 GB/s) a tisícům maticových jader (CUDA / Tensor Cores). Vytížení procesoru je minimální (**3 % – 10 % CPU**).
+* **Přepnutí na čisté CPU (`CPU` nebo `@\`):** Pokud uživatel při spuštění zadá `CPU` nebo `@\` (např. `.\ai-lens.bat cs High CPU` nebo `.\ai-lens.bat cs Low CPU`), AI Lens nastaví `num_gpu: 0`. Model běží kompletně v systémové **RAM** a počítá se na procesoru.
+  - **Proč je CPU pomalejší (Hardware Bottleneck):** Autoregresivní generování tokenů vyžaduje načtení celé váhové matice modelu (~3.5–5.5 GB) pro **každý jeden vygenerovaný token**. Běžná operační paměť PC (DDR4 / DDR5) má propustnost pouhých **25–60 GB/s** (cca 10× až 20× pomalejší než VRAM grafické karty). Procesor navíc disponuje pouze 8–16 jádry. Rychlost generování na CPU je proto přirozeně omezena na ~**4–8 tokenů/s** (oproti 40–80 tokenů/s na GPU).
+  - **Řešení v AI Lens (Odlehčený CPU profil):** Aby uživatel na CPU nečekal minuty, AI Lens při detekci CPU automaticky aktivuje **odlehčený profil** (384–1280 tokenů, vypnuté interní myšlení u `Low`, optimalizovaný výřez a stručné přímé odpovědi). Díky tomu generování na CPU proběhne za **1.5 až 15 sekund**.
 
 ---
 
-## 4. Specifikace úrovní myšlení, přesnosti odpovědí a šíře kontextu: `Low` vs. `Medium` vs. `High`
+## 4. Specifikace úrovní myšlení, přesnosti odpovědí a šíře kontextu (Duální GPU / CPU architektura)
 
 Pojem **„kontext“** v režimech **`Low`**, **`Medium`** a **`High`** zahrnuje dvě věci:
 1. **Přesnost odpovědi a bohatost faktických informací o zakroužkovaném objektu/textu** (např. když zakroužkuješ zvíře, rostlinu, předmět, budovu nebo odborný pojem, kolik souvisejících informací a jak hluboký popis o něm dostaneš).
 2. **Technickou kapacitu modelu** (velikost kontextového okna `num_ctx`, maximální počet generovaných tokenů `num_predict`, rozlišení výřezu a hloubku interního ověřování).
 
-Všechny tři úrovně jsou navrženy tak, aby **běžely lokálně s GPU akcelerací (případně CPU)** a měly bezpečně zastropovanou spotřebu paměti:
+---
 
-| Parametr | `Low` (Posíleno na úroveň dřívějšího Medium) | `Medium` (Zvýšeno nad dřívější High) | `High` (Maximálně posílená encyklopedická hloubka) |
+### 4.A GPU Profil (Výchozí akcelerace — plný encyklopedický výkon)
+
+| Parametr | `Low` (Posíleno na dřívější Medium) | `Medium` (Zvýšeno nad dřívější High) | `High` (Maximálně posílená encyklopedická hloubka) |
 |---|---|---|---|
 | **Spuštění z terminálu (Windows)** | `.\ai-lens.bat en Low`<br>`.\ai-lens.bat cs Low` | `.\ai-lens.bat en Medium`<br>`.\ai-lens.bat cs Medium` | `.\ai-lens.bat en High`<br>`.\ai-lens.bat cs High` |
-| **Spuštění na CPU (přepínač `@\`)** | `.\ai-lens.bat cs Low @\` | `.\ai-lens.bat cs Medium @\` | `.\ai-lens.bat cs High @\` |
 | **Přesnost odpovědí** | **Vysoká & Vyvážená** (krok za krokem, identifikace detailů a znaků) | **Velmi vysoká** (hloubkové rozlišení podobných variant a jemných detailů) | **Maximální** (kompletní verifikace, nulová tolerance chyb, hluboký rozbor) |
-| **Faktický kontext (např. když zakroužkuješ zvíře / rostlinu / věc)** | **Bohatý vyvážený kontext (1–2 odstavce):** přesně určí druh/kategorii, popíše znaky na snímku, výskyt, potravu/funkci a klíčovou zajímavost. | **Velmi hluboký kontext (2–3 odstavce):** detailní taxonomie, původ/biotop, anatomické znaky, potrava, chování, rozlišení od příbuzných. | **Kompletní encyklopedický profil:** vyčerpávající biologický profil (taxonomie, poddruhy, srovnání záměn, anatomické detaily, biotop, etologie, historie). |
+| **Faktický kontext (např. zvíře / rostlina / věc)** | **Bohatý vyvážený kontext (1–2 odstavce):** přesně určí druh/kategorii, popíše znaky na snímku, výskyt, potravu/funkci a klíčovou zajímavost. | **Velmi hluboký kontext (2–3 odstavce):** detailní taxonomie, původ/biotop, anatomické znaky, potrava, chování, rozlišení od příbuzných. | **Kompletní encyklopedický profil:** vyčerpávající biologický profil (taxonomie, poddruhy, srovnání záměn, anatomické detaily, biotop, etologie, historie). |
 | **Faktický kontext u textu, kódu a otázek** | Jasné vysvětlení významu, kontextu a zdůvodnění odpovědi. | Detailní rozbor významu, kontrola souvislostí a postupné řešení. | Kompletní rozbor včetně kontroly textu před i za prázdným místem (`_`), odhalení chytáků a exaktní důkaz. |
 | **Interní přemýšlení (`think`)** | `True` (zapnuto) | `True` (zapnuto) | `True` (hluboká víceúrovňová verifikace) |
 | **Velikost kontextu (`num_ctx`)** | **4 096 tokenů** | **10 240 tokenů** | **16 384 tokenů** |
@@ -74,6 +77,24 @@ Všechny tři úrovně jsou navrženy tak, aby **běžely lokálně s GPU akcele
 | **Top-P / Repeat Penalty** | `0.90` / `1.07` | `0.88` / `1.08` | `0.85` / `1.10` |
 | **Extra spotřeba RAM / VRAM (KV-cache)** | **+ ~350 – 500 MB** | **+ ~700 – 900 MB** | **+ ~1.1 – 1.4 GB** *(bezpečný strop)* |
 | **Typická doba generování (GPU)** | **~3 – 7 s** | **~6 – 14 s** | **~10 – 25 s** *(dle GPU)* |
+
+---
+
+### 4.B CPU Profil (Odlehčený režim — snížené tokeny a rychlá odezva bez zasekávání)
+
+| Parametr | `Low` (Bleskový režim) | `Medium` (Vyvážený režim) | `High` (Hloubkový režim pro CPU) |
+|---|---|---|---|
+| **Spuštění z terminálu (Windows)** | `.\ai-lens.bat cs Low CPU`<br>`.\ai-lens.bat en Low CPU` | `.\ai-lens.bat cs Medium CPU`<br>`.\ai-lens.bat en Medium CPU` | `.\ai-lens.bat cs High CPU`<br>`.\ai-lens.bat en High CPU` |
+| **Přesnost odpovědí** | **Základní rychlá:** okamžité řešení bez zdlouhavého přemýšlení | **Dobrá vyvážená:** rychlé ověření znaků, textu i doplňovaček | **Vysoká přesnost:** důkladná verifikace s optimalizovanou délkou textu |
+| **Faktický kontext (zvíře / předmět / text)** | **Stručný přímý kontext (1–2 věty):** okamžité určení druhu/řešení a nejdůležitější fakt | **Vyvážený stručný kontext (1 odstavec):** druh/předmět, popis znaků a klíčová vlastnost | **Informativní hloubkový kontext (1–2 odstavce):** přesný druh, znaky, výskyt/funkce a zdůvodnění |
+| **Interní přemýšlení (`think`)** | **`False`** *(okamžitá generace bez overheadu)* | **`True`** *(rychlé interní ověření)* | **`True`** *(pečlivá verifikace)* |
+| **Velikost kontextu (`num_ctx`)** | **1 536 tokenů** | **2 560 tokenů** | **4 096 tokenů** |
+| **Max. počet tokenů (`num_predict`)** | **384 tokenů** | **768 tokenů** | **1 280 tokenů** |
+| **Max. rozlišení výřezu (`max_side`)** | **640 px** | **768 px** | **896 px** |
+| **Teplota (`temperature`)** | `0.20` | `0.15` | `0.10` |
+| **Top-P / Repeat Penalty** | `0.90` / `1.05` | `0.88` / `1.07` | `0.85` / `1.10` |
+| **Extra spotřeba RAM (KV-cache)** | **+ ~150 – 250 MB** | **+ ~250 – 400 MB** | **+ ~400 – 600 MB** |
+| **Typická doba generování (CPU)** | **~1.5 – 3 s** *(blesková odezva)* | **~4 – 8 s** | **~8 – 15 s** |
 
 ### 4.1 Kalibrované rozpoznávání druhů zvířat, plemen a realistická skepse u pravděpodobnosti (`🎯 XX %`)
 

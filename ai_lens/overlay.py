@@ -437,12 +437,12 @@ class OverlayWindow(QWidget):
         lang_code = normalize_language_code(str(self.config.get("language", "cs")))
         thinking_level = normalize_thinking_level(str(self.config.get("thinking_level", "medium")))
         compute_device = normalize_compute_device(str(self.config.get("compute_device", "gpu")))
-        tier_cfg = get_thinking_level_config(thinking_level)
+        tier_cfg = get_thinking_level_config(thinking_level, compute_device)
         ui = get_ui_strings(lang_code)
 
         self.popover.set_locale(lang_code, thinking_level)
         level_short = str(tier_cfg["label"])
-        level_disp = get_thinking_level_display(thinking_level, lang_code)
+        level_disp = get_thinking_level_display(thinking_level, lang_code, compute_device)
         system_prompt = self.config.get("system_prompt")
         self.popover.title_label.setText(
             f"AI Lens · {model_name} [{lang_code.upper()} · {level_short} · {compute_device.upper()}]"
