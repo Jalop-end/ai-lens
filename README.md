@@ -16,35 +16,46 @@ With a single hotkey (**`Alt + F8`**) or one click on the floating mini-dock, yo
 
 ```mermaid
 flowchart TD
-    subgraph S1 ["1. Standby & Control (Daemon)"]
-        CLI["CLI Launch: .\ai-lens.bat [cs|en] [Low|Medium|High]"] --> CFG["Load Config, Language (15 locales) & Thinking Tier"]
-        CFG --> DOCK["Floating Mini-Dock (Full Pill or Minimized 8px Dash '—')"]
-        CFG --> HOTKEY["Triple Hotkey Engine (Alt+F8 / F8 / GetAsyncKeyState)"]
+    subgraph S1 [1. Standby and Hotkeys]
+        direction TB
+        CLI[Launch: ai-lens.bat cs/en Low/Medium/High] --> CFG[Load Config and Active Thinking Tier]
+        CFG --> DOCK[Floating Mini-Dock: Full Pill or Minimized Dash]
+        CFG --> HOTKEY[Triple Hotkey Engine: Alt+F8 or F8]
     end
 
-    subgraph S2 ["2. Instant Capture & Selection (RAM-Only)"]
-        DOCK & HOTKEY --> CAP["Raw Screen Buffer to Volatile RAM (under 15 ms, 0 disk writes)"]
-        CAP --> OVR["Fullscreen Frameless Qt Overlay + HUD Banner"]
-        OVR --> LASSO["User circles subject with Freehand Mouse Lasso"]
-        LASSO --> CROP["Padded Bounding Box Crop & Base64 RAM Encoding"]
+    subgraph S2 [2. Instant Screen Capture and Selection]
+        direction TB
+        DOCK --> CAP[Instant Screen Buffer to RAM - under 15 ms]
+        HOTKEY --> CAP
+        CAP --> OVR[Frameless Fullscreen Overlay and HUD Banner]
+        OVR --> LASSO[User circles subject with Freehand Mouse Lasso]
+        LASSO --> CROP[Padded Bounding Box Crop and Base64 in RAM]
     end
 
-    subgraph S3 ["3. 100% Offline Local VLM Inference (Ollama)"]
-        CROP --> TIER{"Active Thinking Tier"}
-        TIER -->|Low| TL["Low Mode: think=False | 1024 tokens | 768px | Concise 2-4 sentences"]
-        TIER -->|Medium| TM["Medium Mode: think=True | 2560 tokens | 1024px | Balanced 1-2 paragraphs"]
-        TIER -->|High| TH["High Mode: think=True | 4096 tokens | 1344px | Encyclopedic depth"]
-        TL & TM & TH --> STREAM["Real-Time Token & Reasoning Streaming (QThread)"]
-        STREAM --> OLLAMA["Local Ollama at 127.0.0.1:11434 (gemma4 / qwen2.5vl)"]
+    subgraph S3 [3. 100% Offline Local AI Inference]
+        direction TB
+        CROP --> TIER{Active Thinking Tier}
+        TIER -->|Low| TL[Low Mode: 1024 tokens - 768px - Concise]
+        TIER -->|Medium| TM[Medium Mode: 2560 tokens - 1024px - Balanced]
+        TIER -->|High| TH[High Mode: 4096 tokens - 1344px - Deep]
+        TL --> STREAM[Real-Time Token Streaming via QThread]
+        TM --> STREAM
+        TH --> STREAM
+        STREAM --> OLLAMA[Local Ollama on 127.0.0.1:11434]
     end
 
-    subgraph S4 ["4. Live Popover UI & Zero-Retention Memory Wipe"]
-        STREAM --> POP["Floating Popover Card positioned next to selection"]
-        POP --> RENDER["Render Styled Answer (16px bold answers + serif italic quotes)"]
-        RENDER --> BADGE["Localized Status Badge (e.g. Done · generation time 9.4 s)"]
-        BADGE --> CHAT["Multi-turn follow-up question OR Press Esc / click ✕ to close"]
-        CHAT --> CLEAN["Zero-Retention: Immediate RAM memory wipe and garbage collection"]
+    subgraph S4 [4. Floating Popover and Zero-Retention Wipe]
+        direction TB
+        STREAM --> POP[Floating Popover Card next to selection]
+        POP --> RENDER[16px Bold Answers and Serif Citations]
+        RENDER --> BADGE[Status Badge: Done in 9.4s]
+        BADGE --> CHAT[Follow-up question or Esc to close]
+        CHAT --> CLEAN[Zero-Retention: Immediate RAM Wipe and gc.collect]
     end
+
+    S1 --> S2
+    S2 --> S3
+    S3 --> S4
 ```
 
 ---
