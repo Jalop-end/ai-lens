@@ -348,6 +348,7 @@ class PopoverCard(QFrame):
         self.response_browser = QTextBrowser(self)
         self.response_browser.setObjectName("ResponseBrowser")
         self.response_browser.setOpenExternalLinks(False)
+        self.response_browser.setOpenLinks(False)
 
         # Follow-up input field at the bottom
         self.prompt_input = QLineEdit(self)
@@ -358,6 +359,16 @@ class PopoverCard(QFrame):
         layout.addLayout(header_layout)
         layout.addWidget(self.response_browser, stretch=1)
         layout.addWidget(self.prompt_input)
+
+    def clear_sensitive_data(self) -> None:
+        """Immediately wipes all conversation text, DOM content, and input buffers from RAM."""
+        self._loading_timer.stop()
+        self._raw_markdown = ""
+        self._loading_step = 0
+        self._thinking_tokens = 0
+        self.response_browser.clear()
+        self.response_browser.setHtml("")
+        self.prompt_input.clear()
 
     def set_locale(self, language: str, thinking_level: str = "medium") -> None:
         """Updates all PopoverCard labels, tooltips, and placeholders to match `language` and `thinking_level`."""

@@ -71,13 +71,13 @@ FUNCTION_KEY_VKS = {f"f{i}": 0x70 + (i - 1) for i in range(1, 13)}
 
 
 def _log_debug(msg: str) -> None:
-    """Writes timestamped diagnostic entry to ai_lens_debug.log and stdout."""
+    """Writes timestamped diagnostic entry to stdout only (zero disk log persistence)."""
     ts = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
     line = f"[{ts}] {msg}"
     print(line, flush=True)
     try:
-        with open(DEBUG_LOG_PATH, "a", encoding="utf-8") as f:
-            f.write(line + "\n")
+        if DEBUG_LOG_PATH.exists():
+            DEBUG_LOG_PATH.unlink(missing_ok=True)
     except Exception:
         pass
 
@@ -573,7 +573,7 @@ def run_daemon(
     print(" Zkratky           : [Alt + F8]  |  [F8]  |  [Ctrl + Alt + Shift + G]", flush=True)
     print(" Plovoucí tlačítko : Nahoře vpravo na obrazovce 'AI Lens (Alt+F8)'", flush=True)
     print(" Zavření overlaye  : Klávesa [Esc] nebo pravé tlačítko myši", flush=True)
-    print(f" Diagnostický log  : {DEBUG_LOG_PATH.name}", flush=True)
+    print(" Ochrana soukromí  : 100% RAM-only (okamžité vymazání výřezu i chatu po zavření)", flush=True)
     print("=" * 74, flush=True)
 
     if open_immediately:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ctypes
+import gc
 import json
 import sys
 from pathlib import Path
@@ -41,10 +42,20 @@ from ai_lens.vision_engine import (
     get_ui_strings,
     normalize_language_code,
     normalize_thinking_level,
+    validate_local_ollama_host,
 )
 
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.json"
-DEFAULT_TEST_CROP_PATH = Path(__file__).resolve().parent.parent / "last_crop.png"
+_LEGACY_CROP_PATH = Path(__file__).resolve().parent.parent / "last_crop.png"
+
+
+def _purge_legacy_disk_traces() -> None:
+    """Ensures any legacy debug crop file from older versions is permanently deleted from disk."""
+    try:
+        if _LEGACY_CROP_PATH.exists():
+            _LEGACY_CROP_PATH.unlink(missing_ok=True)
+    except Exception:
+        pass
 
 
 def _ensure_utf8_stdio() -> None:
@@ -58,7 +69,8 @@ def _ensure_utf8_stdio() -> None:
 
 
 def load_config(config_path: Path = DEFAULT_CONFIG_PATH) -> dict[str, Any]:
-    """Load configuration from config.json with safe defaults."""
+    """Load configuration from config.json with strict security validation and bounds clamping."""
+    _purge_legacy_disk_traces()
     defaults: dict[str, Any] = {
         "hotkey": "<alt>+<f8>",
         "border_width": 3,
@@ -76,13 +88,27 @@ def load_config(config_path: Path = DEFAULT_CONFIG_PATH) -> dict[str, Any]:
         try:
             with open(config_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            defaults.update(data)
+            if isinstance(data, dict):
+                defaults.update(data)
         except Exception:
             pass
     defaults["language"] = normalize_language_code(str(defaults.get("language", "cs")))
     defaults["thinking_level"] = normalize_thinking_level(
         str(defaults.get("thinking_level", "medium"))
     )
+    defaults["ollama_host"] = validate_local_ollama_host(str(defaults.get("ollama_host", "")))
+    try:
+        defaults["padding"] = max(0, min(200, int(defaults.get("padding", 20))))
+    except Exception:
+        defaults["padding"] = 20
+    try:
+        defaults["border_width"] = max(1, min(20, int(defaults.get("border_width", 3))))
+    except Exception:
+        defaults["border_width"] = 3
+    try:
+        defaults["temperature"] = max(0.0, min(2.0, float(defaults.get("temperature", 0.15))))
+    except Exception:
+        defaults["temperature"] = 0.15
     return defaults
 
 
@@ -203,10 +229,11 @@ class OverlayWindow(QWidget):
             pass
 
     def _stop_active_worker(self) -> None:
-        """Cancels any running QThread inference worker without blocking the UI."""
+        """Cancels any running QThread inference worker and scrubs its RAM buffers."""
         if self._worker is not None:
             try:
                 self._worker.cancel()
+                self._worker.clear_memory()
                 self._worker.tokenReceived.disconnect()
                 self._worker.thinkingProgress.disconnect()
                 self._worker.finishedInference.disconnect()
@@ -216,16 +243,32 @@ class OverlayWindow(QWidget):
             self._worker = None
 
     def reset_selection(self) -> None:
-        """Clears the current lasso path, bounding box, active worker, and hides the popover."""
+        """
+        Immediately erases the current lasso path, cropped image, base64 history,
+        and Popover chat text from RAM as soon as the selection/chat is closed.
+        """
         self._stop_active_worker()
         self._is_drawing = False
         self._lasso_points.clear()
         self._lasso_path = QPainterPath()
         self._selected_bbox = QRect()
-        self._last_cropped_image = None
+
+        if self._last_cropped_image is not None:
+            try:
+                self._last_cropped_image.close()
+            except Exception:
+                pass
+            self._last_cropped_image = None
+
+        for entry in self._chat_history:
+            if isinstance(entry, dict):
+                entry.clear()
         self._chat_history.clear()
         self._current_reply_buffer = ""
+
+        self.popover.clear_sensitive_data()
         self.popover.hide()
+        gc.collect()
         self.update()
 
     def activate_overlay(self) -> float:
@@ -269,12 +312,20 @@ class OverlayWindow(QWidget):
         return self.capture_result.capture_ms
 
     def dismiss_overlay(self) -> None:
-        """Hides the overlay in daemon mode (0 ms re-activation) or closes & exits in standalone mode."""
+        """
+        Hides the overlay in daemon mode or exits in standalone mode, immediately
+        purging both the cropped selection, chat history, AND the fullscreen screenshot from RAM.
+        """
         self.reset_selection()
+        self.capture_result = None
+        gc.collect()
         if self.daemon_mode:
             self.hide()
             self.overlayDismissed.emit()
-            print("[AI Lens] Overlay skryt do pohotovosti. Stiskni Alt+F8 (nebo klikni na plovoucí tlačítko) pro další výběr.", flush=True)
+            print(
+                "[AI Lens] Chat a výřez byly vymazány z RAM. Overlay skryt do pohotovosti (Alt+F8 pro další výběr).",
+                flush=True,
+            )
         else:
             self.close()
             app = QApplication.instance()
@@ -289,11 +340,7 @@ class OverlayWindow(QWidget):
                 super().mousePressEvent(event)
                 return
 
-            self._stop_active_worker()
-            self.popover.hide()
-            self._selected_bbox = QRect()
-            self._chat_history.clear()
-            self._current_reply_buffer = ""
+            self.reset_selection()
             self._is_drawing = True
             self._lasso_points = [pos]
             self._lasso_path = QPainterPath(pos)
@@ -318,8 +365,8 @@ class OverlayWindow(QWidget):
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:  # noqa: N802
         """
-        Computes the Bounding Box with adaptive padding, crops the clean screenshot,
-        displays the PopoverCard right next to the selection, and launches QThread VLM inference.
+        Computes the Bounding Box with adaptive padding, crops the clean screenshot in RAM only
+        (never written to disk), displays the PopoverCard, and launches QThread VLM inference.
         """
         if event.button() == Qt.MouseButton.LeftButton and self._is_drawing:
             self._is_drawing = False
@@ -344,10 +391,6 @@ class OverlayWindow(QWidget):
             if self.capture_result is not None:
                 cropped = crop_from_capture(self.capture_result, bbox)
                 self._last_cropped_image = cropped
-                try:
-                    cropped.save(DEFAULT_TEST_CROP_PATH)
-                except Exception:
-                    pass
 
                 self.popover.place_near_bbox(bbox, self.rect())
                 lang_code = normalize_language_code(str(self.config.get("language", "cs")))

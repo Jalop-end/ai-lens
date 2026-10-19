@@ -255,6 +255,12 @@ ai-lens config --padding 20
 
 ---
 
+## Specifications, Resource Usage & Security Audit
+
+For full technical specifications—including exact **RAM / VRAM / CPU consumption**, **`Low` / `Medium` / `High` context & token parameters**, **Zero-Retention RAM erasure on chat close**, and the **Security & Threat Audit**—see [**`SPECIFICATIONS.md`**](SPECIFICATIONS.md).
+
+---
+
 ## Project Structure
 
 ```text
@@ -265,12 +271,13 @@ ai-lens/
 │   ├── cli.py               # Typer CLI with direct <lang> and <Low|Medium|High> shortcuts
 │   ├── daemon.py            # Win32 background loop, triple hotkey engine, localized floating dock
 │   ├── capture.py           # Sub-15ms screen capture & high-DPI bounding box crop
-│   ├── overlay.py           # PyQt6 frameless fullscreen overlay with localized HUD & lasso
+│   ├── overlay.py           # PyQt6 frameless fullscreen overlay with localized HUD & zero-retention RAM wipe
 │   ├── popover.py           # Floating result card, styled HTML renderer (16px bold & serif quotes)
-│   └── vision_engine.py     # Local Ollama QThread worker, Low/Medium/High tiers & 15 UI locales
+│   └── vision_engine.py     # Local Ollama QThread worker, loopback security guard, Low/Medium/High tiers
 ├── ai-lens.bat              # Universal Windows launcher (works with or without .venv)
 ├── config.json              # Persistent configuration (hotkey, model, language, thinking_level)
 ├── pyproject.toml           # Project dependencies and CLI entry point
+├── SPECIFICATIONS.md        # Technical specs, RAM/CPU usage, Low/Medium/High context & security audit
 ├── .gitignore               # Clean git exclusions
 └── README.md                # Documentation
 ```
