@@ -31,7 +31,7 @@ AI Lens běží jako plně lokální desktopová aplikace rozdělená do dvou od
    - **Lokální režim (Výchozí):** Ollama na `127.0.0.1:11434` (akcelerace GPU nebo CPU přes `@\`). 100% offline.
    - **Režim Google Gemini API (`start with Gemini`):**
      - Umožňuje spuštění přes Google Gemini API s výběrem modelů rozdělených podle předplatného Google:
-       - **Placené předplatné (Paid / Billing enabled):** `gemini-2.5-flash`, `gemini-3.1-pro`, `gemini-3.5-flash`, `gemini-3.8-flash`, `gemini-3.5-flash-lite` (+ vlastní model).
+       - **Placené předplatné (Paid / Billing enabled):** `gemini-2.5-flash`, `gemini-3.1-pro`, `gemini-3.5-flash`, `gemini-3.8-flash` *(Currently Out of Working — v nabídce zobrazen, ale nelze vybrat)*, `gemini-3.5-flash-lite` (+ vlastní model).
        - **Bezplatná kvóta (Free tier):** `gemini-2.5-flash`, `gemini-3.5-flash-lite` (+ vlastní model).
      - **Striktní zrychlení 3.8 Flash (Low Thinking Lock):** Gemini 3.8 Flash je záměrně uzamčen na `thinkingLevel: "low"`, což eliminuje nekonečné smyčky interního uvažování a garantuje bleskové doručení odpovědi do ~1.5–2.5 s (stejně rychle jako 2.5 Flash).
      - **Ochrana API klíče v RAM:** Klíč se zadává v příkazové řádce při startu, je uložen **výhradně v krátkodobé paměti (RAM)** a **nikdy se nezapisuje na disk** do `config.json` ani logů.

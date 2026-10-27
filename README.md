@@ -248,7 +248,7 @@ Advanced preview models such as **`gemini-3.8-flash`**, **`gemini-3.1-pro`**, an
    - **`[1] gemini-2.5-flash`** — **Gemini 2.5 Flash** *(Recommended)*: Next-gen lightning-fast multimodal model with reasoning (thinking). High precision, instant response.
    - **`[2] gemini-3.1-pro`** — **Gemini 3.1 Pro** *(Complex Reasoning)*: Advanced flagship model for intricate code, deep logic, mathematics, and complex analysis.
    - **`[3] gemini-3.5-flash`** — **Gemini 3.5 Flash** *(High Intelligence & Speed)*: Next-gen multimodal model balancing high intelligence with responsive real-time generation.
-   - **`[4] gemini-3.8-flash`** — **Gemini 3.8 Flash** *(Agentic Reasoning Preview)*: Cutting-edge preview model engineered for advanced STEM reasoning, complex workflows, and autonomous agents.
+   - **`[4] gemini-3.8-flash`** — **Gemini 3.8 Flash** *(Currently Out of Working)*: Kept in the table for reference, but currently disabled / out of working due to upstream API preview latency and rate-limit issues. Cannot be selected.
    - **`[5] gemini-3.5-flash-lite`** — **Gemini 3.5 Flash-Lite** *(Ultra-Lightweight)*: Lightest, most cost-efficient preview model designed for minimal latency and high query volume.
    - **`[6] custom`** — **Custom Model ID**: Enter any Google Gemini model identifier manually.
 

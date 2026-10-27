@@ -59,10 +59,11 @@ PAID_GEMINI_MODELS: list[dict[str, str]] = [
         "id": "4",
         "model": "gemini-3.8-flash",
         "name": "Gemini 3.8 Flash",
-        "tag": "Agentic Reasoning Preview",
-        "desc_en": "Cutting-edge preview model engineered for advanced STEM reasoning, complex workflows, and autonomous agents.",
-        "desc_cs": "Špičkový náhledový model pro pokročilé uvažování ve STEM, komplexní úlohy a autonomní agenty.",
-        "capabilities": "Multimodal · Agentic Thinking · Flagship Preview",
+        "tag": "Currently Out of Working",
+        "desc_en": "Currently out of working. This preview model is temporarily offline due to upstream API latency/rate limits.",
+        "desc_cs": "Currently out of working. Model je dočasně mimo provoz kvůli limitům a latenci upstream API.",
+        "capabilities": "Currently Out of Working",
+        "disabled": True,
     },
     {
         "id": "5",
@@ -208,6 +209,12 @@ def resolve_gemini_model_name(model_str: Optional[str]) -> str:
     )
     if cleaned in ("gemini", "geminiapi", "startwithgemini", "withgemini", "@gemini", "default"):
         return DEFAULT_GEMINI_MODEL
+    if "3.8" in cleaned:
+        print(
+            "[AI Lens] ! Notice: Model 'gemini-3.8-flash' is currently out of working. Defaulting to 'gemini-2.5-flash'.",
+            flush=True,
+        )
+        return "gemini-2.5-flash"
     if cleaned.startswith("models/"):
         cleaned = cleaned[7:]
     if cleaned in GEMINI_MODEL_ALIASES:
@@ -362,14 +369,25 @@ def choose_gemini_model_interactive(lang: Optional[str] = "en") -> str:
 
         for m in models_to_show:
             is_rec = "Recommended" in m["tag"]
-            tag_markup = f" [bold cyan]({m['tag']})[/]" if is_rec else f" [dim]({m['tag']})[/]"
-            desc = m["desc_en"]
-            mid = m["model"] if m["model"] != "custom" else "<custom>"
+            is_disabled = m.get("disabled", False)
+            if is_disabled:
+                tag_markup = " [bold red](Currently Out of Working)[/]"
+                name_markup = f"[dim strike]{m['name']}[/]"
+                mid_markup = f"[dim strike]{m['model']}[/]"
+                cap_markup = "[bold red]Currently Out of Working[/]"
+                desc = f"[dim red]{m['desc_en']}[/]"
+            else:
+                tag_markup = f" [bold cyan]({m['tag']})[/]" if is_rec else f" [dim]({m['tag']})[/]"
+                name_markup = m["name"]
+                mid_markup = m["model"] if m["model"] != "custom" else "<custom>"
+                cap_markup = m["capabilities"]
+                desc = m["desc_en"]
+
             table.add_row(
                 m["id"],
-                mid,
-                f"{m['name']}{tag_markup}\n{desc}",
-                m["capabilities"],
+                mid_markup,
+                f"{name_markup}{tag_markup}\n{desc}",
+                cap_markup,
             )
 
         console.print(table)
@@ -381,55 +399,105 @@ def choose_gemini_model_interactive(lang: Optional[str] = "en") -> str:
         for m in models_to_show:
             desc = m["desc_en"]
             mid = m["model"] if m["model"] != "custom" else "<custom>"
-            print(f"  [{m['id']}] {m['name']} ({m['tag']}) — {mid}", flush=True)
-            print(f"      └─ {desc} [{m['capabilities']}]", flush=True)
+            if m.get("disabled", False):
+                print(f"  [{m['id']}] {m['name']} (Currently Out of Working) — {mid}", flush=True)
+                print(f"      └─ {desc} [Currently Out of Working]", flush=True)
+            else:
+                print(f"  [{m['id']}] {m['name']} ({m['tag']}) — {mid}", flush=True)
+                print(f"      └─ {desc} [{m['capabilities']}]", flush=True)
         print("-" * 88, flush=True)
 
     max_num = len(models_to_show)
     prompt_text = f"Select model number [1-{max_num}] (Enter for recommended 1 - gemini-2.5-flash): "
 
-    choice = ""
-    try:
-        raw_choice = input(prompt_text).strip()
-        choice = raw_choice
-    except (EOFError, KeyboardInterrupt):
-        print("\n[AI Lens] Model selection cancelled.", flush=True)
-        sys.exit(1)
+    while True:
+        choice = ""
+        try:
+            raw_choice = input(prompt_text).strip()
+            choice = raw_choice
+        except (EOFError, KeyboardInterrupt):
+            print("\n[AI Lens] Model selection cancelled.", flush=True)
+            sys.exit(1)
 
-    selected = "gemini-2.5-flash"
-    if not choice or choice in ("1", "flash", "default", "recommended"):
+        # Gemini 3.8 Flash is currently out of working and cannot be selected
+        if choice in ("4", "3.8", "3.8-flash", "3.8flash", "gemini-3.8", "gemini-3.8-flash", "3.8pro", "3.8-pro", "gemini-3.8-pro"):
+            print(
+                "\n[AI Lens] ! Gemini 3.8 Flash is currently out of working and cannot be selected.",
+                flush=True,
+            )
+            print(
+                "[AI Lens] Please choose an active model from the table (e.g. 1 for Gemini 2.5 Flash, 3 for Gemini 3.5 Flash, 5 for Gemini 3.5 Flash-Lite).\n",
+                flush=True,
+            )
+            continue
+
         selected = "gemini-2.5-flash"
-    elif has_paid_subscription:
-        if choice in ("2", "3.1", "3.1-pro", "3.1pro"):
-            selected = "gemini-3.1-pro"
-        elif choice in ("3", "3.5", "3.5-flash", "3.5flash"):
-            selected = "gemini-3.5-flash"
-        elif choice in ("4", "3.8", "3.8-flash", "3.8flash"):
-            selected = "gemini-3.8-flash"
-        elif choice in ("5", "lite", "flash-lite", "3.5-lite", "3.5-flash-lite"):
-            selected = "gemini-3.5-flash-lite"
-        elif choice in ("6", "custom", "vlastni", "vlastní"):
-            try:
-                custom_val = input("Enter exact Google Gemini model ID (e.g. gemini-2.5-pro): ").strip()
-                selected = resolve_gemini_model_name(custom_val) if custom_val else "gemini-2.5-flash"
-            except (EOFError, KeyboardInterrupt):
-                print("\n[AI Lens] Model selection cancelled.", flush=True)
-                sys.exit(1)
+        if not choice or choice in ("1", "flash", "default", "recommended"):
+            selected = "gemini-2.5-flash"
+            break
+        elif has_paid_subscription:
+            if choice in ("2", "3.1", "3.1-pro", "3.1pro"):
+                selected = "gemini-3.1-pro"
+                break
+            elif choice in ("3", "3.5", "3.5-flash", "3.5flash"):
+                selected = "gemini-3.5-flash"
+                break
+            elif choice in ("5", "lite", "flash-lite", "3.5-lite", "3.5-flash-lite"):
+                selected = "gemini-3.5-flash-lite"
+                break
+            elif choice in ("6", "custom", "vlastni", "vlastní"):
+                try:
+                    custom_val = input("Enter exact Google Gemini model ID (e.g. gemini-2.5-pro): ").strip()
+                    if "3.8" in custom_val.lower():
+                        print(
+                            "\n[AI Lens] ! Gemini 3.8 Flash is currently out of working and cannot be selected. Please choose another model.\n",
+                            flush=True,
+                        )
+                        continue
+                    selected = resolve_gemini_model_name(custom_val) if custom_val else "gemini-2.5-flash"
+                    break
+                except (EOFError, KeyboardInterrupt):
+                    print("\n[AI Lens] Model selection cancelled.", flush=True)
+                    sys.exit(1)
+            else:
+                resolved = resolve_gemini_model_name(choice)
+                if "3.8" in resolved:
+                    print(
+                        "\n[AI Lens] ! Gemini 3.8 Flash is currently out of working and cannot be selected. Please choose another model.\n",
+                        flush=True,
+                    )
+                    continue
+                selected = resolved
+                break
         else:
-            selected = resolve_gemini_model_name(choice)
-    else:
-        # Free tier
-        if choice in ("2", "lite", "flash-lite", "3.5-lite", "3.5-flash-lite"):
-            selected = "gemini-3.5-flash-lite"
-        elif choice in ("3", "custom", "vlastni", "vlastní"):
-            try:
-                custom_val = input("Enter exact Google Gemini model ID (e.g. gemini-2.5-pro): ").strip()
-                selected = resolve_gemini_model_name(custom_val) if custom_val else "gemini-2.5-flash"
-            except (EOFError, KeyboardInterrupt):
-                print("\n[AI Lens] Model selection cancelled.", flush=True)
-                sys.exit(1)
-        else:
-            selected = resolve_gemini_model_name(choice)
+            # Free tier
+            if choice in ("2", "lite", "flash-lite", "3.5-lite", "3.5-flash-lite"):
+                selected = "gemini-3.5-flash-lite"
+                break
+            elif choice in ("3", "custom", "vlastni", "vlastní"):
+                try:
+                    custom_val = input("Enter exact Google Gemini model ID (e.g. gemini-2.5-pro): ").strip()
+                    if "3.8" in custom_val.lower():
+                        print(
+                            "\n[AI Lens] ! Gemini 3.8 Flash is currently out of working and cannot be selected. Please choose another model.\n",
+                            flush=True,
+                        )
+                        continue
+                    selected = resolve_gemini_model_name(custom_val) if custom_val else "gemini-2.5-flash"
+                    break
+                except (EOFError, KeyboardInterrupt):
+                    print("\n[AI Lens] Model selection cancelled.", flush=True)
+                    sys.exit(1)
+            else:
+                resolved = resolve_gemini_model_name(choice)
+                if "3.8" in resolved:
+                    print(
+                        "\n[AI Lens] ! Gemini 3.8 Flash is currently out of working and cannot be selected. Please choose another model.\n",
+                        flush=True,
+                    )
+                    continue
+                selected = resolved
+                break
 
     set_volatile_gemini_model(selected)
     print(f"[AI Lens] ✓ Selected model: {selected}\n", flush=True)
