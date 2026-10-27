@@ -445,7 +445,7 @@ ai-lens/
 ## License & Model Attributions
 
 This project's application source code is licensed under the [MIT License](LICENSE).
-Copyright (c) 2026 Jan Šubrta. All rights reserved.
+Copyright (c) 2026 Jalop-end. All rights reserved.
 
 For comprehensive intellectual property, third-party library licenses, API terms of use, and model acknowledgements, please see the [**`NOTICE`**](NOTICE) file.
 
