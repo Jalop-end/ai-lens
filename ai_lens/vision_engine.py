@@ -21,16 +21,99 @@ from PyQt6.QtCore import QThread, pyqtSignal
 DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
 GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 
-# Short-term memory (RAM-only) storage for Gemini API key.
+# Short-term memory (RAM-only) storage for Gemini API key and active model.
 # Never written to config.json, environment files, or disk; cleared automatically on program exit.
 _VOLATILE_GEMINI_API_KEY: Optional[str] = None
+_VOLATILE_GEMINI_MODEL: Optional[str] = None
+
+GEMINI_MODEL_ALIASES: dict[str, str] = {
+    "3.8": "gemini-3.8-flash",
+    "3.8flash": "gemini-3.8-flash",
+    "3.8-flash": "gemini-3.8-flash",
+    "gemini-3.8": "gemini-3.8-flash",
+    "gemini-3.8-flash": "gemini-3.8-flash",
+    "3.5": "gemini-3.5-flash",
+    "3.5flash": "gemini-3.5-flash",
+    "3.5-flash": "gemini-3.5-flash",
+    "gemini-3.5": "gemini-3.5-flash",
+    "gemini-3.5-flash": "gemini-3.5-flash",
+    "2.5": "gemini-2.5-flash",
+    "2.5flash": "gemini-2.5-flash",
+    "2.5-flash": "gemini-2.5-flash",
+    "gemini-2.5": "gemini-2.5-flash",
+    "gemini-2.5-flash": "gemini-2.5-flash",
+    "2.0": "gemini-2.0-flash",
+    "2.0flash": "gemini-2.0-flash",
+    "2.0-flash": "gemini-2.0-flash",
+    "gemini-2.0": "gemini-2.0-flash",
+    "gemini-2.0-flash": "gemini-2.0-flash",
+    "1.5": "gemini-1.5-flash",
+    "1.5flash": "gemini-1.5-flash",
+    "1.5-flash": "gemini-1.5-flash",
+    "gemini-1.5": "gemini-1.5-flash",
+    "gemini-1.5-flash": "gemini-1.5-flash",
+    "flash": "gemini-2.5-flash",
+    "pro": "gemini-1.5-pro",
+    "1.5pro": "gemini-1.5-pro",
+    "1.5-pro": "gemini-1.5-pro",
+    "gemini-1.5-pro": "gemini-1.5-pro",
+    "2.5pro": "gemini-2.5-pro",
+    "2.5-pro": "gemini-2.5-pro",
+    "gemini-2.5-pro": "gemini-2.5-pro",
+}
+
+
+def is_recognized_gemini_model(arg: Optional[str]) -> bool:
+    """Returns True if `arg` represents a recognized Gemini model alias or model name (e.g. 3.8flash, 3.5, gemini-2.5-flash)."""
+    if not arg or not isinstance(arg, str):
+        return False
+    cleaned = arg.strip().lower().lstrip("-").replace('"', '').replace("'", "")
+    if cleaned in ("gemini", "geminiapi", "startwithgemini", "withgemini", "@gemini"):
+        return False
+    if cleaned in GEMINI_MODEL_ALIASES:
+        return True
+    if cleaned.startswith("gemini-") and len(cleaned) > 7:
+        return True
+    return False
+
+
+def resolve_gemini_model_name(model_str: Optional[str]) -> str:
+    """Resolves a shorthand model alias (e.g. '3.8flash', '3.5', '2.5') into a canonical Gemini model ID."""
+    if not model_str or not isinstance(model_str, str):
+        return DEFAULT_GEMINI_MODEL
+    cleaned = model_str.strip().lower().lstrip("-").replace('"', '').replace("'", "")
+    if cleaned in ("gemini", "geminiapi", "startwithgemini", "withgemini", "@gemini"):
+        return DEFAULT_GEMINI_MODEL
+    if cleaned in GEMINI_MODEL_ALIASES:
+        return GEMINI_MODEL_ALIASES[cleaned]
+    if cleaned.startswith("gemini-") and len(cleaned) > 7:
+        return cleaned
+    if cleaned.startswith("gemini") and len(cleaned) > 6:
+        return f"gemini-{cleaned[6:].lstrip('-')}"
+    return f"gemini-{cleaned}"
+
+
+def is_gemini_api_key(arg: Optional[str]) -> bool:
+    """Returns True if `arg` has the format of a Google Gemini API key."""
+    if not arg or not isinstance(arg, str):
+        return False
+    cleaned = arg.strip().strip('"').strip("'")
+    if (cleaned.startswith("AIzaSy") or cleaned.startswith("AIza")) and len(cleaned) >= 8:
+        return True
+    # General API key heuristics (alphanumeric with dashes/underscores, >= 16 chars)
+    if len(cleaned) >= 16 and not any(c in cleaned for c in (" ", "/", "\\")):
+        lower = cleaned.lower()
+        if is_recognized_gemini_model(lower) or is_recognized_compute_device(lower) or is_recognized_language_arg(lower) or is_recognized_thinking_level(lower):
+            return False
+        return True
+    return False
 
 
 def set_volatile_gemini_api_key(api_key: Optional[str]) -> None:
     """Stores the Gemini API key strictly in short-term process RAM (never persisted to disk)."""
     global _VOLATILE_GEMINI_API_KEY
     if api_key and api_key.strip():
-        _VOLATILE_GEMINI_API_KEY = api_key.strip()
+        _VOLATILE_GEMINI_API_KEY = api_key.strip().strip('"').strip("'")
     else:
         _VOLATILE_GEMINI_API_KEY = None
 
@@ -45,14 +128,29 @@ def has_volatile_gemini_api_key() -> bool:
     return bool(_VOLATILE_GEMINI_API_KEY)
 
 
+def set_volatile_gemini_model(model: Optional[str]) -> None:
+    """Stores the user-selected Gemini model name strictly in short-term process RAM."""
+    global _VOLATILE_GEMINI_MODEL
+    if model and model.strip():
+        _VOLATILE_GEMINI_MODEL = resolve_gemini_model_name(model)
+    else:
+        _VOLATILE_GEMINI_MODEL = None
+
+
+def get_volatile_gemini_model() -> str:
+    """Returns the in-memory Gemini model for the current running session, or DEFAULT_GEMINI_MODEL."""
+    return _VOLATILE_GEMINI_MODEL or DEFAULT_GEMINI_MODEL
+
+
 def clear_volatile_gemini_api_key() -> bool:
     """
-    Immediately clears the Gemini API key from short-term memory (RAM) and triggers garbage collection.
+    Immediately clears the Gemini API key and volatile model from short-term memory (RAM) and triggers garbage collection.
     Returns True if an active key was present and cleared.
     """
-    global _VOLATILE_GEMINI_API_KEY
+    global _VOLATILE_GEMINI_API_KEY, _VOLATILE_GEMINI_MODEL
     had_key = _VOLATILE_GEMINI_API_KEY is not None
     _VOLATILE_GEMINI_API_KEY = None
+    _VOLATILE_GEMINI_MODEL = None
     gc.collect()
     return had_key
 
@@ -1215,7 +1313,7 @@ class VisionInferenceWorker(QThread):
         gemini_model = (
             self.model
             if self.model.lower().startswith("gemini-")
-            else DEFAULT_GEMINI_MODEL
+            else get_volatile_gemini_model()
         )
 
         contents: list[dict[str, Any]] = []
@@ -1286,13 +1384,22 @@ class VisionInferenceWorker(QThread):
                     payload["generationConfig"].pop("thinkingConfig", None)
                     ok, status_code, err_body = self._stream_gemini_chat(client, url, headers, payload)
 
-                # Fallback 2: If gemini-2.5-flash is unavailable (404), fall back to gemini-2.0-flash
-                if not ok and status_code == 404 and gemini_model != "gemini-2.0-flash":
-                    fallback_url = f"{GEMINI_API_BASE_URL}/models/gemini-2.0-flash:streamGenerateContent?alt=sse"
-                    payload["generationConfig"].pop("thinkingConfig", None)
-                    ok, status_code, err_body = self._stream_gemini_chat(
-                        client, fallback_url, headers, payload
-                    )
+                # Fallback 2: If requested model is unavailable (404), try fallback to available standard models
+                if not ok and status_code == 404:
+                    for fallback_model in ("gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"):
+                        if gemini_model == fallback_model:
+                            continue
+                        fallback_url = f"{GEMINI_API_BASE_URL}/models/{fallback_model}:streamGenerateContent?alt=sse"
+                        payload["generationConfig"].pop("thinkingConfig", None)
+                        ok, status_code, err_body = self._stream_gemini_chat(
+                            client, fallback_url, headers, payload
+                        )
+                        if ok:
+                            print(
+                                f"[AI Lens] Model '{gemini_model}' nebyl na Google API nalezen (404), automaticky použita záloha '{fallback_model}'.",
+                                flush=True,
+                            )
+                            break
 
                 if not ok:
                     err_prefix = (

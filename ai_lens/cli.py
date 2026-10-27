@@ -29,6 +29,12 @@ from ai_lens.vision_engine import (
     SUPPORTED_LANGUAGES,
     THINKING_LEVELS,
     has_volatile_gemini_api_key,
+    get_volatile_gemini_model,
+    is_gemini_api_key,
+    is_recognized_gemini_model,
+    resolve_gemini_model_name,
+    set_volatile_gemini_api_key,
+    set_volatile_gemini_model,
     get_compute_device_display,
     get_language_display,
     get_thinking_level_config,
@@ -71,6 +77,16 @@ def _normalize_cli_argv() -> None:
       - Normalizes diagnostic aliases (`diagnostika`, `diagnostics`, `security`, `specs`) to `diag`
     """
     global _CLI_DETECTED_DEVICE
+    # Pre-scan for Gemini context flag/token
+    is_gemini_context = any(
+        a.strip().lower().lstrip("-/\\").replace(" ", "").replace('"', '').replace("'", "") in (
+            "gemini", "start-with-gemini", "startwithgemini", "withgemini", "&&gemini", "&gemini", "@gemini"
+        ) or a.strip() in ("--gemini", "-g")
+        for a in sys.argv[1:]
+    )
+    if is_gemini_context:
+        _CLI_DETECTED_DEVICE = "gemini"
+
 
     # 1. Scan and extract any CPU/GPU flags from sys.argv
     new_argv = [sys.argv[0]]
@@ -85,6 +101,18 @@ def _normalize_cli_argv() -> None:
         prev_arg = sys.argv[i - 1].strip().lower() if i > 1 else ""
         if prev_arg in ("--device", "-d"):
             new_argv.append(arg)
+            continue
+
+        # Handle direct Gemini API key passed on CLI (e.g. `gemini "AIzaSy..."`)
+        if is_gemini_api_key(arg) or (is_gemini_context and not arg.startswith("-") and not is_recognized_language_arg(arg) and not is_recognized_thinking_level(arg) and not is_recognized_gemini_model(arg) and cleaned not in ("gemini", "with", "start", "trigger", "status", "stop", "diag", "levels", "languages", "config") and not has_volatile_gemini_api_key()):
+            set_volatile_gemini_api_key(arg)
+            _CLI_DETECTED_DEVICE = "gemini"
+            continue
+
+        # Handle Gemini model alias (e.g. `3.8flash`, `3.5`, `gemini-3.8-flash`)
+        if is_recognized_gemini_model(arg) and prev_arg not in ("--model", "-m"):
+            set_volatile_gemini_model(arg)
+            _CLI_DETECTED_DEVICE = "gemini"
             continue
 
         # Handle Gemini flags and multi-token "with Gemini"
@@ -403,7 +431,7 @@ def status() -> None:
         dev_disp = get_compute_device_display(running_mode, lang_code)
         tier_cfg = get_thinking_level_config(level_code, running_mode)
         level_disp = get_thinking_level_display(level_code, lang_code, running_mode)
-        active_model = DEFAULT_GEMINI_MODEL if running_mode == "gemini" else cfg.get("model")
+        active_model = get_volatile_gemini_model() if running_mode == "gemini" else cfg.get("model")
         typer.echo(
             f"[AI Lens] Proces BĚŽÍ (PID: {state.get('pid')}, zkratka: {cfg.get('hotkey')} / F8, model: {active_model}, "
             f"jazyk: {lang_disp}, myšlení: {level_disp} [{tier_cfg['num_predict']} tokenů], režim/výpočet: {dev_disp})."

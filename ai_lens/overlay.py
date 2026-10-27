@@ -37,6 +37,7 @@ from ai_lens.vision_engine import (
     VisionInferenceWorker,
     clear_volatile_gemini_api_key,
     encode_pil_to_base64,
+    get_volatile_gemini_model,
     get_compute_device_display,
     get_default_prompt,
     get_language_display,
@@ -467,7 +468,7 @@ class OverlayWindow(QWidget):
             compute_device = "gemini"
 
         display_model = (
-            (raw_model_name if raw_model_name.lower().startswith("gemini-") else DEFAULT_GEMINI_MODEL)
+            get_volatile_gemini_model()
             if compute_device == "gemini"
             else raw_model_name
         )
@@ -700,7 +701,7 @@ def run_overlay_mvp(
     dev_code = "gemini" if has_volatile_gemini_api_key() else str(overlay.config.get("compute_device", "gpu"))
     level_disp = get_thinking_level_display(str(overlay.config.get("thinking_level", "medium")), lang_code, dev_code)
     dev_disp = get_compute_device_display(dev_code, lang_code)
-    active_model = DEFAULT_GEMINI_MODEL if dev_code == "gemini" else overlay.config.get("model")
+    active_model = get_volatile_gemini_model() if dev_code == "gemini" else overlay.config.get("model")
     print(f"[AI Lens] Obrazovka zachycena do RAM za {capture_ms:.2f} ms.")
     print(
         f"[AI Lens] VLM ({active_model}, jazyk: {lang_disp}, "

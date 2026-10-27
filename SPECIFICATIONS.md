@@ -167,11 +167,13 @@ ai-lens diagnostika
 ai-lens levels
 .\ai-lens.bat levels
 
-# Spuštění přes Google Gemini API (krátkodobý RAM klíč):
+# Spuštění přímo s Gemini API klíčem a volbou modelu (3.8flash, 3.5, 2.5):
+gemini "TVUJ_API_KLIC"
+gemini "TVUJ_API_KLIC" 3.8flash
+gemini "TVUJ_API_KLIC" 3.5 cs High
+.\Gemini.bat "TVUJ_API_KLIC" 3.8flash
+.\ai-lens.bat gemini "TVUJ_API_KLIC" 3.8flash
 .\ai-lens.bat start with Gemini
-start with Gemini                 # přímo v příkazové řádce CMD
-.\start-with-gemini.bat          # přímý skript
-.\ai-lens.bat start with Gemini cs High
 
 # Spuštění lokálního modelu s GPU (výchozí) vs. s vynuceným CPU:
 .\ai-lens.bat cs High            # GPU

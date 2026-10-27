@@ -36,6 +36,8 @@ from ai_lens.overlay import (
 from ai_lens.vision_engine import (
     DEFAULT_GEMINI_MODEL,
     clear_volatile_gemini_api_key,
+    get_volatile_gemini_model,
+    set_volatile_gemini_model,
     get_compute_device_display,
     get_language_display,
     get_thinking_level_config,
@@ -642,7 +644,7 @@ def run_daemon(
     lang_code = str(config.get("language", "cs"))
     level_code = str(config.get("thinking_level", "medium"))
     dev_code = "gemini" if has_volatile_gemini_api_key() else str(config.get("compute_device", "gpu"))
-    active_model = DEFAULT_GEMINI_MODEL if dev_code == "gemini" else model_name
+    active_model = get_volatile_gemini_model() if dev_code == "gemini" else model_name
     tier_cfg = get_thinking_level_config(level_code, dev_code)
 
     app = QApplication.instance() or QApplication(sys.argv)
