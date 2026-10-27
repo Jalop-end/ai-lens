@@ -7,6 +7,10 @@ name = "ai-lens"
 version = "0.1.0"
 description = "100% offline screen capture & local VLM overlay assistant"
 readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "Jan Šubrta"}
+]
 requires-python = ">=3.10"
 dependencies = [
     "typer>=0.12.0",

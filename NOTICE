@@ -2,18 +2,39 @@ AI Lens
 Copyright (c) 2026 Jan Šubrta
 
 This product includes software developed as part of the AI Lens project.
-AI Lens source code is licensed under the MIT License.
+AI Lens application source code is licensed under the MIT License.
 
 ================================================================================
-THIRD-PARTY AI MODELS AND INTELLECTUAL PROPERTY ACKNOWLEDGEMENTS
+THIRD-PARTY AI CLOUD SERVICES & APIS
 ================================================================================
 
-AI Lens is designed to connect to locally running Vision-Language Models (VLMs)
-hosted via Ollama (127.0.0.1:11434). Model weights are downloaded directly by the
-user from their respective repositories and are not distributed within this codebase.
+1. Google Gemini API
+   - Google Gemini, Gemini 2.5 Flash, Gemini 3.1 Pro, Gemini 3.5 Flash,
+     Gemini 3.8 Flash, and Gemini 3.5 Flash-Lite are trademarks and services
+     provided by Google LLC.
+   - Access to and use of Google Gemini models via API mode is governed by:
+     * Google APIs Terms of Service:
+       https://developers.google.com/terms
+     * Google AI Studio and Gemini API Additional Terms of Service:
+       https://ai.google.dev/gemini-api/terms
+     * Google Generative AI Prohibited Use Policy:
+       https://policies.google.com/terms/generative-ai/use-policy
+   - AI Lens serves solely as a client interface. Users provide their own
+     API keys, which are communicated directly over HTTPS to Google's official
+     generativelanguage.googleapis.com endpoints in volatile memory (RAM).
+     No API keys, telemetry, or user data are stored on disk or collected by AI Lens.
+
+================================================================================
+THIRD-PARTY LOCAL AI MODELS AND WEIGHTS
+================================================================================
+
+AI Lens can connect to locally hosted Vision-Language Models (VLMs) running
+on the user's machine via local Ollama inference (127.0.0.1:11434). Model weights
+are downloaded directly by the user from their respective upstream repositories
+and are NOT distributed or bundled within this codebase.
 
 1. Google Gemma
-   - Gemma is developed and maintained by Google LLC.
+   - Developed and maintained by Google LLC.
    - Gemma open-weights models are governed by the Google Gemma Terms of Use:
      https://ai.google.dev/gemma/terms
    - And the Gemma Prohibited Use Policy:
@@ -24,11 +45,61 @@ user from their respective repositories and are not distributed within this code
    - Licensed under the Apache License, Version 2.0:
      https://github.com/QwenLM/Qwen2.5-VL/blob/main/LICENSE
 
+3. MiniCPM-V
+   - Developed and maintained by OpenBMB and ModelBest Inc.
+   - Governed by the Apache License 2.0 and MiniCPM Model License:
+     https://github.com/OpenBMB/MiniCPM-V/blob/main/LICENSE
+
 ================================================================================
-DISCLAIMER
+THIRD-PARTY SOFTWARE LIBRARIES & LICENSES
 ================================================================================
 
-AI Lens is an independent open-source application and is NOT affiliated with,
-sponsored by, or endorsed by Google LLC, Alibaba Cloud, or Ollama.
-All trademarks, product names, and company names or logos cited herein are
-the property of their respective owners.
+AI Lens incorporates or links against the following open-source libraries:
+
+1. PyQt6 / Qt
+   - Riverbank Computing Limited & The Qt Company
+   - Licensed under GNU General Public License v3.0 (GPLv3) / Commercial License.
+   - Qt library is licensed under GNU LGPLv3 and commercial licenses.
+   - https://www.riverbankcomputing.com/software/pyqt/
+   - https://www.qt.io/licensing/
+
+2. httpx
+   - Encode OSS Ltd.
+   - Licensed under the BSD 3-Clause License.
+   - https://github.com/encode/httpx/blob/master/LICENSE.md
+
+3. Pillow (PIL)
+   - Alex Clark and Contributors; Secret Labs AB; Fredrik Lundh.
+   - Licensed under the Historical Permission Notice and Disclaimer (HPND).
+   - https://github.com/python-pillow/Pillow/blob/main/LICENSE
+
+4. mss
+   - Mickaël Schoentgen and contributors.
+   - Licensed under the MIT License.
+   - https://github.com/BoboTiG/python-mss/blob/main/LICENSE.txt
+
+5. pynput
+   - Moses Palmér.
+   - Licensed under the GNU Lesser General Public License v3.0 (LGPLv3).
+   - https://github.com/moses-palmer/pynput/blob/master/COPYING.LGPL
+
+6. NumPy
+   - NumPy Developers.
+   - Licensed under the BSD 3-Clause License.
+   - https://numpy.org/doc/stable/license.html
+
+7. Typer
+   - Sebastián Ramírez (tiangolo).
+   - Licensed under the MIT License.
+   - https://github.com/fastapi/typer/blob/master/LICENSE
+
+================================================================================
+GENERAL DISCLAIMER
+================================================================================
+
+AI Lens is an independent open-source tool and is NOT affiliated with, sponsored
+by, authorized by, or endorsed by Google LLC, Alibaba Cloud, OpenBMB, Riverbank
+Computing Limited, The Qt Company, or Ollama.
+
+All trademarks, service marks, trade names, and logos cited herein are the property
+of their respective owners.

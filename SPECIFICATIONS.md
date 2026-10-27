@@ -197,3 +197,15 @@ ai-lens levels
 .\ai-lens.bat trigger --secret
 ```
 
+---
+
+## 8. Právní doložka, licence a ochrana autorských práv (Legal & Compliance)
+
+Zdrojový kód aplikace **AI Lens** je licencován pod otevřenou licencí [**MIT License**](LICENSE) (Copyright © 2026 Jan Šubrta).
+
+Pro zajištění 100% souladu s právními předpisy a podmínkami poskytovatelů AI platí:
+1. **Google Gemini API:** Přístup ke službám Google Gemini podléhá [Google APIs Terms of Service](https://developers.google.com/terms) a [Gemini API Additional Terms of Service](https://ai.google.dev/gemini-api/terms). AI Lens funguje výhradně jako nezávislé klientské rozhraní — API klíč zadává sám uživatel a je držen pouze v krátkodobé paměti RAM (nikdy se neukládá na disk ani neodesílá třetím stranám).
+2. **Lokální modely (Ollama):** Váhy modelů (**Google Gemma**, **Qwen2.5-VL**, **MiniCPM-V**) nejsou součástí tohoto softwaru a stahuje si je uživatel sám z oficiálních repozitářů v souladu s jejich příslušnými licencemi (Gemma Terms of Use, Apache 2.0).
+3. **Knihovny třetích stran:** Aplikace využívá open-source komponenty (PyQt6/Qt, httpx, Pillow, mss, pynput, typer, numpy). Kompletní přehled licencí a ochranných známek je podrobně uveden v souboru [**`NOTICE`**](NOTICE).
+4. **Vyloučení odpovědnosti (Disclaimer):** AI Lens je nezávislý open-source projekt a není nijak spojen, sponzorován ani autorizován společnostmi Google LLC, Alibaba Cloud, OpenBMB, The Qt Company ani Riverbank Computing. Všechny ochranné známky náleží jejich právoplatným vlastníkům.
+

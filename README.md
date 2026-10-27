@@ -445,10 +445,23 @@ ai-lens/
 ## License & Model Attributions
 
 This project's application source code is licensed under the [MIT License](LICENSE).
+Copyright (c) 2026 Jan Šubrta. All rights reserved.
 
-### Third-Party AI Models & Trademarks
-AI Lens connects to locally hosted Vision-Language Models running on your machine via local Ollama inference. The model weights are separate works governed by their respective licenses:
-- **Gemma / Gemma 4:** Developed and released by **Google LLC**. Gemma is an open-weights model governed by the [Google Gemma Terms of Use](https://ai.google.dev/gemma/terms) and [Gemma Prohibited Use Policy](https://ai.google.dev/gemma/prohibited_use_policy).
+For comprehensive intellectual property, third-party library licenses, API terms of use, and model acknowledgements, please see the [**`NOTICE`**](NOTICE) file.
+
+### Third-Party AI Cloud Services & APIs
+AI Lens provides an optional client interface to connect to Google Cloud AI services. When operating in Gemini mode:
+- **Google Gemini API:** Google Gemini, Gemini 2.5 Flash, Gemini 3.1 Pro, Gemini 3.5 Flash, Gemini 3.8 Flash, and Gemini 3.5 Flash-Lite are services of **Google LLC**. Use of the Gemini API is governed by the [Google APIs Terms of Service](https://developers.google.com/terms) and the [Google AI Studio / Gemini API Additional Terms of Service](https://ai.google.dev/gemini-api/terms).
+- **RAM-Only Key Security:** AI Lens never redistributes, bundles, or persists user API keys to disk. All queries are initiated directly from the user's client machine to Google's official endpoints over HTTPS.
+
+### Third-Party Local AI Models & Weights
+AI Lens connects to locally hosted Vision-Language Models running on your machine via local Ollama inference (`127.0.0.1:11434`). The model weights are separate works governed by their respective licenses:
+- **Google Gemma / Gemma 4:** Developed and released by **Google LLC**. Governed by the [Google Gemma Terms of Use](https://ai.google.dev/gemma/terms) and [Gemma Prohibited Use Policy](https://ai.google.dev/gemma/prohibited_use_policy).
 - **Qwen2.5-VL:** Developed by **Alibaba Cloud / Qwen Team**, released under the [Apache 2.0 License](https://github.com/QwenLM/Qwen2.5-VL/blob/main/LICENSE).
+- **MiniCPM-V:** Developed by **OpenBMB / ModelBest Inc.**, released under the [Apache 2.0 License / MiniCPM Model License](https://github.com/OpenBMB/MiniCPM-V/blob/main/LICENSE).
 
-*Disclaimer: AI Lens is an independent open-source tool and is not affiliated with, sponsored by, or endorsed by Google LLC, Alibaba Cloud, or Ollama.*
+### Third-Party Software Libraries
+This product links to and utilizes open-source components including **PyQt6 / Qt** (Riverbank Computing / The Qt Company, GPLv3/LGPLv3), **httpx** (BSD-3-Clause), **Pillow** (HPND License), **mss** (MIT License), **pynput** (LGPLv3), **numpy** (BSD-3-Clause), and **typer** (MIT License). See [**`NOTICE`**](NOTICE) for complete copyright notices.
+
+### Disclaimer
+*AI Lens is an independent open-source tool and is NOT affiliated with, sponsored by, authorized by, or endorsed by Google LLC, Alibaba Cloud, OpenBMB, Riverbank Computing, The Qt Company, or Ollama. All trademarks, service marks, and trade names referenced herein belong to their respective owners.*
