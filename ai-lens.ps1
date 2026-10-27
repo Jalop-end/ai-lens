@@ -20,6 +20,18 @@ $env:PYTHONIOENCODING = "utf-8"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $env:PYTHONPATH = "$scriptDir;$env:PYTHONPATH"
 $venvPython = Join-Path $scriptDir ".venv\Scripts\python.exe"
+if (-not (Test-Path $venvPython)) {
+    foreach ($cand in @(
+        "$env:USERPROFILE\Desktop\ai-lens-main\.venv\Scripts\python.exe",
+        "$env:USERPROFILE\Desktop\ai-lens-main3\.venv\Scripts\python.exe",
+        (Join-Path $scriptDir "..\ai-lens\.venv\Scripts\python.exe")
+    )) {
+        if (Test-Path $cand) {
+            $venvPython = $cand
+            break
+        }
+    }
+}
 
 if (Test-Path $venvPython) {
     & $venvPython -m ai_lens @Arguments
