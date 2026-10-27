@@ -1,7 +1,8 @@
 <#
 .SYNOPSIS
-    Starts AI Lens directly with Google Gemini API key and optional model.
+    Starts AI Lens directly with Google Gemini API key and automatic model detection.
 .EXAMPLE
+    gemini( AIzaSy... )
     gemini "AIzaSy..."
     gemini "AIzaSy..." 3.8flash
     gemini "AIzaSy..." 3.5 cs High
@@ -9,7 +10,7 @@
 
 [CmdletBinding()]
 param(
-    [Parameter(ValueFromRemainingArguments = $true)]
+    [Parameter(Position = 0, ValueFromRemainingArguments = $true)]
     [string[]]$Arguments
 )
 

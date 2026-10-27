@@ -7,6 +7,7 @@ import base64
 import gc
 import io
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -67,7 +68,7 @@ def is_recognized_gemini_model(arg: Optional[str]) -> bool:
     """Returns True if `arg` represents a recognized Gemini model alias or model name (e.g. 3.8flash, 3.5, gemini-2.5-flash)."""
     if not arg or not isinstance(arg, str):
         return False
-    cleaned = arg.strip().lower().lstrip("-").replace('"', '').replace("'", "")
+    cleaned = arg.strip().lower().lstrip("-").replace('"', '').replace("'", "").strip("(").strip(")")
     if cleaned in ("gemini", "geminiapi", "startwithgemini", "withgemini", "@gemini"):
         return False
     if cleaned in GEMINI_MODEL_ALIASES:
@@ -81,7 +82,7 @@ def resolve_gemini_model_name(model_str: Optional[str]) -> str:
     """Resolves a shorthand model alias (e.g. '3.8flash', '3.5', '2.5') into a canonical Gemini model ID."""
     if not model_str or not isinstance(model_str, str):
         return DEFAULT_GEMINI_MODEL
-    cleaned = model_str.strip().lower().lstrip("-").replace('"', '').replace("'", "")
+    cleaned = model_str.strip().lower().lstrip("-").replace('"', '').replace("'", "").strip("(").strip(")")
     if cleaned in ("gemini", "geminiapi", "startwithgemini", "withgemini", "@gemini"):
         return DEFAULT_GEMINI_MODEL
     if cleaned in GEMINI_MODEL_ALIASES:
@@ -97,7 +98,7 @@ def is_gemini_api_key(arg: Optional[str]) -> bool:
     """Returns True if `arg` has the format of a Google Gemini API key."""
     if not arg or not isinstance(arg, str):
         return False
-    cleaned = arg.strip().strip('"').strip("'")
+    cleaned = arg.strip().strip('"').strip("'").strip("(").strip(")")
     if (cleaned.startswith("AIzaSy") or cleaned.startswith("AIza")) and len(cleaned) >= 8:
         return True
     # General API key heuristics (alphanumeric with dashes/underscores, >= 16 chars)
@@ -109,11 +110,74 @@ def is_gemini_api_key(arg: Optional[str]) -> bool:
     return False
 
 
-def set_volatile_gemini_api_key(api_key: Optional[str]) -> None:
+def auto_detect_best_gemini_model(api_key: Optional[str] = None, timeout: float = 3.5) -> str:
+    """
+    Queries Google Gemini API using the provided (or volatile) API key to discover
+    all models accessible with that key, and selects the newest/best vision-capable model
+    (prioritizing the highest version and fast Flash models).
+    Falls back gracefully to DEFAULT_GEMINI_MODEL if the request fails or times out.
+    """
+    key = (api_key or _VOLATILE_GEMINI_API_KEY or "").strip().strip('"').strip("'").strip("(").strip(")")
+    if not key:
+        return DEFAULT_GEMINI_MODEL
+
+    url = f"{GEMINI_API_BASE_URL}/models?key={urllib.parse.quote(key)}"
+    headers = {
+        "User-Agent": "AI-Lens/1.0",
+        "Accept": "application/json",
+    }
+
+    try:
+        with httpx.Client(timeout=timeout, trust_env=False) as client:
+            resp = client.get(url, headers=headers)
+            if resp.status_code == 200:
+                data = resp.json()
+                raw_models = data.get("models") or []
+                eligible: list[tuple[float, str]] = []
+                for m in raw_models:
+                    raw_name = str(m.get("name", "")).replace("models/", "").strip()
+                    methods = m.get("supportedGenerationMethods") or []
+                    if "generateContent" not in methods:
+                        continue
+                    lower_name = raw_name.lower()
+                    if "gemini" not in lower_name:
+                        continue
+                    if any(bad in lower_name for bad in ("embedding", "imagen", "aqa", "realtime", "tts", "whisper", "vision-tuned")):
+                        continue
+
+                    match = re.search(r"gemini[^\d]*(\d+(?:\.\d+)?)", lower_name)
+                    if not match:
+                        match = re.search(r"(\d+(?:\.\d+)?)", lower_name)
+                    ver = float(match.group(1)) if match else 1.0
+
+                    is_flash = "flash" in lower_name
+                    is_preview = "preview" in lower_name or "exp" in lower_name
+                    is_lite = "8b" in lower_name or "lite" in lower_name
+
+                    score = ver + (0.5 if is_flash else 0.0) - (0.1 if is_lite else 0.0) - (0.05 if is_preview else 0.0)
+                    eligible.append((score, raw_name))
+
+                if eligible:
+                    eligible.sort(key=lambda x: x[0], reverse=True)
+                    return eligible[0][1]
+    except Exception:
+        pass
+
+    return DEFAULT_GEMINI_MODEL
+
+
+def set_volatile_gemini_api_key(api_key: Optional[str], auto_detect: bool = True) -> None:
     """Stores the Gemini API key strictly in short-term process RAM (never persisted to disk)."""
-    global _VOLATILE_GEMINI_API_KEY
+    global _VOLATILE_GEMINI_API_KEY, _VOLATILE_GEMINI_MODEL
     if api_key and api_key.strip():
-        _VOLATILE_GEMINI_API_KEY = api_key.strip().strip('"').strip("'")
+        _VOLATILE_GEMINI_API_KEY = api_key.strip().strip('"').strip("'").strip("(").strip(")")
+        if _VOLATILE_GEMINI_MODEL is None and auto_detect:
+            try:
+                detected = auto_detect_best_gemini_model(_VOLATILE_GEMINI_API_KEY)
+                _VOLATILE_GEMINI_MODEL = detected
+                print(f"[AI Lens] Automaticky zjištěn optimální model z Google API: {_VOLATILE_GEMINI_MODEL}", flush=True)
+            except Exception:
+                _VOLATILE_GEMINI_MODEL = DEFAULT_GEMINI_MODEL
     else:
         _VOLATILE_GEMINI_API_KEY = None
 

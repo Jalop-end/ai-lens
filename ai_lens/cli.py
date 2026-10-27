@@ -72,11 +72,43 @@ def _detect_device_from_shell_and_args() -> Optional[str]:
 def _normalize_cli_argv() -> None:
     r"""
     Normalizes CLI arguments before Typer parses commands:
+      - Expands and unwraps parentheses syntax like `gemini( api_key )`, `gemini(api_key)`, `(api_key)`
+      - Auto-detects optimal Gemini model directly from Google API when no explicit model is specified
       - Strips `@\`, `"@\"`, `@\ CPU`, `&& CPU`, `CPU`, `--cpu` and sets `_CLI_DETECTED_DEVICE = "cpu"`
       - Allows launching AI Lens directly with language/level positional arguments (`ai-lens cs High`)
       - Normalizes diagnostic aliases (`diagnostika`, `diagnostics`, `security`, `specs`) to `diag`
     """
     global _CLI_DETECTED_DEVICE
+
+    # 0. Expand and unwrap parentheses syntax like gemini( api_key ), gemini(api_key), (api_key)
+    unpacked_argv = [sys.argv[0]]
+    for a in sys.argv[1:]:
+        s = a.strip()
+        lower_s = s.lower()
+        if lower_s.startswith("gemini(") and s.endswith(")"):
+            inner = s[7:-1].strip()
+            unpacked_argv.append("gemini")
+            if inner:
+                unpacked_argv.append(inner)
+        elif lower_s.startswith("gemini(") and not s.endswith(")"):
+            inner = s[7:].strip()
+            unpacked_argv.append("gemini")
+            if inner:
+                unpacked_argv.append(inner)
+        elif s in ("(", ")"):
+            continue
+        else:
+            clean_token = s
+            if clean_token.startswith("(") and clean_token.endswith(")"):
+                clean_token = clean_token[1:-1].strip()
+            elif clean_token.startswith("("):
+                clean_token = clean_token[1:].strip()
+            elif clean_token.endswith(")"):
+                clean_token = clean_token[:-1].strip()
+            if clean_token:
+                unpacked_argv.append(clean_token)
+    sys.argv = unpacked_argv
+
     # Pre-scan for Gemini context flag/token
     is_gemini_context = any(
         a.strip().lower().lstrip("-/\\").replace(" ", "").replace('"', '').replace("'", "") in (
@@ -88,7 +120,7 @@ def _normalize_cli_argv() -> None:
         _CLI_DETECTED_DEVICE = "gemini"
 
 
-    # 1. Scan and extract any CPU/GPU flags from sys.argv
+    # 1. Scan and extract any CPU/GPU/Gemini flags from sys.argv
     new_argv = [sys.argv[0]]
     skip_next = False
     for i in range(1, len(sys.argv)):
@@ -96,14 +128,14 @@ def _normalize_cli_argv() -> None:
             skip_next = False
             continue
         arg = sys.argv[i].strip()
-        cleaned = arg.lower().lstrip("-/\\").replace(" ", "").replace('"', '').replace("'", "")
+        cleaned = arg.lower().lstrip("-/\\").replace(" ", "").replace('"', '').replace("'", "").strip("(").strip(")")
 
         prev_arg = sys.argv[i - 1].strip().lower() if i > 1 else ""
         if prev_arg in ("--device", "-d"):
             new_argv.append(arg)
             continue
 
-        # Handle direct Gemini API key passed on CLI (e.g. `gemini "AIzaSy..."`)
+        # Handle direct Gemini API key passed on CLI (e.g. `gemini "AIzaSy..."` or `gemini( AIzaSy... )`)
         if is_gemini_api_key(arg) or (is_gemini_context and not arg.startswith("-") and not is_recognized_language_arg(arg) and not is_recognized_thinking_level(arg) and not is_recognized_gemini_model(arg) and cleaned not in ("gemini", "with", "start", "trigger", "status", "stop", "diag", "levels", "languages", "config") and not has_volatile_gemini_api_key()):
             set_volatile_gemini_api_key(arg)
             _CLI_DETECTED_DEVICE = "gemini"
@@ -168,6 +200,10 @@ def _normalize_cli_argv() -> None:
         first = sys.argv[1]
         if first.strip().lower() in DIAG_ALIASES:
             sys.argv[1] = "diag"
+            return
+        if first.strip().lower() == "now":
+            sys.argv[1] = "--now"
+            sys.argv.insert(1, "start")
             return
         if is_recognized_language_arg(first) or is_recognized_thinking_level(first):
             sys.argv[1:1] = ["start"]

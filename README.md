@@ -202,35 +202,41 @@ You do **not** need a virtual environment (`venv`) to install and run AI Lens—
 
 ### Quick Start
 
-### 1. Launch with Google Gemini API (`gemini "<api_key>" [model]`)
-To run AI Lens directly with your Google Gemini API key and chosen model (e.g. **`gemini 3.8flash`** or **`gemini 3.5`**), simply enter:
+### 1. Launch with Google Gemini API (`gemini( api_key )` or `gemini "<api_key>"`)
+To run AI Lens directly with your Google Gemini API key, you don't even need to know or specify the model (e.g. `3.8flash` or `3.5`). Simply write **`gemini( api_key )`** or **`gemini "<api_key>"`**—AI Lens will **automatically discover and select the best model** available for your key from the Google API and start right away:
 
 ```powershell
-# Direct launch with your API key (CMD or PowerShell):
+# Easiest direct launch — automatic model detection & immediate start:
+gemini( YOUR_GEMINI_API_KEY )
+gemini(YOUR_GEMINI_API_KEY)
 gemini "YOUR_GEMINI_API_KEY"
 
-# Specify the model you want to run on (e.g. 3.8flash, 3.5, 2.5-flash):
-gemini "YOUR_GEMINI_API_KEY" 3.8flash
-gemini "YOUR_GEMINI_API_KEY" 3.5
+# AI Lens automatically connects to Google API, detects the best available model
+# (e.g. gemini-3.8-flash, gemini-3.5-flash, or gemini-2.5-flash) and starts listening.
+
+# Optional: You can still explicitly force a specific model if desired:
+gemini( YOUR_GEMINI_API_KEY ) 3.8flash
+gemini( YOUR_GEMINI_API_KEY ) 3.5
 gemini "YOUR_GEMINI_API_KEY" 2.5
 
 # With optional language and thinking depth:
-gemini "YOUR_GEMINI_API_KEY" 3.8flash cs High
+gemini( YOUR_GEMINI_API_KEY ) cs High
 gemini "YOUR_GEMINI_API_KEY" 3.5 en Low
 
 # Universal launcher formats (all identical):
-.\Gemini.bat "YOUR_GEMINI_API_KEY" 3.8flash
-.\ai-lens.bat gemini "YOUR_GEMINI_API_KEY" 3.8flash
-start with Gemini "YOUR_GEMINI_API_KEY" 3.8flash
+.\Gemini.bat (YOUR_GEMINI_API_KEY)
+.\Gemini.bat "YOUR_GEMINI_API_KEY"
+.\ai-lens.bat gemini( YOUR_GEMINI_API_KEY )
+start with Gemini "YOUR_GEMINI_API_KEY"
 ```
 
 > [!IMPORTANT]
-> **Strict Key Security & Model Isolation (100% Volatile RAM):**
-> 1. **Immediate Start:** Passing `gemini "<api_key>"` loads the key directly into volatile process memory and starts immediately without interactive prompts.
-> 2. **Model Flexibility:** You can select your model on the fly (`3.8flash` -> `gemini-3.8-flash`, `3.5` -> `gemini-3.5-flash`, `2.5` -> `gemini-2.5-flash`). It connects directly to that Google Gemini API model using your provided key.
-> 3. **Zero Disk Storage:** The API key is **NEVER** saved to `config.json`, state files, or any disk trace.
-> 4. **Automatic Memory Wipe on Exit:** The moment you exit the app (pressing `[Esc]`, right-clicking, clicking `✕` on the floating dock, pressing `Ctrl+C`, or calling `stop`), the API key and active model are **immediately purged from memory (RAM)** with `gc.collect()`.
-> 5. Consequently, no keys are retained between sessions.
+> **Automatic Model Detection & Strict RAM-Only Key Security (Zero Disk Retention):**
+> 1. **Zero Configuration / Auto-Discovery:** You only need to type `gemini( api_key )`. AI Lens queries Google's `/v1beta/models` endpoint with your key to find the newest, highest-performing vision model and launches instantly.
+> 2. **Model Flexibility:** If you prefer a specific model version (`3.8flash`, `3.5`, `2.5-flash`), you can optionally append it.
+> 3. **Zero Disk Storage:** The API key is **NEVER** saved to `config.json`, environment files, cache, or any disk trace.
+> 4. **Automatic Memory Wipe on Exit:** The moment you exit the app (pressing `[Esc]`, right-clicking, clicking `✕` on the floating dock, pressing `Ctrl+C`, or calling `stop`), the API key and active model are **immediately wiped from RAM** and garbage-collected (`gc.collect()`).
+> 5. Consequently, no keys or traces are retained between sessions.
 
 ---
 
@@ -322,7 +328,7 @@ Run via `.\ai-lens.bat <command>` (or `ai-lens <command>` if installed globally/
 
 | Command (Windows) | Description |
 |---|---|
-| `gemini "<api_key>" [model]` | Starts AI Lens immediately in **Google Gemini API** mode with your key and chosen model (e.g. `3.8flash`, `3.5`). Wiped from RAM on exit. |
+| `gemini( api_key )` *(or `gemini "<api_key>" [model]`)* | Starts AI Lens immediately in **Google Gemini API** mode with your key and automatic model discovery (or optional model like `3.8flash`, `3.5`). Wiped from RAM on exit. |
 | `.\ai-lens.bat start with Gemini` | Starts AI Lens in Gemini mode (prompts for API key if not supplied on CLI). |
 | `.\ai-lens.bat [lang] [Low\|Medium\|High]` | Starts AI Lens in local VLM standby mode on GPU (e.g., `.\ai-lens.bat en High`, `.\ai-lens.bat cs High`). |
 | `.\ai-lens.bat start --now` | Starts the daemon and immediately opens the fullscreen capture overlay. |
