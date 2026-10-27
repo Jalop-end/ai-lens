@@ -64,7 +64,11 @@ flowchart TD
 
 ## Key Features
 
-- **100% Local & Private:** Runs entirely on `127.0.0.1` via local Ollama. Zero external cloud APIs, zero tracking, zero telemetry.
+- **100% Local & Private by Default:** Runs entirely on `127.0.0.1` via local Ollama (GPU default, CPU switchable). Zero tracking, zero telemetry.
+- **Optional Google Gemini API Mode (`start with Gemini`):**
+  - Launch AI Lens with cloud multimodal intelligence by entering **`start with Gemini`** (or `.\ai-lens.bat start with Gemini`).
+  - **100% RAM-Only Key Security:** Your Gemini API key is stored **strictly in short-term volatile memory (RAM)** for the running session. It is **never** written to `config.json`, logs, or disk. It must be entered each time and is automatically wiped on exit.
+  - Ultra-fast real-time streaming via **`gemini-2.5-flash`** (with automatic fallback to `gemini-2.0-flash` / `gemini-1.5-flash`) with thinking budgets, full 15-language UI localization, and interactive follow-up chat.
 - **GPU Accelerated by Default with Instant `CPU` / `@\` Terminal Switch:**
   - By default, AI Lens runs on your **GPU** offloading all layers directly to high-speed VRAM for maximum responsiveness and encyclopedic depth.
   - Switch to pure **CPU** execution anytime simply by appending **`CPU`** or **`@\`** to your command (e.g. `.\ai-lens.bat cs High CPU` or `.\ai-lens.bat cs Low CPU`).
@@ -198,7 +202,36 @@ You do **not** need a virtual environment (`venv`) to install and run AI Lens—
 
 ### Quick Start
 
-### 1. Launch with Language & Thinking Depth (`Low` / `Medium` / `High`)
+### 1. Launch with Google Gemini API (`start with Gemini`)
+To operate via Google Gemini's cloud Vision API instead of local Ollama, simply enter **`start with Gemini`** in your command line:
+
+```powershell
+# Command Prompt (CMD) or PowerShell:
+.\ai-lens.bat start with Gemini
+
+# In CMD, you can also directly type:
+start with Gemini
+
+# Or pass optional language and thinking depth:
+.\ai-lens.bat start with Gemini cs High
+.\ai-lens.bat start with Gemini en Low
+
+# Or using the dedicated shortcut scripts:
+.\start-with-gemini.bat
+.\start-with-gemini.ps1
+```
+
+> [!IMPORTANT]
+> **Strict Key Security (RAM-Only / Short-Term Memory):**
+> 1. When launching with `start with Gemini`, you will be prompted in the terminal to enter your Gemini API key.
+> 2. The key is stored **exclusively in volatile process RAM** for the current running session.
+> 3. It is **NEVER** saved to `config.json`, state files, or disk logs.
+> 4. Whenever AI Lens is closed (pressing `[Esc]`, right-clicking, clicking `✕` on the floating dock, pressing `Ctrl+C`, or calling `stop`), the API key is **immediately purged from RAM** with `gc.collect()`.
+> 5. Consequently, the key must be entered freshly each time you launch with `start with Gemini`.
+
+---
+
+### 2. Launch Local VLM with Language & Thinking Depth (`Low` / `Medium` / `High`)
 On Windows, you can launch AI Lens directly from PowerShell or Command Prompt using **`.\ai-lens.bat`** (or `.\ai-lens` in PowerShell, or `python -m ai_lens`). It works automatically whether you use a virtual environment or system Python.
 
 Pass an optional language shortcut (`cs`, `en`, `de`, `sk`, etc.) and/or thinking tier (`Low`, `Medium`, `High`) in any order:
@@ -286,7 +319,8 @@ Run via `.\ai-lens.bat <command>` (or `ai-lens <command>` if installed globally/
 
 | Command (Windows) | Description |
 |---|---|
-| `.\ai-lens.bat [lang] [Low\|Medium\|High]` | Starts AI Lens in standby mode with optional language & thinking depth (e.g., `.\ai-lens.bat en High`, `.\ai-lens.bat cs High`). |
+| `.\ai-lens.bat start with Gemini` *(or `start with Gemini`)* | Starts AI Lens in **Google Gemini API** mode. Prompts for API key into volatile RAM (never saved to disk). |
+| `.\ai-lens.bat [lang] [Low\|Medium\|High]` | Starts AI Lens in local VLM standby mode on GPU (e.g., `.\ai-lens.bat en High`, `.\ai-lens.bat cs High`). |
 | `.\ai-lens.bat start --now` | Starts the daemon and immediately opens the fullscreen capture overlay. |
 | `.\ai-lens.bat trigger [lang] [level]` | Triggers the overlay on the running instance or runs a one-shot capture. |
 | `.\ai-lens.bat diag` *(or `diagnostika`)* | Prints a live terminal report of active model, live RAM/CPU usage, `Low`/`Medium`/`High` accuracy & factual context specs, Zero-Retention RAM check, and 7-point security audit. |

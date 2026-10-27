@@ -6,6 +6,7 @@
     .\ai-lens.bat en High
     .\ai-lens cs High
     .\ai-lens diag
+    .\ai-lens start with Gemini
 #>
 
 [CmdletBinding()]
@@ -17,6 +18,7 @@ param(
 $env:PYTHONUTF8 = "1"
 $env:PYTHONIOENCODING = "utf-8"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$env:PYTHONPATH = "$scriptDir;$env:PYTHONPATH"
 $venvPython = Join-Path $scriptDir ".venv\Scripts\python.exe"
 
 if (Test-Path $venvPython) {

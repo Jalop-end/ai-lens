@@ -34,14 +34,18 @@ from ai_lens.overlay import (
     set_thinking_level_in_config,
 )
 from ai_lens.vision_engine import (
+    DEFAULT_GEMINI_MODEL,
+    clear_volatile_gemini_api_key,
     get_compute_device_display,
     get_language_display,
     get_thinking_level_config,
     get_thinking_level_display,
     get_ui_strings,
+    has_volatile_gemini_api_key,
     normalize_compute_device,
     normalize_language_code,
     normalize_thinking_level,
+    set_volatile_gemini_api_key,
     warmup_local_model,
 )
 
@@ -72,6 +76,71 @@ VK_RMENU = 0xA5
 VK_F8 = 0x77
 
 FUNCTION_KEY_VKS = {f"f{i}": 0x70 + (i - 1) for i in range(1, 13)}
+
+
+def prompt_for_gemini_api_key(lang: Optional[str] = "cs") -> str:
+    """
+    Prompts the user in the command line to provide their Gemini API key.
+    The key is stored strictly in volatile short-term RAM for the current session
+    and is never written to disk or config.json.
+    """
+    _ensure_utf8_stdio()
+    code = normalize_language_code(lang)
+    is_cz_sk = code in ("cs", "sk")
+    print("=" * 74, flush=True)
+    if is_cz_sk:
+        print(" AI Lens — Spuštění přes Google Gemini API (start with Gemini)", flush=True)
+        print(" Ochrana klíče : API klíč je uložen POUZE v krátkodobé paměti (RAM).", flush=True)
+        print("                 Při každém spuštění se zadává znovu a při zavření", flush=True)
+        print("                 programu se automaticky vymaže.", flush=True)
+    else:
+        print(" AI Lens — Starting with Google Gemini API (start with Gemini)", flush=True)
+        print(" Key Security  : Your API key is stored ONLY in short-term memory (RAM).", flush=True)
+        print("                 It must be entered every time and is cleared whenever", flush=True)
+        print("                 the program is closed.", flush=True)
+    print("=" * 74, flush=True)
+
+    prompt_label = (
+        "Zadej svůj Gemini API klíč (Enter pro potvrzení): "
+        if is_cz_sk
+        else "Enter your Gemini API key (Press Enter to confirm): "
+    )
+
+    for _ in range(3):
+        try:
+            raw_key = input(prompt_label)
+        except (EOFError, KeyboardInterrupt):
+            print("\n[AI Lens] Zadávání Gemini API klíče bylo zrušeno.", flush=True)
+            sys.exit(1)
+
+        cleaned_key = raw_key.strip().strip('"').strip("'")
+        if cleaned_key:
+            set_volatile_gemini_api_key(cleaned_key)
+            cleaned_key = ""
+            raw_key = ""
+            if is_cz_sk:
+                print(
+                    "[AI Lens] Gemini API klíč načten do krátkodobé paměti (RAM). Po ukončení programu bude vymazán.",
+                    flush=True,
+                )
+            else:
+                print(
+                    "[AI Lens] Gemini API key loaded into short-term memory (RAM). It will be cleared when the program closes.",
+                    flush=True,
+                )
+            return "ok"
+
+        if is_cz_sk:
+            print("[AI Lens] API klíč nesmí být prázdný. Zkus to prosím znovu.", flush=True)
+        else:
+            print("[AI Lens] API key cannot be empty. Please try again.", flush=True)
+
+    if is_cz_sk:
+        print("[AI Lens] Nebyl zadán platný Gemini API klíč. Ukončuji.", flush=True)
+    else:
+        print("[AI Lens] No valid Gemini API key provided. Exiting.", flush=True)
+    sys.exit(1)
+
 
 
 def _log_debug(msg: str) -> None:
@@ -247,7 +316,7 @@ class FloatingTriggerBar(QFrame):
         full_layout.setSpacing(2)
 
         self.trigger_btn = QPushButton(
-            f"🔍 AI Lens [{self.lang_code.upper()} · {self.tier_cfg['label']} · {self.compute_device.upper()}] (Alt+F8)",
+            f"🔍 AI Lens [{self.lang_code.upper()} · {self.tier_cfg['label']} · {'GEMINI API' if self.compute_device == 'gemini' else self.compute_device.upper()}] (Alt+F8)",
             self._full_container,
         )
         self.trigger_btn.setObjectName("ActionBtn")
@@ -431,8 +500,8 @@ def _is_pid_alive(pid: int) -> bool:
         return False
 
 
-def _read_daemon_state() -> Optional[dict[str, int]]:
-    """Reads PID and Win32 Hotkey Thread ID (TID) of a running daemon from .ai_lens_state.json."""
+def _read_daemon_state() -> Optional[dict[str, Any]]:
+    """Reads PID, Win32 Hotkey Thread ID (TID), and mode of a running daemon from .ai_lens_state.json."""
     if not STATE_FILE_PATH.exists():
         return None
     try:
@@ -440,7 +509,7 @@ def _read_daemon_state() -> Optional[dict[str, int]]:
         pid = int(data.get("pid", 0))
         tid = int(data.get("tid", 0))
         if _is_pid_alive(pid):
-            return {"pid": pid, "tid": tid}
+            return data
     except Exception:
         pass
     try:
@@ -450,11 +519,11 @@ def _read_daemon_state() -> Optional[dict[str, int]]:
     return None
 
 
-def _write_daemon_state(pid: int, tid: int) -> None:
-    """Saves the current daemon PID and Win32 Hotkey Thread ID to .ai_lens_state.json."""
+def _write_daemon_state(pid: int, tid: int, mode: str = "gpu") -> None:
+    """Saves the current daemon PID, Win32 Hotkey Thread ID, and mode to .ai_lens_state.json."""
     try:
         STATE_FILE_PATH.write_text(
-            json.dumps({"pid": pid, "tid": tid}, indent=2),
+            json.dumps({"pid": pid, "tid": tid, "mode": mode}, indent=2),
             encoding="utf-8",
         )
     except Exception:
@@ -521,30 +590,50 @@ def run_daemon(
     _ensure_utf8_stdio()
     _disable_console_quickedit()
 
+    norm_dev = normalize_compute_device(compute_device) if compute_device else None
+
+    # Handle Gemini API mode: prompt for API key into volatile RAM if not already stored
+    if norm_dev == "gemini":
+        if not has_volatile_gemini_api_key():
+            env_key = os.environ.get("GEMINI_API_KEY", "").strip().strip('"').strip("'")
+            if env_key:
+                set_volatile_gemini_api_key(env_key)
+            else:
+                prompt_for_gemini_api_key(language or "cs")
+
     if language:
         set_language_in_config(language)
     if thinking_level:
         set_thinking_level_in_config(thinking_level)
     if compute_device:
-        set_compute_device_in_config(compute_device)
+        if norm_dev != "gemini":
+            set_compute_device_in_config(compute_device)
     else:
-        # Default to GPU when launched normally without && CPU
+        # Default to GPU when launched normally without && CPU or Gemini
         set_compute_device_in_config("gpu")
 
     existing = _read_daemon_state()
     if existing is not None:
-        cfg_now = load_config()
-        lang_code_now = str(cfg_now.get("language", "cs"))
-        dev_now = str(cfg_now.get("compute_device", "gpu"))
-        dev_disp = get_compute_device_display(dev_now, lang_code_now)
-        level_disp = get_thinking_level_display(
-            str(cfg_now.get("thinking_level", "medium")), lang_code_now, dev_now
-        )
-        _log_debug(
-            f"[AI Lens] Proces již běží (PID {existing['pid']}, jazyk: {lang_disp}, hloubka myšlení: {level_disp}, výpočet: {dev_disp}). Aktivuji překryvné okno…"
-        )
-        send_daemon_command("TRIGGER")
-        return
+        if norm_dev == "gemini":
+            _log_debug(
+                f"[AI Lens] Zastavuji předchozí instanci (PID {existing['pid']}) pro spuštění v režimu Google Gemini API…"
+            )
+            send_daemon_command("STOP")
+            time.sleep(0.6)
+            _clear_daemon_state()
+        else:
+            cfg_now = load_config()
+            lang_code_now = str(cfg_now.get("language", "cs"))
+            dev_now = str(cfg_now.get("compute_device", "gpu"))
+            dev_disp = get_compute_device_display(dev_now, lang_code_now)
+            level_disp = get_thinking_level_display(
+                str(cfg_now.get("thinking_level", "medium")), lang_code_now, dev_now
+            )
+            _log_debug(
+                f"[AI Lens] Proces již běží (PID {existing['pid']}, jazyk: {lang_disp}, hloubka myšlení: {level_disp}, výpočet: {dev_disp}). Aktivuji překryvné okno…"
+            )
+            send_daemon_command("TRIGGER")
+            return
 
     config = load_config()
     hotkey_str = str(config.get("hotkey", "<alt>+<f8>"))
@@ -552,7 +641,8 @@ def run_daemon(
     ollama_host = str(config.get("ollama_host", "http://127.0.0.1:11434"))
     lang_code = str(config.get("language", "cs"))
     level_code = str(config.get("thinking_level", "medium"))
-    dev_code = str(config.get("compute_device", "gpu"))
+    dev_code = "gemini" if has_volatile_gemini_api_key() else str(config.get("compute_device", "gpu"))
+    active_model = DEFAULT_GEMINI_MODEL if dev_code == "gemini" else model_name
     tier_cfg = get_thinking_level_config(level_code, dev_code)
 
     app = QApplication.instance() or QApplication(sys.argv)
@@ -599,6 +689,11 @@ def run_daemon(
     def _on_stop() -> None:
         _log_debug("[AI Lens] Ukončuji AI Lens…")
         _clear_daemon_state()
+        if clear_volatile_gemini_api_key():
+            print(
+                "[AI Lens] Gemini API klíč byl bezpečně vymazán z krátkodobé paměti (RAM).",
+                flush=True,
+            )
         if sys.platform == "win32" and hotkey_thread_tid:
             try:
                 ctypes.windll.user32.PostThreadMessageW(hotkey_thread_tid, WM_QUIT, 0, 0)
@@ -653,7 +748,7 @@ def run_daemon(
                 f"F8={bool(r_f8)}, Ctrl+Shift+G={bool(r_csg)}, Ctrl+Alt+Shift+G={bool(r_casg)}"
             )
 
-            _write_daemon_state(os.getpid(), hotkey_thread_tid)
+            _write_daemon_state(os.getpid(), hotkey_thread_tid, dev_code)
             ready_event.set()
 
             while u32.GetMessageW(ctypes.byref(msg), None, 0, 0) > 0:
@@ -736,37 +831,53 @@ def run_daemon(
     sigint_timer.start(250)
     sigint_timer.timeout.connect(lambda: None)
 
-    # Pre-warm local VLM in background thread
-    temperature = float(tier_cfg.get("temperature", 0.12))
-    threading.Thread(
-        target=warmup_local_model,
-        args=(
-            ollama_host,
-            model_name,
-            "30m",
-            temperature,
-            dev_code,
-            int(tier_cfg.get("num_ctx", 10240)),
-        ),
-        name="AILensWarmup",
-        daemon=True,
-    ).start()
+    # Pre-warm local VLM in background thread (skipped for Gemini API cloud mode)
+    if dev_code != "gemini":
+        temperature = float(tier_cfg.get("temperature", 0.12))
+        threading.Thread(
+            target=warmup_local_model,
+            args=(
+                ollama_host,
+                model_name,
+                "30m",
+                temperature,
+                dev_code,
+                int(tier_cfg.get("num_ctx", 10240)),
+            ),
+            name="AILensWarmup",
+            daemon=True,
+        ).start()
 
-    level_disp = get_thinking_level_display(level_code, lang_code)
+    level_disp = get_thinking_level_display(level_code, lang_code, dev_code)
     dev_disp = get_compute_device_display(dev_code, lang_code)
     print("=" * 74, flush=True)
-    print(" AI Lens BĚŽÍ V POHOTOVOSTI (Plovoucí lišta + Trojitá detekce zkratky)", flush=True)
-    print(f" Lokální AI model     : {model_name}", flush=True)
-    print(f" Jazyk (UI + AI)      : {get_language_display(lang_code)}", flush=True)
-    print(
-        f" Hloubka myšlení      : {level_disp} (max {tier_cfg['num_predict']} tokenů, kontext {tier_cfg['num_ctx']})",
-        flush=True,
-    )
-    print(f" Výpočet / Akcelerace : {dev_disp}", flush=True)
-    print(" Zkratky              : [Alt + F8]  |  [F8]  |  [Ctrl + Alt + Shift + G]", flush=True)
-    print(" Plovoucí tlačítko    : Nahoře vpravo na obrazovce 'AI Lens (Alt+F8)'", flush=True)
-    print(" Zavření overlaye     : Klávesa [Esc] nebo pravé tlačítko myši", flush=True)
-    print(" Ochrana soukromí     : 100% RAM-only (okamžité vymazání výřezu i chatu po zavření)", flush=True)
+    if dev_code == "gemini":
+        print(" AI Lens BĚŽÍ V POHOTOVOSTI (Google Gemini API — RAM-only klíč)", flush=True)
+        print(f" Gemini AI model      : {active_model}", flush=True)
+        print(f" Jazyk (UI + AI)      : {get_language_display(lang_code)}", flush=True)
+        print(
+            f" Hloubka myšlení      : {level_disp} (max {tier_cfg['num_predict']} tokenů)",
+            flush=True,
+        )
+        print(f" Výpočet / Poskytovatel: {dev_disp}", flush=True)
+        print(" Zabezpečení klíče    : 100% RAM-only (klíč se neukládá na disk a po ukončení se smaže)", flush=True)
+        print(" Zkratky              : [Alt + F8]  |  [F8]  |  [Ctrl + Alt + Shift + G]", flush=True)
+        print(" Plovoucí tlačítko    : Nahoře vpravo na obrazovce 'AI Lens [GEMINI API] (Alt+F8)'", flush=True)
+        print(" Zavření overlaye     : Klávesa [Esc] nebo pravé tlačítko myši", flush=True)
+        print(" Ochrana soukromí     : 100% RAM-only (okamžité vymazání výřezu i chatu po zavření)", flush=True)
+    else:
+        print(" AI Lens BĚŽÍ V POHOTOVOSTI (Plovoucí lišta + Trojitá detekce zkratky)", flush=True)
+        print(f" Lokální AI model     : {model_name}", flush=True)
+        print(f" Jazyk (UI + AI)      : {get_language_display(lang_code)}", flush=True)
+        print(
+            f" Hloubka myšlení      : {level_disp} (max {tier_cfg['num_predict']} tokenů, kontext {tier_cfg['num_ctx']})",
+            flush=True,
+        )
+        print(f" Výpočet / Akcelerace : {dev_disp}", flush=True)
+        print(" Zkratky              : [Alt + F8]  |  [F8]  |  [Ctrl + Alt + Shift + G]", flush=True)
+        print(" Plovoucí tlačítko    : Nahoře vpravo na obrazovce 'AI Lens (Alt+F8)'", flush=True)
+        print(" Zavření overlaye     : Klávesa [Esc] nebo pravé tlačítko myši", flush=True)
+        print(" Ochrana soukromí     : 100% RAM-only (okamžité vymazání výřezu i chatu po zavření)", flush=True)
     print("=" * 74, flush=True)
 
     if open_immediately:
@@ -776,6 +887,11 @@ def run_daemon(
         app.exec()
     finally:
         _clear_daemon_state()
+        if clear_volatile_gemini_api_key():
+            print(
+                "[AI Lens] Gemini API klíč byl bezpečně vymazán z krátkodobé paměti (RAM).",
+                flush=True,
+            )
         if pynput_listener is not None:
             try:
                 pynput_listener.stop()

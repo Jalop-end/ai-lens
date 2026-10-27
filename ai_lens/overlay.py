@@ -31,9 +31,11 @@ from ai_lens.capture import (
 )
 from ai_lens.popover import PopoverCard
 from ai_lens.vision_engine import (
+    DEFAULT_GEMINI_MODEL,
     DEFAULT_PROMPTS_BY_LANG,
     THINKING_LEVELS,
     VisionInferenceWorker,
+    clear_volatile_gemini_api_key,
     encode_pil_to_base64,
     get_compute_device_display,
     get_default_prompt,
@@ -41,6 +43,7 @@ from ai_lens.vision_engine import (
     get_thinking_level_config,
     get_thinking_level_display,
     get_ui_strings,
+    has_volatile_gemini_api_key,
     normalize_compute_device,
     normalize_language_code,
     normalize_thinking_level,
@@ -92,6 +95,9 @@ def load_config(config_path: Path = DEFAULT_CONFIG_PATH) -> dict[str, Any]:
             with open(config_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
             if isinstance(data, dict):
+                # Never load any persisted API key from disk; API keys are strictly RAM-only
+                data.pop("gemini_api_key", None)
+                data.pop("api_key", None)
                 defaults.update(data)
         except Exception:
             pass
@@ -99,9 +105,11 @@ def load_config(config_path: Path = DEFAULT_CONFIG_PATH) -> dict[str, Any]:
     defaults["thinking_level"] = normalize_thinking_level(
         str(defaults.get("thinking_level", "medium"))
     )
-    defaults["compute_device"] = normalize_compute_device(
-        str(defaults.get("compute_device", "gpu"))
-    )
+    raw_dev = normalize_compute_device(str(defaults.get("compute_device", "gpu")))
+    if has_volatile_gemini_api_key():
+        defaults["compute_device"] = "gemini"
+    else:
+        defaults["compute_device"] = "cpu" if raw_dev == "cpu" else "gpu"
     defaults["ollama_host"] = validate_local_ollama_host(str(defaults.get("ollama_host", "")))
     try:
         defaults["padding"] = max(0, min(200, int(defaults.get("padding", 20))))
@@ -124,9 +132,12 @@ def set_language_in_config(lang: str, config_path: Path = DEFAULT_CONFIG_PATH) -
     code = normalize_language_code(lang)
     cfg["language"] = code
     cfg["default_prompt"] = get_default_prompt(code)
+    disk_cfg = dict(cfg)
+    if disk_cfg.get("compute_device") == "gemini":
+        disk_cfg["compute_device"] = "gpu"
     try:
         with open(config_path, "w", encoding="utf-8") as f:
-            json.dump(cfg, f, indent=2, ensure_ascii=False)
+            json.dump(disk_cfg, f, indent=2, ensure_ascii=False)
     except Exception:
         pass
     return code
@@ -140,18 +151,26 @@ def set_thinking_level_in_config(level: str, config_path: Path = DEFAULT_CONFIG_
     cfg["thinking_level"] = norm
     cfg["think"] = bool(tier["think"])
     cfg["temperature"] = float(tier["temperature"])
+    disk_cfg = dict(cfg)
+    if disk_cfg.get("compute_device") == "gemini":
+        disk_cfg["compute_device"] = "gpu"
     try:
         with open(config_path, "w", encoding="utf-8") as f:
-            json.dump(cfg, f, indent=2, ensure_ascii=False)
+            json.dump(disk_cfg, f, indent=2, ensure_ascii=False)
     except Exception:
         pass
     return norm
 
 
 def set_compute_device_in_config(device: str, config_path: Path = DEFAULT_CONFIG_PATH) -> str:
-    """Updates the active compute device ('gpu' or 'cpu') in config.json."""
+    """
+    Updates the active compute device ('gpu' or 'cpu') in config.json.
+    Note: 'gemini' mode is strictly short-term RAM-only and is never persisted to config.json.
+    """
     cfg = load_config(config_path)
     norm = normalize_compute_device(device)
+    if norm == "gemini":
+        return "gemini"
     cfg["compute_device"] = norm
     try:
         with open(config_path, "w", encoding="utf-8") as f:
@@ -159,6 +178,7 @@ def set_compute_device_in_config(device: str, config_path: Path = DEFAULT_CONFIG
     except Exception:
         pass
     return norm
+
 
 
 class OverlayWindow(QWidget):
@@ -334,6 +354,7 @@ class OverlayWindow(QWidget):
         """
         Hides the overlay in daemon mode or exits in standalone mode, immediately
         purging both the cropped selection, chat history, AND the fullscreen screenshot from RAM.
+        In standalone mode, also wipes the Gemini API key from short-term memory.
         """
         self.reset_selection()
         self.capture_result = None
@@ -346,6 +367,11 @@ class OverlayWindow(QWidget):
                 flush=True,
             )
         else:
+            if clear_volatile_gemini_api_key():
+                print(
+                    "[AI Lens] Gemini API klíč byl bezpečně vymazán z krátkodobé paměti (RAM).",
+                    flush=True,
+                )
             self.close()
             app = QApplication.instance()
             if app is not None:
@@ -432,11 +458,19 @@ class OverlayWindow(QWidget):
         self._stop_active_worker()
         self._current_reply_buffer = ""
 
-        model_name = str(self.config.get("model", "gemma4:latest"))
+        raw_model_name = str(self.config.get("model", "gemma4:latest"))
         ollama_host = str(self.config.get("ollama_host", "http://127.0.0.1:11434"))
         lang_code = normalize_language_code(str(self.config.get("language", "cs")))
         thinking_level = normalize_thinking_level(str(self.config.get("thinking_level", "medium")))
         compute_device = normalize_compute_device(str(self.config.get("compute_device", "gpu")))
+        if has_volatile_gemini_api_key():
+            compute_device = "gemini"
+
+        display_model = (
+            (raw_model_name if raw_model_name.lower().startswith("gemini-") else DEFAULT_GEMINI_MODEL)
+            if compute_device == "gemini"
+            else raw_model_name
+        )
         tier_cfg = get_thinking_level_config(thinking_level, compute_device)
         ui = get_ui_strings(lang_code)
 
@@ -444,17 +478,18 @@ class OverlayWindow(QWidget):
         level_short = str(tier_cfg["label"])
         level_disp = get_thinking_level_display(thinking_level, lang_code, compute_device)
         system_prompt = self.config.get("system_prompt")
+        dev_badge = "GEMINI API" if compute_device == "gemini" else compute_device.upper()
         self.popover.title_label.setText(
-            f"AI Lens · {model_name} [{lang_code.upper()} · {level_short} · {compute_device.upper()}]"
+            f"AI Lens · {display_model} [{lang_code.upper()} · {level_short} · {dev_badge}]"
         )
 
         if not is_followup:
             self._chat_history.clear()
             self.popover.start_loading(
                 ui["loading_init"].format(
-                    model=model_name,
+                    model=display_model,
                     lang=get_language_display(lang_code),
-                    level=f"{level_disp} · {compute_device.upper()}",
+                    level=f"{level_disp} · {dev_badge}",
                 )
             )
         else:
@@ -465,7 +500,7 @@ class OverlayWindow(QWidget):
             image=cropped_image,
             prompt=prompt,
             ollama_host=ollama_host,
-            model=model_name,
+            model=display_model,
             language=lang_code,
             thinking_level=thinking_level,
             compute_device=compute_device,
@@ -513,11 +548,16 @@ class OverlayWindow(QWidget):
             )
 
     def _on_worker_error(self, error_msg: str) -> None:
-        """Displays any local VLM connection/inference error inside PopoverCard in the selected language."""
+        """Displays any VLM connection/inference error inside PopoverCard in the selected language."""
         lang_code = normalize_language_code(str(self.config.get("language", "cs")))
         ui = get_ui_strings(lang_code)
+        err_header = (
+            ("Chyba Gemini API" if lang_code in ("cs", "sk") else "Gemini API Error")
+            if has_volatile_gemini_api_key()
+            else ui["err_title"]
+        )
         self.popover.stop_loading(ui["conn_error"])
-        self.popover.set_markdown_content(f"**{ui['err_title']}**\n\n{error_msg}")
+        self.popover.set_markdown_content(f"**{err_header}**\n\n{error_msg}")
 
     def _on_followup_prompt(self, prompt_text: str) -> None:
         """Handles follow-up question typed in the bottom QLineEdit of the PopoverCard."""
@@ -601,8 +641,12 @@ class OverlayWindow(QWidget):
         # 5. Draw localized top-center HUD pill so the user immediately sees AI Lens is active
         lang_code = normalize_language_code(str(self.config.get("language", "cs")))
         thinking_level = normalize_thinking_level(str(self.config.get("thinking_level", "medium")))
-        compute_device = normalize_compute_device(str(self.config.get("compute_device", "gpu")))
-        tier_cfg = get_thinking_level_config(thinking_level)
+        compute_device = (
+            "gemini"
+            if has_volatile_gemini_api_key()
+            else normalize_compute_device(str(self.config.get("compute_device", "gpu")))
+        )
+        tier_cfg = get_thinking_level_config(thinking_level, compute_device)
         ui = get_ui_strings(lang_code)
         hud_text = ui["hud_banner"].format(
             lang=lang_code.upper(),
@@ -646,23 +690,34 @@ def run_overlay_mvp(
         set_language_in_config(language)
     if thinking_level:
         set_thinking_level_in_config(thinking_level)
-    if compute_device:
+    if compute_device and normalize_compute_device(compute_device) != "gemini":
         set_compute_device_in_config(compute_device)
     app = QApplication.instance() or QApplication(sys.argv)
     overlay = OverlayWindow(daemon_mode=False)
     capture_ms = overlay.activate_overlay()
     lang_code = str(overlay.config.get("language", "cs"))
     lang_disp = get_language_display(lang_code)
-    level_disp = get_thinking_level_display(str(overlay.config.get("thinking_level", "medium")), lang_code)
-    dev_disp = get_compute_device_display(str(overlay.config.get("compute_device", "gpu")), lang_code)
+    dev_code = "gemini" if has_volatile_gemini_api_key() else str(overlay.config.get("compute_device", "gpu"))
+    level_disp = get_thinking_level_display(str(overlay.config.get("thinking_level", "medium")), lang_code, dev_code)
+    dev_disp = get_compute_device_display(dev_code, lang_code)
+    active_model = DEFAULT_GEMINI_MODEL if dev_code == "gemini" else overlay.config.get("model")
     print(f"[AI Lens] Obrazovka zachycena do RAM za {capture_ms:.2f} ms.")
     print(
-        f"[AI Lens] Lokální VLM ({overlay.config.get('model')}, jazyk: {lang_disp}, "
-        f"hloubka myšlení: {level_disp}, výpočet: {dev_disp}) připraven. "
+        f"[AI Lens] VLM ({active_model}, jazyk: {lang_disp}, "
+        f"hloubka myšlení: {level_disp}, režim: {dev_disp}) připraven. "
         "Zakroužkuj oblast myší, odpověď se bude streamovat v reálném čase. [Esc] pro zavření."
     )
-    sys.exit(app.exec())
+    try:
+        exit_code = app.exec()
+    finally:
+        if clear_volatile_gemini_api_key():
+            print(
+                "[AI Lens] Gemini API klíč byl bezpečně vymazán z krátkodobé paměti (RAM).",
+                flush=True,
+            )
+    sys.exit(exit_code)
 
 
 if __name__ == "__main__":
     run_overlay_mvp()
+

@@ -1,7 +1,8 @@
-"""Local offline Vision-Language Model engine via Ollama (127.0.0.1) with QThread streaming, multi-language UI localization, and Low/Medium/High thinking tiers."""
+"""Local offline Vision-Language Model engine via Ollama (127.0.0.1) and optional Gemini API mode with volatile short-term RAM-only API key, QThread streaming, multi-language UI localization, and Low/Medium/High thinking tiers."""
 
 from __future__ import annotations
 
+import atexit
 import base64
 import gc
 import io
@@ -16,6 +17,48 @@ from typing import Any, Optional
 import httpx
 from PIL import Image
 from PyQt6.QtCore import QThread, pyqtSignal
+
+DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
+
+# Short-term memory (RAM-only) storage for Gemini API key.
+# Never written to config.json, environment files, or disk; cleared automatically on program exit.
+_VOLATILE_GEMINI_API_KEY: Optional[str] = None
+
+
+def set_volatile_gemini_api_key(api_key: Optional[str]) -> None:
+    """Stores the Gemini API key strictly in short-term process RAM (never persisted to disk)."""
+    global _VOLATILE_GEMINI_API_KEY
+    if api_key and api_key.strip():
+        _VOLATILE_GEMINI_API_KEY = api_key.strip()
+    else:
+        _VOLATILE_GEMINI_API_KEY = None
+
+
+def get_volatile_gemini_api_key() -> Optional[str]:
+    """Returns the in-memory Gemini API key for the current running session, or None."""
+    return _VOLATILE_GEMINI_API_KEY
+
+
+def has_volatile_gemini_api_key() -> bool:
+    """Returns True if a Gemini API key is currently active in short-term RAM."""
+    return bool(_VOLATILE_GEMINI_API_KEY)
+
+
+def clear_volatile_gemini_api_key() -> bool:
+    """
+    Immediately clears the Gemini API key from short-term memory (RAM) and triggers garbage collection.
+    Returns True if an active key was present and cleared.
+    """
+    global _VOLATILE_GEMINI_API_KEY
+    had_key = _VOLATILE_GEMINI_API_KEY is not None
+    _VOLATILE_GEMINI_API_KEY = None
+    gc.collect()
+    return had_key
+
+
+atexit.register(clear_volatile_gemini_api_key)
+
 
 
 SUPPORTED_LANGUAGES: dict[str, tuple[str, str]] = {
@@ -600,19 +643,28 @@ COMPUTE_DEVICE_ALIASES: dict[str, str] = {
     "@\\cpu": "cpu",
     "@/cpu": "cpu",
     "@cpu": "cpu",
+    "gemini": "gemini",
+    "geminiapi": "gemini",
+    "withgemini": "gemini",
+    "startwithgemini": "gemini",
+    "&&gemini": "gemini",
+    "&gemini": "gemini",
+    "@gemini": "gemini",
+    "@\\gemini": "gemini",
+    "@/gemini": "gemini",
 }
 
 
 def normalize_compute_device(device: Optional[str]) -> str:
-    """Normalizes compute device ('gpu' or 'cpu'). Defaults to 'gpu'."""
+    """Normalizes compute device / provider ('gpu', 'cpu', or 'gemini'). Defaults to 'gpu'."""
     if not device:
-        return "gpu"
+        return "gemini" if has_volatile_gemini_api_key() else "gpu"
     cleaned = device.strip().lower().lstrip("-").replace(" ", "").replace('"', '').replace("'", "")
     return COMPUTE_DEVICE_ALIASES.get(cleaned, "gpu")
 
 
 def is_recognized_compute_device(arg: Optional[str]) -> bool:
-    """Returns True if `arg` represents a compute device selector ('CPU', 'GPU', '@\\', etc.)."""
+    """Returns True if `arg` represents a compute device or provider selector ('CPU', 'GPU', '@\\', 'Gemini', etc.)."""
     if not arg:
         return False
     cleaned = arg.strip().lower().lstrip("-").replace(" ", "").replace('"', '').replace("'", "")
@@ -620,9 +672,15 @@ def is_recognized_compute_device(arg: Optional[str]) -> bool:
 
 
 def get_compute_device_display(device: Optional[str], lang: Optional[str] = "cs") -> str:
-    """Returns a human-readable label for the active compute device ('GPU' vs 'CPU')."""
+    """Returns a human-readable label for the active compute device ('GPU', 'CPU', or 'Gemini API')."""
     norm = normalize_compute_device(device)
     code = normalize_language_code(lang)
+    if norm == "gemini":
+        return (
+            "Gemini API (Krátkodobá paměť RAM)"
+            if code in ("cs", "sk")
+            else "Gemini API (Short-Term RAM Key)"
+        )
     if norm == "cpu":
         return "CPU (Vynucený procesor — @\\)" if code in ("cs", "sk") else "CPU (Forced Processor — @\\)"
     return "GPU (Výchozí akcelerace)" if code in ("cs", "sk") else "GPU (Default Acceleration)"
@@ -632,7 +690,7 @@ def get_thinking_level_config(
     level: Optional[str],
     compute_device: Optional[str] = "gpu",
 ) -> dict[str, Any]:
-    """Returns the parameter dictionary for the given thinking level ('low', 'medium', 'high') and device ('gpu' vs 'cpu')."""
+    """Returns the parameter dictionary for the given thinking level ('low', 'medium', 'high') and device ('gpu', 'cpu', or 'gemini')."""
     norm_lvl = normalize_thinking_level(level)
     norm_dev = normalize_compute_device(compute_device)
     table = THINKING_LEVELS_CPU if norm_dev == "cpu" else THINKING_LEVELS_GPU
@@ -651,7 +709,10 @@ def get_thinking_level_display(
     base = ui.get(f"level_{norm_lvl}", THINKING_LEVELS_GPU[norm_lvl]["label"])
     if norm_dev == "cpu":
         return f"{base} (CPU)"
+    if norm_dev == "gemini":
+        return f"{base} (Gemini API)"
     return base
+
 
 
 def get_ui_strings(lang: Optional[str] = "cs") -> dict[str, str]:
@@ -986,8 +1047,9 @@ def warmup_local_model(
 
 class VisionInferenceWorker(QThread):
     """
-    Asynchronous QThread worker that sends the cropped image + prompt to the local
-    Ollama server (127.0.0.1) and streams back generated tokens in real time.
+    Asynchronous QThread worker that sends the cropped image + prompt either to the local
+    Ollama server (127.0.0.1) or to the Google Gemini API (using the volatile RAM-only API key)
+    and streams back generated tokens in real time.
     Automatically scrubs its in-memory image & history references as soon as inference ends.
     """
 
@@ -1019,6 +1081,8 @@ class VisionInferenceWorker(QThread):
         self.language = normalize_language_code(language)
         self.thinking_level = normalize_thinking_level(thinking_level)
         self.compute_device = normalize_compute_device(compute_device)
+        if has_volatile_gemini_api_key():
+            self.compute_device = "gemini"
         self.tier_cfg = get_thinking_level_config(self.thinking_level, self.compute_device)
 
         self.system_prompt = (
@@ -1049,7 +1113,7 @@ class VisionInferenceWorker(QThread):
         self.prompt = ""
 
     def _stream_chat(self, client: httpx.Client, url: str, payload: dict[str, Any]) -> tuple[bool, str]:
-        """Executes streaming POST request; returns (success, error_message)."""
+        """Executes streaming POST request to local Ollama; returns (success, error_message)."""
         with client.stream("POST", url, json=payload) as response:
             if response.status_code != 200:
                 body = response.read().decode("utf-8", errors="replace")
@@ -1080,6 +1144,180 @@ class VisionInferenceWorker(QThread):
 
         return True, ""
 
+    def _stream_gemini_chat(
+        self,
+        client: httpx.Client,
+        url: str,
+        headers: dict[str, str],
+        payload: dict[str, Any],
+    ) -> tuple[bool, int, str]:
+        """Executes streaming SSE POST request to Google Gemini API; returns (success, status_code, error_message)."""
+        with client.stream("POST", url, headers=headers, json=payload) as response:
+            if response.status_code != 200:
+                raw_body = response.read().decode("utf-8", errors="replace")
+                try:
+                    err_json = json.loads(raw_body)
+                    err_msg = str((err_json.get("error") or {}).get("message") or raw_body)
+                except Exception:
+                    err_msg = raw_body
+                return False, response.status_code, err_msg
+
+            for line in response.iter_lines():
+                if self._cancelled:
+                    return True, 200, ""
+                if not line:
+                    continue
+                stripped = line.strip()
+                if stripped.startswith("data:"):
+                    data_str = stripped[5:].strip()
+                else:
+                    continue
+
+                if not data_str or data_str == "[DONE]":
+                    continue
+
+                try:
+                    chunk = json.loads(data_str)
+                except json.JSONDecodeError:
+                    continue
+
+                if "error" in chunk:
+                    err_obj = chunk["error"]
+                    msg = err_obj.get("message", str(err_obj)) if isinstance(err_obj, dict) else str(err_obj)
+                    return False, 400, msg
+
+                candidates = chunk.get("candidates") or []
+                for cand in candidates:
+                    content = cand.get("content") or {}
+                    parts = content.get("parts") or []
+                    for part in parts:
+                        if part.get("thought"):
+                            self.thinkingProgress.emit()
+                        else:
+                            token = part.get("text", "")
+                            if token:
+                                self.tokenReceived.emit(token)
+
+        return True, 200, ""
+
+    def _run_gemini(self, t0: float, ui: dict[str, str], b64_img: str) -> None:
+        """Runs multimodal streaming inference via the Gemini API using the volatile RAM-only API key."""
+        api_key = get_volatile_gemini_api_key()
+        if not api_key:
+            err = (
+                "Chybí Gemini API klíč v krátkodobé paměti (RAM). Spusť program znovu příkazem 'start with Gemini' a zadej platný klíč."
+                if self.language in ("cs", "sk")
+                else "Missing Gemini API key in short-term memory (RAM). Please restart with 'start with Gemini' and provide your API key."
+            )
+            self.errorOccurred.emit(err)
+            return
+
+        gemini_model = (
+            self.model
+            if self.model.lower().startswith("gemini-")
+            else DEFAULT_GEMINI_MODEL
+        )
+
+        contents: list[dict[str, Any]] = []
+        if not self.history:
+            contents.append(
+                {
+                    "role": "user",
+                    "parts": [
+                        {"inline_data": {"mime_type": "image/jpeg", "data": b64_img}},
+                        {"text": self.prompt},
+                    ],
+                }
+            )
+        else:
+            has_image_in_history = False
+            for item in self.history:
+                role = "model" if item.get("role") == "assistant" else "user"
+                parts: list[dict[str, Any]] = []
+                for img_data in item.get("images") or []:
+                    has_image_in_history = True
+                    parts.append(
+                        {"inline_data": {"mime_type": "image/jpeg", "data": img_data}}
+                    )
+                text_val = str(item.get("content") or "")
+                if text_val:
+                    parts.append({"text": text_val})
+                if parts:
+                    contents.append({"role": role, "parts": parts})
+
+            followup_parts: list[dict[str, Any]] = []
+            if not has_image_in_history and b64_img:
+                followup_parts.append(
+                    {"inline_data": {"mime_type": "image/jpeg", "data": b64_img}}
+                )
+            followup_parts.append({"text": self.prompt})
+            contents.append({"role": "user", "parts": followup_parts})
+
+        gen_cfg: dict[str, Any] = {
+            "temperature": self.temperature,
+            "topP": float(self.tier_cfg.get("top_p", 0.88)),
+            "maxOutputTokens": int(self.tier_cfg.get("num_predict", 4096)),
+        }
+        thinking_budget = 0 if not self.think else (4096 if self.thinking_level == "high" else 1024)
+        gen_cfg["thinkingConfig"] = {"thinkingBudget": thinking_budget}
+
+        payload: dict[str, Any] = {
+            "contents": contents,
+            "generationConfig": gen_cfg,
+        }
+        if self.system_prompt:
+            payload["system_instruction"] = {
+                "parts": [{"text": self.system_prompt}],
+            }
+
+        headers = {
+            "Content-Type": "application/json",
+            "x-goog-api-key": api_key,
+        }
+        timeout_sec = 300.0 if self.thinking_level == "high" else 180.0
+
+        try:
+            with httpx.Client(timeout=httpx.Timeout(timeout_sec, connect=10.0), trust_env=False) as client:
+                url = f"{GEMINI_API_BASE_URL}/models/{gemini_model}:streamGenerateContent?alt=sse"
+                ok, status_code, err_body = self._stream_gemini_chat(client, url, headers, payload)
+
+                # Fallback 1: If the selected Gemini model rejects thinkingConfig, retry without it
+                if not ok and status_code == 400 and "thinking" in err_body.lower():
+                    payload["generationConfig"].pop("thinkingConfig", None)
+                    ok, status_code, err_body = self._stream_gemini_chat(client, url, headers, payload)
+
+                # Fallback 2: If gemini-2.5-flash is unavailable (404), fall back to gemini-2.0-flash
+                if not ok and status_code == 404 and gemini_model != "gemini-2.0-flash":
+                    fallback_url = f"{GEMINI_API_BASE_URL}/models/gemini-2.0-flash:streamGenerateContent?alt=sse"
+                    payload["generationConfig"].pop("thinkingConfig", None)
+                    ok, status_code, err_body = self._stream_gemini_chat(
+                        client, fallback_url, headers, payload
+                    )
+
+                if not ok:
+                    err_prefix = (
+                        "Chyba Gemini API"
+                        if self.language in ("cs", "sk")
+                        else "Gemini API Error"
+                    )
+                    self.errorOccurred.emit(f"{err_prefix} ({status_code}): {err_body}")
+                    return
+
+            if not self._cancelled:
+                elapsed = time.perf_counter() - t0
+                self.finishedInference.emit(elapsed)
+        except httpx.ConnectError:
+            msg = (
+                "Nelze se připojit ke službě Google Gemini API. Zkontroluj připojení k internetu a platnost API klíče."
+                if self.language in ("cs", "sk")
+                else "Cannot connect to Google Gemini API. Please check your internet connection and API key."
+            )
+            self.errorOccurred.emit(msg)
+        finally:
+            api_key = ""
+            headers.clear()
+            contents.clear()
+
     def run(self) -> None:
         t0 = time.perf_counter()
         url = f"{self.ollama_host}/api/chat"
@@ -1095,6 +1333,10 @@ class VisionInferenceWorker(QThread):
                 b64_img = encode_pil_to_base64(self.image, fmt="JPEG", max_side=max_side)
             except Exception as exc:
                 self.errorOccurred.emit(f"{ui['err_title']}: {exc}")
+                return
+
+            if self.compute_device == "gemini" or has_volatile_gemini_api_key():
+                self._run_gemini(t0, ui, b64_img)
                 return
 
             if self.system_prompt:
@@ -1170,3 +1412,4 @@ class VisionInferenceWorker(QThread):
             messages.clear()
             self.clear_memory()
             gc.collect()
+

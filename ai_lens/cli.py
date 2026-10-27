@@ -14,7 +14,7 @@ from typing import Optional
 import httpx
 import typer
 
-from ai_lens.daemon import run_daemon, send_daemon_command
+from ai_lens.daemon import _read_daemon_state, run_daemon, send_daemon_command
 from ai_lens.overlay import (
     DEFAULT_CONFIG_PATH,
     _ensure_utf8_stdio,
@@ -25,8 +25,10 @@ from ai_lens.overlay import (
     set_thinking_level_in_config,
 )
 from ai_lens.vision_engine import (
+    DEFAULT_GEMINI_MODEL,
     SUPPORTED_LANGUAGES,
     THINKING_LEVELS,
+    has_volatile_gemini_api_key,
     get_compute_device_display,
     get_language_display,
     get_thinking_level_config,
@@ -48,12 +50,14 @@ _CLI_DETECTED_DEVICE: Optional[str] = None
 
 def _detect_device_from_shell_and_args() -> Optional[str]:
     r"""
-    Detects whether CPU or GPU mode is requested via environment variable AI_LENS_DEVICE.
-    Direct CLI arguments (CPU, @\, --cpu, etc.) are parsed directly from sys.argv.
+    Detects whether CPU, GPU, or Gemini mode is requested via environment variable AI_LENS_DEVICE.
+    Direct CLI arguments (CPU, @\, --cpu, Gemini, etc.) are parsed directly from sys.argv.
     """
     env_dev = os.environ.get("AI_LENS_DEVICE", "").strip().lower()
     if env_dev in ("cpu", "procesor", "@\\", "@/"):
         return "cpu"
+    if env_dev in ("gemini", "startwithgemini", "withgemini"):
+        return "gemini"
     if env_dev == "gpu":
         return "gpu"
     return None
@@ -82,6 +86,21 @@ def _normalize_cli_argv() -> None:
         if prev_arg in ("--device", "-d"):
             new_argv.append(arg)
             continue
+
+        # Handle Gemini flags and multi-token "with Gemini"
+        if arg in ("--gemini", "-g") or cleaned in (
+            "gemini", "start-with-gemini", "startwithgemini", "withgemini",
+            "&&gemini", "&gemini", "@gemini", "@\\gemini", "@/gemini"
+        ):
+            _CLI_DETECTED_DEVICE = "gemini"
+            continue
+
+        if cleaned == "with" and i + 1 < len(sys.argv):
+            next_arg = sys.argv[i + 1].strip().lower().replace('"', '').replace("'", "")
+            if next_arg in ("gemini", "gemini-api", "geminiapi"):
+                _CLI_DETECTED_DEVICE = "gemini"
+                skip_next = True
+                continue
 
         # Chained or prefixed operators: `@\`, `@/`, `&&`, `&`, `@`
         if arg in ("@\\", "@/","@", '"@\\"', "'@\\'", "&&", "&") or cleaned in ("@\\", "@/"):
@@ -124,6 +143,8 @@ def _normalize_cli_argv() -> None:
             return
         if is_recognized_language_arg(first) or is_recognized_thinking_level(first):
             sys.argv[1:1] = ["start"]
+    elif _CLI_DETECTED_DEVICE == "gemini":
+        sys.argv.append("start")
 
 
 def _resolve_lang_and_level_and_device(
@@ -203,13 +224,23 @@ def main(
         "--gpu",
         help="Vynutí běh na GPU s plnou akcelerací (výchozí stav).",
     ),
+    gemini: bool = typer.Option(
+        False,
+        "--gemini",
+        "-g",
+        help="Spustí AI Lens v režimu Google Gemini API (vyžaduje zadání API klíče do RAM).",
+    ),
 ) -> None:
     """
     Spustí AI Lens z příkazové řádky v pohotovosti (poslouchá na Alt+F8 / F8).
-    Výchozí akcelerace běží na GPU; přidáním '@\\' se přepne na procesor.
+    Výchozí akcelerace běží na GPU; zadáním 'start with Gemini' se přepne na Google Gemini API.
     """
     if ctx.invoked_subcommand is None:
-        target_device = _CLI_DETECTED_DEVICE or device or ("cpu" if cpu else ("gpu" if gpu else "gpu"))
+        target_device = (
+            "gemini"
+            if (gemini or _CLI_DETECTED_DEVICE == "gemini")
+            else (_CLI_DETECTED_DEVICE or device or ("cpu" if cpu else ("gpu" if gpu else "gpu")))
+        )
         run_daemon(
             open_immediately=False,
             language=lang,
@@ -260,6 +291,12 @@ def start(
         "--gpu",
         help="Vynutí běh na GPU.",
     ),
+    gemini: bool = typer.Option(
+        False,
+        "--gemini",
+        "-g",
+        help="Spustí AI Lens v režimu Google Gemini API (start with Gemini).",
+    ),
     now: bool = typer.Option(
         False,
         "--now",
@@ -271,7 +308,9 @@ def start(
     chosen_lang, chosen_level, chosen_dev = _resolve_lang_and_level_and_device(
         arg1, arg2, arg3, lang, level, device
     )
-    if cpu:
+    if gemini or _CLI_DETECTED_DEVICE == "gemini" or chosen_dev == "gemini":
+        chosen_dev = "gemini"
+    elif cpu:
         chosen_dev = "cpu"
     elif gpu:
         chosen_dev = "gpu"
@@ -323,6 +362,8 @@ def trigger(
     chosen_lang, chosen_level, chosen_dev = _resolve_lang_and_level_and_device(
         arg1, arg2, arg3, lang, level, device
     )
+    if _CLI_DETECTED_DEVICE == "gemini":
+        chosen_dev = "gemini"
     if chosen_lang:
         code = set_language_in_config(chosen_lang)
         typer.echo(f"[AI Lens] Jazyk (UI + AI) nastaven na: {get_language_display(code)}")
@@ -332,7 +373,7 @@ def trigger(
         typer.echo(
             f"[AI Lens] Hloubka myšlení nastavena na: {get_thinking_level_display(lvl, cfg_lang)}"
         )
-    if chosen_dev:
+    if chosen_dev and chosen_dev != "gemini":
         d = set_compute_device_in_config(chosen_dev)
         cfg_lang = str(load_config().get("language", "cs"))
         typer.echo(f"[AI Lens] Výpočetní jednotka nastavena na: {get_compute_device_display(d, cfg_lang)}")
@@ -350,24 +391,34 @@ def trigger(
 
 @app.command("status")
 def status() -> None:
-    """Zkontroluje, zda běží AI Lens proces, a vypíše aktivní jazyk, úroveň myšlení i akceleraci (GPU/CPU)."""
-    resp = send_daemon_command("STATUS")
+    """Zkontroluje, zda běží AI Lens proces, a vypíše aktivní jazyk, úroveň myšlení i režim (GPU/CPU/Gemini API)."""
+    state = _read_daemon_state()
     cfg = load_config()
     lang_code = str(cfg.get("language", "cs"))
     lang_disp = get_language_display(lang_code)
-    dev_code = str(cfg.get("compute_device", "gpu"))
-    dev_disp = get_compute_device_display(dev_code, lang_code)
-    tier_cfg = get_thinking_level_config(level_code, dev_code)
-    level_disp = get_thinking_level_display(level_code, lang_code, dev_code)
-    if resp == "OK:RUNNING":
+    level_code = str(cfg.get("thinking_level", "medium"))
+
+    if state is not None:
+        running_mode = str(state.get("mode", cfg.get("compute_device", "gpu")))
+        dev_disp = get_compute_device_display(running_mode, lang_code)
+        tier_cfg = get_thinking_level_config(level_code, running_mode)
+        level_disp = get_thinking_level_display(level_code, lang_code, running_mode)
+        active_model = DEFAULT_GEMINI_MODEL if running_mode == "gemini" else cfg.get("model")
         typer.echo(
-            f"[AI Lens] Proces BĚŽÍ (zkratka: {cfg.get('hotkey')} / F8, model: {cfg.get('model')}, "
-            f"jazyk: {lang_disp}, myšlení: {level_disp} [{tier_cfg['num_predict']} tokenů], výpočet: {dev_disp})."
+            f"[AI Lens] Proces BĚŽÍ (PID: {state.get('pid')}, zkratka: {cfg.get('hotkey')} / F8, model: {active_model}, "
+            f"jazyk: {lang_disp}, myšlení: {level_disp} [{tier_cfg['num_predict']} tokenů], režim/výpočet: {dev_disp})."
         )
     else:
+        dev_code = str(cfg.get("compute_device", "gpu"))
+        dev_disp = get_compute_device_display(dev_code, lang_code)
+        tier_cfg = get_thinking_level_config(level_code, dev_code)
+        level_disp = get_thinking_level_display(level_code, lang_code, dev_code)
         typer.echo(
-            f"[AI Lens] Proces momentálně neběží (jazyk: {lang_disp}, myšlení: {level_disp} [{tier_cfg['num_predict']} tokenů], výpočet: {dev_disp}). "
-            "Spusť jej např. příkazem: .\\ai-lens.bat cs High (GPU) nebo .\\ai-lens.bat cs High CPU (CPU)"
+            f"[AI Lens] Proces momentálně neběží (jazyk: {lang_disp}, myšlení: {level_disp} [{tier_cfg['num_predict']} tokenů], výpočet: {dev_disp}).\n"
+            "Spusť jej např. příkazem:\n"
+            "  .\\ai-lens.bat start with Gemini  (Google Gemini API — RAM klíč)\n"
+            "  .\\ai-lens.bat cs High            (GPU lokální model)\n"
+            "  .\\ai-lens.bat cs High CPU        (CPU lokální model)"
         )
 
 

@@ -12,10 +12,14 @@ AI Lens běží jako plně lokální desktopová aplikace rozdělená do dvou od
    - Po spuštění (`.\ai-lens.bat en High`, `.\ai-lens.bat cs High` nebo `.\ai-lens.bat`) běží v lehkém pohotovostním režimu (**Standby Daemon**).
    - **Neotevírá žádný naslouchající TCP/UDP port** – komunikace mezi CLI příkazy (`trigger`, `status`, `stop`) a běžícím procesem probíhá přes nativní Windows zprávu `PostThreadMessageW` (`WM_HOTKEY`).
    - Detekce zkratky (`Alt+F8` / `F8` / `Ctrl+Alt+Shift+G`) využívá trojitý engine: dedikované Win32 `GetMessageW` vlákno (`RegisterHotKey`), 15ms hardwarový poller `GetAsyncKeyState` a nízkourovňový hook `pynput`.
-2. **Lokální VLM Inference vrstva (Ollama Server na `127.0.0.1:11434`):**
+2. **Inference vrstva: Duální podpora (Lokální VLM vs. Google Gemini API):**
+   - **Lokální režim (Výchozí):** Ollama na `127.0.0.1:11434` (akcelerace GPU nebo CPU přes `@\`). 100% offline.
+   - **Režim Google Gemini API (`start with Gemini`):**
+     - Umožňuje spuštění přes Google Gemini API (`gemini-2.5-flash` / `gemini-2.0-flash`).
+     - **Ochrana API klíče v RAM:** Klíč se zadává v příkazové řádce při startu, je uložen **výhradně v krátkodobé paměti (RAM)** a **nikdy se nezapisuje na disk** do `config.json` ani logů.
+     - **Automatický výmaz:** Při jakémkoliv zavření programu ([Esc], pravé tlačítko myši, zavření docku, Ctrl+C nebo stop) je API klíč z RAM okamžitě smazán a paměť uvolněna.
    - Při zakroužkování oblasti myší se z originálního snímku v RAM vyřízne pouze ohraničený obdélník (**Bounding Box** s adaptivním paddingem).
-   - Výřez se přímo v paměti RAM převede na optimalizovaný JPEG base64 řetězec a odešle se asynchronním vláknem (`VisionInferenceWorker` / `QThread`) do lokální Ollamy.
-   - Tokeny odpovědi se streamují v reálném čase přímo do plovoucího okna (`PopoverCard`).
+   - Výřez se přímo v paměti RAM převede na optimalizovaný JPEG base64 řetězec a streamuje se token po tokenu do plovoucího okna (`PopoverCard`).
 
 ---
 
@@ -142,6 +146,7 @@ V rámci bezpečnostního auditu zdrojového kódu byly prověřeny všechny pot
 | **5. Visual Prompt Injection (škodlivé instrukce v textu na obrazovce)** | **CHRÁNĚNO** | Systémový prompt obsahuje explicitní `SECURITY & PROMPT-INJECTION GUARD` (veškerý text na snímku je brán jako nedůvěryhodná data, nikoli příkazy). Navíc model **nemá přístup k žádným systémovým nástrojům, souborům ani příkazové řádce** – generuje pouze čistý text. |
 | **6. Spouštění podprocesů (Command Injection / Binary Hijacking)** | **CHRÁNĚNO** | Funkce `_try_start_ollama_service()` nepoužívá shell (`shell=False`), ověřuje binárku přes `shutil.which("ollama")` a předává pevné pole argumentů `[ollama_bin, "serve"]` s odpojeným `stdin`/`stdout`/`stderr`. |
 | **7. Podvržení hodnot v `config.json` (Buffer / UI DoS)** | **CHRÁNĚNO** | Funkce `load_config()` v [`ai_lens/overlay.py`](ai_lens/overlay.py) omezuje (clampuje) všechny číselné hodnoty do bezpečných mezí (`padding` 0–200 px, `border_width` 1–20 px, `temperature` 0.0–2.0). |
+| **8. Ochrana Gemini API klíče (Únik citlivých dat na disk)** | **CHRÁNĚNO** | **100% RAM-only storage.** Funkce `load_config()` i ukládací funkce explicitně zakazují zápis `gemini_api_key` do `config.json`. Klíč žije pouze v proměnné `_VOLATILE_GEMINI_API_KEY` a je automaticky vymazán z RAM přes `clear_volatile_gemini_api_key()` a `atexit` při každém zavření aplikace. |
 
 ---
 
@@ -162,7 +167,13 @@ ai-lens diagnostika
 ai-lens levels
 .\ai-lens.bat levels
 
-# Spuštění s GPU (výchozí) vs. s vynuceným CPU:
+# Spuštění přes Google Gemini API (krátkodobý RAM klíč):
+.\ai-lens.bat start with Gemini
+start with Gemini                 # přímo v příkazové řádce CMD
+.\start-with-gemini.bat          # přímý skript
+.\ai-lens.bat start with Gemini cs High
+
+# Spuštění lokálního modelu s GPU (výchozí) vs. s vynuceným CPU:
 .\ai-lens.bat cs High            # GPU
 .\ai-lens.bat cs High @\         # CPU (nebo v PowerShellu ".\ai-lens.bat cs High `"@\`"")
 ```
