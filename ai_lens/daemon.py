@@ -89,14 +89,15 @@ def prompt_for_gemini_api_key(lang: Optional[str] = "cs") -> str:
     _ensure_utf8_stdio()
     code = normalize_language_code(lang)
     is_cz_sk = code in ("cs", "sk")
+    active_m = get_volatile_gemini_model()
     print("=" * 74, flush=True)
     if is_cz_sk:
-        print(" AI Lens — Spuštění přes Google Gemini API (start with Gemini)", flush=True)
+        print(f" AI Lens — Spuštění přes Google Gemini API (model: {active_m})", flush=True)
         print(" Ochrana klíče : API klíč je uložen POUZE v krátkodobé paměti (RAM).", flush=True)
         print("                 Při každém spuštění se zadává znovu a při zavření", flush=True)
         print("                 programu se automaticky vymaže.", flush=True)
     else:
-        print(" AI Lens — Starting with Google Gemini API (start with Gemini)", flush=True)
+        print(f" AI Lens — Starting with Google Gemini API (model: {active_m})", flush=True)
         print(" Key Security  : Your API key is stored ONLY in short-term memory (RAM).", flush=True)
         print("                 It must be entered every time and is cleared whenever", flush=True)
         print("                 the program is closed.", flush=True)
@@ -115,19 +116,19 @@ def prompt_for_gemini_api_key(lang: Optional[str] = "cs") -> str:
             print("\n[AI Lens] Zadávání Gemini API klíče bylo zrušeno.", flush=True)
             sys.exit(1)
 
-        cleaned_key = raw_key.strip().strip('"').strip("'")
+        cleaned_key = raw_key.strip().strip('"').strip("'").strip("()").strip("<>").strip()
         if cleaned_key:
             set_volatile_gemini_api_key(cleaned_key)
             cleaned_key = ""
             raw_key = ""
             if is_cz_sk:
                 print(
-                    "[AI Lens] Gemini API klíč načten do krátkodobé paměti (RAM). Po ukončení programu bude vymazán.",
+                    f"[AI Lens] Gemini API klíč načten do RAM pro model {active_m}. Po ukončení programu bude vymazán.",
                     flush=True,
                 )
             else:
                 print(
-                    "[AI Lens] Gemini API key loaded into short-term memory (RAM). It will be cleared when the program closes.",
+                    f"[AI Lens] Gemini API key loaded into RAM for model {active_m}. It will be cleared when the program closes.",
                     flush=True,
                 )
             return "ok"

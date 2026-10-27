@@ -15,7 +15,7 @@ AI Lens běží jako plně lokální desktopová aplikace rozdělená do dvou od
 2. **Inference vrstva: Duální podpora (Lokální VLM vs. Google Gemini API):**
    - **Lokální režim (Výchozí):** Ollama na `127.0.0.1:11434` (akcelerace GPU nebo CPU přes `@\`). 100% offline.
    - **Režim Google Gemini API (`start with Gemini`):**
-     - Umožňuje spuštění přes Google Gemini API (`gemini-2.5-flash` / `gemini-2.0-flash`).
+     - Umožňuje spuštění přes Google Gemini API (`gemini-3.8-flash` / `gemini-3.5-flash` / `gemini-2.5-flash`).
      - **Ochrana API klíče v RAM:** Klíč se zadává v příkazové řádce při startu, je uložen **výhradně v krátkodobé paměti (RAM)** a **nikdy se nezapisuje na disk** do `config.json` ani logů.
      - **Automatický výmaz:** Při jakémkoliv zavření programu ([Esc], pravé tlačítko myši, zavření docku, Ctrl+C nebo stop) je API klíč z RAM okamžitě smazán a paměť uvolněna.
    - Při zakroužkování oblasti myší se z originálního snímku v RAM vyřízne pouze ohraničený obdélník (**Bounding Box** s adaptivním paddingem).
@@ -167,16 +167,16 @@ ai-lens diagnostika
 ai-lens levels
 .\ai-lens.bat levels
 
-# Spuštění přímo s Gemini API klíčem a automatickou detekcí modelu (nemusíte zadávat model):
-gemini( TVUJ_API_KLIC )
-gemini(TVUJ_API_KLIC)
-gemini "TVUJ_API_KLIC"
+# Spuštění přímo s volbou modelu a Gemini API klíčem:
+.\ai-lens.bat start with Gemini(version) (api_key)
+.\ai-lens.bat start with Gemini(version) <api_key>
+.\ai-lens.bat start with Gemini(3.8) (TVUJ_API_KLIC)
+.\ai-lens.bat start with Gemini(3.8) <TVUJ_API_KLIC>
 
-# Volitelné vynucení konkrétního modelu (3.8flash, 3.5, 2.5):
-gemini( TVUJ_API_KLIC ) 3.8flash
-gemini "TVUJ_API_KLIC" 3.5 cs High
-.\Gemini.bat (TVUJ_API_KLIC)
-.\ai-lens.bat gemini( TVUJ_API_KLIC )
+# Volba modelu napřed a zadání API klíče po vyzvání:
+start 3.8
+start 3.8 (TVUJ_API_KLIC)
+start 3.8 <TVUJ_API_KLIC>
 .\ai-lens.bat start with Gemini
 
 # Spuštění lokálního modelu s GPU (výchozí) vs. s vynuceným CPU:
