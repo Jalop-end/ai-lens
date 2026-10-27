@@ -3,12 +3,13 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Ollama](https://img.shields.io/badge/AI-Ollama%20(Local)-orange)](https://ollama.com/)
+[![Google Gemini API](https://img.shields.io/badge/Google%20Gemini-API%20Mode-blue)](https://ai.google.dev/)
 [![Languages: 15](https://img.shields.io/badge/UI%20%26%20AI%20Languages-15-success)](#supported-language-shortcuts)
-[![Thinking Tiers: Low | Medium | High](https://img.shields.io/badge/Thinking%20Depth-Low%20%7C%20Medium%20%7C%20High-blueviolet)](#thinking-depth--quality-tiers-low--medium--high)
+[![Thinking Tiers: Low | Medium | High](https://img.shields.io/badge/Thinking%20Depth-Low%20%7C%20Medium%20%7C%20High-blueviolet)](#boosted-thinking-depth-answer-accuracy--factual-context-tiers-low--medium--high)
 
 **AI Lens** is a lightweight, 100% offline desktop screen-capture assistant designed for instantaneous screen analysis using local Vision-Language Models (VLMs) like `gemma4:latest`, `qwen2.5-vl`, or `minicpm-v`.
 
-With a single hotkey (**`Alt + F8`**) or one click on the floating mini-dock, your screen is instantly frozen (< 15 ms). Circle any area with your mouse (lasso selection) to receive real-time streaming answers, question & puzzle solutions, fill-in-the-blank completions, code explanations, or translations from your local AI model—without sending a single byte outside your computer.
+With a single hotkey (**`Alt + F8`** or **`Ctrl + Alt + Shift + G`**), Secret Quick-Answer Mode (**`Ctrl + Alt + Shift + Q`**), or clicking the discrete green indicator dot, your screen is instantly frozen (< 15 ms). Circle any area with your mouse or drag a text highlight to receive real-time streaming answers, quiz solutions, fill-in-the-blank completions, code explanations, or translations from your local AI model—without sending a single byte outside your computer.
 
 ---
 
@@ -18,41 +19,44 @@ With a single hotkey (**`Alt + F8`**) or one click on the floating mini-dock, yo
 flowchart TD
     subgraph S1 [1. Standby and Hotkeys]
         direction TB
-        CLI[Launch: ai-lens.bat cs/en Low/Medium/High] --> CFG[Load Config and Active Thinking Tier]
-        CFG --> DOCK[Floating Mini-Dock: Full Pill or Minimized Dash]
-        CFG --> HOTKEY[Triple Hotkey Engine: Alt+F8 or F8]
+        CLI[Launch: ai-lens.bat cs/en Low/Medium/High or start with Gemini] --> CFG[Load Config and Active Thinking Tier]
+        CFG --> DOT[Discrete Green Status Dot: 1-Click Clean Exit]
+        CFG --> HOTKEY[Standard Hotkeys: Alt+F8 / F8 / Ctrl+Alt+Shift+G]
+        CFG --> SECRET_HK[Secret Mode Hotkey: Ctrl+Alt+Shift+Q]
     end
 
     subgraph S2 [2. Instant Screen Capture and Selection]
         direction TB
-        DOCK --> CAP[Instant Screen Buffer to RAM - under 15 ms]
-        HOTKEY --> CAP
-        CAP --> OVR[Frameless Fullscreen Overlay and HUD Banner]
-        OVR --> LASSO[User circles subject with Freehand Mouse Lasso]
-        LASSO --> CROP[Padded Bounding Box Crop and Base64 in RAM]
+        HOTKEY --> CAP[Instant Screen Buffer to RAM - under 15 ms]
+        SECRET_HK --> CAP
+        CAP --> OVR[Frameless Fullscreen Overlay with Click-Away Dismissal]
+        OVR -->|Standard Mode| LASSO[Freehand Mouse Lasso -> Tight 4px Bounding Box]
+        OVR -->|Secret Mode| RECT[Text-Selection Highlight Drag -> Exact Rectangular Crop]
+        LASSO --> CROP[Tight Bounding Box Crop and Base64 in RAM]
+        RECT --> CROP
     end
 
-    subgraph S3 [3. 100% Offline Local AI Inference (GPU / CPU)]
+    subgraph S3 [3. Dual AI Inference: Local Ollama / Google Gemini API]
         direction TB
-        CROP --> TIER{Active Thinking Tier}
-        TIER -->|Low| TL[Low Mode: 2560 tokens · 4096 ctx · 1024px · Former Medium Boost]
-        TIER -->|Medium| TM[Medium Mode: 5120 tokens · 10240 ctx · 1408px · Ultra Balanced]
-        TIER -->|High| TH[High Mode: 8192 tokens · 16384 ctx · 1600px · Encyclopedic Depth]
-        TL --> STREAM[Real-Time Token Streaming via QThread]
-        TM --> STREAM
-        TH --> STREAM
-        STREAM --> OLLAMA[Local Ollama on 127.0.0.1:11434 · GPU by default or CPU switch]
+        CROP --> TIER{Active Engine and Thinking Tier}
+        TIER -->|Ollama GPU/CPU| OLLAMA[Local Ollama: Low · Medium · High Profiles]
+        TIER -->|Google Gemini API| GEMINI[Gemini API: 2.5 Flash / 3.8 Flash locked to Low Thinking]
+        OLLAMA --> STREAM[Real-Time Token Streaming via QThread]
+        GEMINI --> STREAM
     end
 
-    subgraph S4 [4. Floating Popover and Zero-Retention Wipe]
+    subgraph S4 [4. Results Display and Zero-Retention Wipe]
         direction TB
-        STREAM --> POP[Floating Popover Card next to selection]
+        STREAM -->|Standard Mode| POP[Floating Popover Card next to selection]
+        STREAM -->|Secret Mode| SECTOP[Sleek Secret Top Bar along upper screen - Max 25 Words]
         POP --> RENDER[16px Bold Answers and Serif Citations]
-        POP --> ACC[Calibrated Confidence Badge: e.g. 🎯 54 % or 🎯 92 %]
+        POP --> ACC[Calibrated Confidence Badge: e.g. 54 % or 92 %]
         RENDER --> BADGE[Status Badge: Done in 9.4s]
         ACC --> BADGE
-        BADGE --> CHAT[Follow-up question or Esc to close]
+        BADGE --> CHAT[Interactive follow-up chat or click-away to dismiss]
+        SECTOP --> COPY[1-Click Copy Button and Close ✕]
         CHAT --> CLEAN[Zero-Retention: Immediate RAM Wipe and gc.collect]
+        COPY --> CLEAN
     end
 
     S1 --> S2
@@ -77,10 +81,10 @@ flowchart TD
   - **`Low`** on GPU is boosted to the power of former Medium (`2560` tokens / `4096` context window / `1024px` image / `think=False` for instant ~1.5–3 s streaming). On CPU, it delivers instant direct answers in ~1.5–3 s (`384` tokens / `think=False`).
   - **`Medium`** on GPU is expanded above former High (`4096` tokens / `8192` context window / `1280px` image / `think=True`). On CPU, it provides a balanced 1-paragraph summary in ~4–8 s (`768` tokens / `2560` context).
   - **`High`** on GPU is maximized for encyclopedic depth (`5120` tokens / `10240` context window / `1280px` image / `think=True`). On CPU, it provides thorough verification in ~8–15 s (`1280` tokens / `4096` context).
-- **Calibrated Biological Recognition & Skeptical Animal Confidence Scores (`🎯 XX %`):**
+- **Calibrated Biological Recognition & Skeptical Animal Confidence Scores (`XX %`):**
   - **Strictly Calibrated for Animals & Domestic Breeds:** Distinguishing domestic cat breeds, mixed-breed dogs, or reptiles without close-up head scale/pupil details is challenging. AI Lens uses a skeptical, realistic probability range (**38–65%** for ambiguous look-alikes or partial views; **25–45%** if distant/blurry) and reserves high confidence (**85–95%**) exclusively for textbook unmistakable specimens with zero look-alikes (e.g., an adult male lion with full mane, giraffe, zebra).
   - Every probability estimate is followed by a **1-sentence rationale** explaining which visual traits confirmed the identification or which alternative look-alike species could not be ruled out.
-  - Dynamically rendered in the Popover header as a sleek badge (🟢 **≥85%**, 🔵 **70–84%**, 🟡 **<70%**).
+  - Dynamically rendered in the Popover header as a clean, emoji-free badge (🟢 **≥85%**, 🔵 **70–84%**, 🟡 **<70%**).
 - **Smart Question, Sequence & Fill-in-the-Blank Solver:**
   - **Standard Questions & Quizzes:** Describes what is visible, **always provides the direct verified answer**, and **explains why** it is correct.
   - **Fill-in-the-Blank Sentences (`"něco je _____ proto"`, `...`, `___`):** Follows a strict two-step rule—**first** describes what is shown on the screen (without giving away the answer in the first sentence), and **second** provides the missing answer and explains why.
@@ -90,10 +94,30 @@ flowchart TD
   - **Citations (`"..."`):** Automatically enclosed in standard double quotes `""` and styled in an **italic serif citation font** (`Georgia`, `Cambria`, `Times New Roman`).
 - **Full 15-Language Localization (AI Responses + Entire UI):**
   - Switching language (`ai-lens cs`, `ai-lens en`, `ai-lens de`, `ai-lens sk`, etc.) localizes **both** the AI's answers and **all UI elements**: generation time badges, thinking/streaming indicators, input placeholders, tooltips, and the top overlay HUD banner.
-- **Ultra-Fast Capture (< 15 ms) & Triple-Engine Hotkeys:**
+- **Secret Quick-Answer Mode (`Ctrl + Alt + Shift + Q`):**
+  - Instant direct quiz/question solver triggered by pressing **`Ctrl + Alt + Shift + Q`** (or `Ctrl + Shift + Alt + Q`, or `.\ai-lens.bat secret`).
+  - **Pure Text-Selection Drag & Instant Vanishing Highlight:** Dragging your cursor highlights text just like marking text to copy in your browser or Word. The moment you release the mouse, the blue highlight **vanishes immediately**, leaving the screen completely clean, natural, and unmarked during AI inference.
+  - **High-Visibility Glassmorphic Top Bar (`SecretTopBar`):** The streaming answer appears centered in a glassmorphic bar (`rgba(12, 20, 36, 135)`) positioned along the screen's top edge. Featuring bold 15px text and a soft ambient drop shadow, it remains sharply readable over both light and dark windows while maintaining sleek transparency.
+  - **Smart Task-Aware Language Evaluation:**
+    - If the selected text is a foreign language exercise (e.g. English fill-in-the-blank, grammar test, vocabulary cloze, or matching terms with definitions), the AI **does not translate the answer into Czech**—it fills the correct missing word or matching term directly in English (e.g. `"went"` instead of `"šla"`).
+    - If the exercise explicitly asks for translation (e.g. *"Přeložte:"*, *"Translate into..."*), it provides the translated answer in the target language.
+    - If the question is an ordinary general knowledge or descriptive inquiry (e.g. *"What is the speed of light?"*), it responds in the user's selected language (e.g. Czech).
+  - **Strict 25-Word Limit:** Enforces a hard maximum limit of **25 words** with direct answers only (no intro filler, no conversational fluff). Saves tokens, RAM, and precious time.
+  - Includes a 1-click clipboard copy button and close button (`✕`), entirely free of emojis.
+- **Ultra-Mini Green Dot Standby Indicator (Click to Exit):**
+  - AI Lens displays an ultra-mini **7px glowing green dot** (`#22C55E`) anchored in the very top-right corner of your screen showing that AI Lens is running in the background.
+  - **1-Click Clean Exit:** Hovering turns the dot red (`#EF4444`); clicking it immediately terminates the entire AI Lens background process and safely wipes all memory.
+- **English Standby Banner & Diagnostic Logging:**
+  - The startup standby status banner, daemon activations, screen freeze timings, RAM clearance confirmations, and API key wipe notices are all reported in English in the terminal.
+  - When encountering API quota or rate-limiting (e.g. HTTP 429), the engine automatically falls back to lightweight models (`gemini-3.5-flash-lite`) while accurately reporting the original HTTP status code.
+- **Smart Click-Away Overlay Dismissal:**
+  - If a selection is complete or an answer card is showing, clicking anywhere outside the result card immediately dismisses/closes the overlay and frees RAM—preventing accidental re-selections or screen freeze.
+- **Tight 4px Bounding Box Contour:**
+  - AI Lens eliminates excess whitespace around selections, tightly framing the user's drawn lasso or text highlight with a compact **4px padding**, ensuring the AI focuses strictly on what you selected.
+- **Ultra-Fast Capture (< 15 ms) & Multi-Engine Hotkeys:**
   - Captures the screen buffer directly into RAM with automatic high-DPI scaling (up to 4K+).
-  - Supports **`Alt + F8`**, **`F8`**, **`Ctrl + Alt + Shift + G`**, and a draggable **Collapsible Mini-Dock** (`🔍 AI Lens [CS · High · GPU] (Alt+F8)`).
-  - **Minimizes to a thin dash (`—` / "čárka"):** Click the `—` button or double-click to shrink the dock into a razor-thin 8px bar that covers nothing on screen. Click it once or double-click anywhere to expand it back!
+  - Supports standard hotkeys **`Alt + F8`**, **`F8`**, **`Ctrl + Alt + Shift + G`**, and Secret Mode **`Ctrl + Alt + Shift + Q`**.
+  - Immediate dismissal with **`Esc`**, clicking outside the card, or right-clicking anywhere.
 
 ---
 
@@ -202,46 +226,59 @@ You do **not** need a virtual environment (`venv`) to install and run AI Lens—
 
 ### Quick Start
 
-### 1. Launch with Google Gemini API (`start with Gemini(version) (api_key)`)
-You can choose the exact Gemini model version (such as **`3.8`**, **`3.5`**, or **`2.5`**) and provide your API key directly on the command line, or choose the model first (`start 3.8`) and enter your API key when prompted.
+### 1. Launch with Google Gemini API (`.\ai-lens.bat start with Gemini`)
+The single and official command to start AI Lens in Google Gemini API mode is:
 
 ```powershell
-# Direct launch with chosen model and API key:
-.\ai-lens.bat start with Gemini(version) (api_key)
-.\ai-lens.bat start with Gemini(version) <api_key>
+.\ai-lens.bat start with Gemini
+```
+*(Or in an active virtual environment: `start with Gemini`)*
 
-# Examples with Gemini 3.8 Flash (Flagship):
-.\ai-lens.bat start with Gemini(3.8) (YOUR_GEMINI_API_KEY)
-.\ai-lens.bat start with Gemini(3.8) <YOUR_GEMINI_API_KEY>
-.\ai-lens.bat start with Gemini(3.8) "YOUR_GEMINI_API_KEY"
+#### Subscription Tier Gate (Paid vs. Free Quota)
+When starting Gemini API mode, AI Lens first asks whether you have a paid Google Cloud / AI Studio subscription with billing enabled:
 
-# Or start the model directly and enter the API key when prompted:
-start 3.8
-# -> Chooses model gemini-3.8-flash, prompts for your API key, and launches immediately!
-
-# Pass key directly to start 3.8:
-start 3.8 (YOUR_GEMINI_API_KEY)
-start 3.8 <YOUR_GEMINI_API_KEY>
-
-# Examples with other versions:
-.\ai-lens.bat start with Gemini(3.5) (YOUR_GEMINI_API_KEY)
-.\ai-lens.bat start with Gemini(2.5) <YOUR_GEMINI_API_KEY>
-
-# Direct shorthand launchers:
-start with Gemini(3.8) (YOUR_GEMINI_API_KEY)
-start with Gemini(3.8) <YOUR_GEMINI_API_KEY>
-gemini "YOUR_GEMINI_API_KEY" 3.8
-gemini(3.8) (YOUR_GEMINI_API_KEY)
+```text
+Do you have a paid Google Cloud / AI Studio subscription with billing enabled? [y/N]: 
 ```
 
-> [!IMPORTANT]
-> **Strict RAM-Only Key Security (Zero Disk Retention):**
-> 1. **User Model Selection:** You specify the exact version you want (e.g. `Gemini(3.8)` or `start 3.8`). AI Lens launches that specific model with your key.
-> 2. **Immediate Start:** Passing `(api_key)` or `<api_key>` loads the key directly into volatile process memory and starts immediately without interactive prompts.
-> 3. **Interactive Key Option:** Running `start 3.8` selects Gemini 3.8 Flash and securely prompts you for your API key in the terminal.
-> 4. **Zero Disk Storage:** The API key is **NEVER** saved to `config.json`, environment files, cache, or any disk trace.
-> 5. **Automatic Memory Wipe on Exit:** The moment you exit the app (pressing `[Esc]`, right-clicking, clicking `✕` on the floating dock, pressing `Ctrl+C`, or calling `stop`), the API key and active model are **immediately wiped from RAM** and garbage-collected (`gc.collect()`).
-> 6. Consequently, no keys or traces are retained between sessions.
+**Why this step is important:**
+Advanced preview models such as **`gemini-3.8-flash`**, **`gemini-3.1-pro`**, and **`gemini-3.5-flash`** require a Google Cloud account with billing enabled. Free-tier API keys lack quota for these preview models and return `403 Forbidden` or `429 Quota Exceeded`. To guarantee a seamless experience without errors, AI Lens customizes the model selection table based on your subscription:
+
+1. **If YES (`y` / paid subscription with billing enabled):**
+   - **`[1] gemini-2.5-flash`** — **Gemini 2.5 Flash** *(Recommended)*: Next-gen lightning-fast multimodal model with reasoning (thinking). High precision, instant response.
+   - **`[2] gemini-3.1-pro`** — **Gemini 3.1 Pro** *(Complex Reasoning)*: Advanced flagship model for intricate code, deep logic, mathematics, and complex analysis.
+   - **`[3] gemini-3.5-flash`** — **Gemini 3.5 Flash** *(High Intelligence & Speed)*: Next-gen multimodal model balancing high intelligence with responsive real-time generation.
+   - **`[4] gemini-3.8-flash`** — **Gemini 3.8 Flash** *(Agentic Reasoning Preview)*: Cutting-edge preview model engineered for advanced STEM reasoning, complex workflows, and autonomous agents.
+   - **`[5] gemini-3.5-flash-lite`** — **Gemini 3.5 Flash-Lite** *(Ultra-Lightweight)*: Lightest, most cost-efficient preview model designed for minimal latency and high query volume.
+   - **`[6] custom`** — **Custom Model ID**: Enter any Google Gemini model identifier manually.
+
+2. **If NO (`n` / default free tier):**
+   - **`[1] gemini-2.5-flash`** — **Gemini 2.5 Flash** *(Recommended)*: Standard free quota available. Lightning-fast multimodal model with reasoning support.
+   - **`[2] gemini-3.5-flash-lite`** — **Gemini 3.5 Flash-Lite** *(Lightweight)*: Standard free quota available. Ultra-lightweight model with lowest latency and generous rate limits.
+   - **`[3] custom`** — **Custom Model ID**: Enter any custom Google Gemini model identifier manually.
+
+---
+
+#### Understanding Gemini 3.8 Flash Speed & Thinking Tokens
+Users often ask: *"Why does Gemini 3.8 Flash sometimes take longer or appear to just be loading compared to 2.5 Flash? Shouldn't it be just as fast?"*
+
+1. **Reasoning & Thinking Token Generation:**
+   - **`gemini-3.8-flash`** is a specialized reasoning model with deep thinking capabilities. Unlike non-thinking models, it explores hypotheses and validates deductions by generating **internal thought tokens** before emitting the first word of the final answer.
+   - If thinking level is set to maximum (`high`), the model may generate several thousand reasoning tokens behind the scenes. During this time, no visible text is emitted yet, so the UI displays the loading indicator (`*Model is thinking...*`).
+2. **API Schema Optimization (`thinkingLevel` vs. `thinkingBudget`):**
+   - While Gemini 2.5 uses `thinkingBudget: <int>`, Gemini 3.x models (`3.8`, `3.5`, `3.1`) use `thinkingLevel: "low" | "medium" | "high"` and reject `thinkingBudget` with HTTP 400 Bad Request.
+   - **AI Lens Speed Optimization:** To deliver near-instant responses on `Low` and `Medium` thinking tiers, AI Lens automatically sets `thinkingLevel: "low"` for Gemini 3.x models. This restricts the internal reasoning loop and delivers verified answers in **~1.5 to 2.5 seconds**, matching Gemini 2.5 Flash speed! For deep encyclopedic reasoning, selecting `High` allows Gemini 3.8 Flash to unleash full multi-step thinking.
+3. **Automatic Fallback Protection:**
+   - If a requested model is unavailable or rate-limited on your key (`403` / `404` / `429`), AI Lens automatically falls back to `gemini-2.5-flash` or `gemini-3.5-flash-lite` so your workflow is never interrupted.
+
+---
+
+#### Strict RAM-Only API Key Security (Zero Disk Retention)
+After choosing your model, AI Lens prompts for your Gemini API key in the terminal:
+- **Instant Online Verification:** The key is tested live with Google's `/v1beta/models` endpoint.
+- **100% Volatile RAM Storage:** Your API key is stored **strictly in process memory (RAM)**.
+- **Zero Disk Persistence:** The key is **never** written to `config.json`, logs, cache, or disk.
+- **Instant Auto-Purge:** The moment you exit AI Lens (pressing `[Esc]`, clicking `✕`, or typing `stop`), the key is immediately erased from memory via `clear_volatile_gemini_api_key()` and Python garbage collection (`gc.collect()`).
 
 ---
 
@@ -286,19 +323,24 @@ Pass an optional language shortcut (`cs`, `en`, `de`, `sk`, etc.) and/or thinkin
 > - **CPU Switch (`CPU` / `@\`):** Simply append **`CPU`** (e.g. `.\ai-lens.bat cs High CPU`) or **`@\`** (in PowerShell with quotes `.\ai-lens.bat cs High "@\"`) to run on pure CPU (`num_gpu: 0`).
 > - When running on CPU, the lightweight CPU profile is automatically activated, keeping responses lightning-fast (1.5–15 s).
 
-- A floating pill **`🔍 AI Lens [CS · High · GPU] (Alt+F8)`** (or `[CS · High · CPU]`) appears in the top-right corner of your screen.
-  - **Minimize to a thin dash (`—`):** Click the `—` button (or double-click the pill) to collapse it into a discreet 8px horizontal line that never covers tabs or text.
-  - **Expand back:** Click the thin dash once (or double-click) to restore the full pill.
-  - **Right-click menu:** Right-click either the pill or dash to minimize, expand, trigger capture, or quit.
-- Press **`Alt + F8`** (or **`F8`**, or click the floating pill) and draw a circle with your left mouse button around any region.
-- Press **`Esc`** or right-click anywhere to return to standby.
+- A discrete **14px green status dot** appears in the top-right corner of your screen indicating that AI Lens is active in standby.
+  - **1-Click Clean Exit:** Hovering turns the dot red (`#EF4444`); clicking it immediately shuts down AI Lens and clears memory.
+- Press **`Alt + F8`** (or **`F8`** / **`Ctrl + Alt + Shift + G`**) and draw a tight selection around any region with your left mouse button.
+- Press **`Ctrl + Alt + Shift + Q`** to activate **Secret Quick-Answer Mode**: drag a rectangular text highlight and get a direct answer (max 25 words) streaming directly on the top bar.
+- Click anywhere outside the result card, press **`Esc`**, or right-click to return to standby and instantly wipe RAM.
 
-### 2. Immediate One-Shot Trigger
-Trigger the overlay immediately without waiting for a hotkey:
+### 2. Immediate One-Shot Trigger & Secret Mode
+Trigger the overlay immediately from the command line:
 ```powershell
+# Standard lasso capture:
 .\ai-lens.bat trigger
 .\ai-lens.bat trigger en High
 .\ai-lens.bat trigger cs Low
+
+# Secret Quick-Answer Mode (max 25 words, top bar):
+.\ai-lens.bat secret
+.\ai-lens.bat secret en Low
+.\ai-lens.bat trigger --secret
 ```
 
 ---
@@ -333,12 +375,11 @@ Run via `.\ai-lens.bat <command>` (or `ai-lens <command>` if installed globally/
 
 | Command (Windows) | Description |
 |---|---|
-| `.\ai-lens.bat start with Gemini(version) (api_key)` *(or `<api_key>`)* | Starts AI Lens immediately in **Google Gemini API** mode with chosen version (e.g. `Gemini(3.8)`) and RAM-only key. |
-| `start 3.8` *(or `.\ai-lens.bat start 3.8`)* | Chooses Gemini 3.8 Flash, prompts for your API key, and launches immediately. |
-| `.\ai-lens.bat start with Gemini` | Starts AI Lens in Gemini mode with default 3.8 Flash (prompts for API key). |
+| `.\ai-lens.bat start with Gemini` | Starts AI Lens in **Google Gemini API** mode (prompts for paid subscription tier, presents the model table, and securely verifies your volatile RAM key). |
 | `.\ai-lens.bat [lang] [Low\|Medium\|High]` | Starts AI Lens in local VLM standby mode on GPU (e.g., `.\ai-lens.bat en High`, `.\ai-lens.bat cs High`). |
 | `.\ai-lens.bat start --now` | Starts the daemon and immediately opens the fullscreen capture overlay. |
-| `.\ai-lens.bat trigger [lang] [level]` | Triggers the overlay on the running instance or runs a one-shot capture. |
+| `.\ai-lens.bat trigger [lang] [level]` | Triggers standard lasso overlay on the running instance or runs a one-shot capture. |
+| `.\ai-lens.bat secret` *(or `trigger -s`)* | Triggers **Secret Quick-Answer Mode** (text-selection highlight, max 25 words on top bar). |
 | `.\ai-lens.bat diag` *(or `diagnostika`)* | Prints a live terminal report of active model, live RAM/CPU usage, `Low`/`Medium`/`High` accuracy & factual context specs, Zero-Retention RAM check, and 7-point security audit. |
 | `.\ai-lens.bat levels` | Lists the `Low`, `Medium`, and `High` thinking tiers, answer accuracy, factual context depth, and token limits. |
 | `.\ai-lens.bat languages` | Lists all 15 supported language codes and highlights the active language. |

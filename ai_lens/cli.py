@@ -73,79 +73,13 @@ def _detect_device_from_shell_and_args() -> Optional[str]:
 def _normalize_cli_argv() -> None:
     r"""
     Normalizes CLI arguments before Typer parses commands:
-      - Expands and unwraps parentheses & angle bracket syntax like:
-          `.\ai-lens.bat start with Gemini(version) (api_key)`
-          `.\ai-lens.bat start with Gemini(version) <api_key>`
-          `.\ai-lens.bat start with Gemini(3.8) (api_key)`
-          `.\ai-lens.bat start with Gemini(3.8) <api_key>`
-          `start 3.8` (selects model 3.8, prompts for API key if missing)
-          `start 3.8 (api_key)` / `start 3.8 <api_key>`
-          `gemini(3.8) (api_key)` / `gemini "<api_key>" [model]`
+      - Detects and normalizes Gemini API launch command:
+          `.\ai-lens.bat start with Gemini` -> `start` with compute_device="gemini"
       - Strips `@\`, `"@\"`, `@\ CPU`, `&& CPU`, `CPU`, `--cpu` and sets `_CLI_DETECTED_DEVICE = "cpu"`
       - Allows launching AI Lens directly with language/level positional arguments (`ai-lens cs High`)
       - Normalizes diagnostic aliases (`diagnostika`, `diagnostics`, `security`, `specs`) to `diag`
     """
     global _CLI_DETECTED_DEVICE
-
-    # 0. Expand and unwrap parentheses / angle brackets / Gemini(...) syntax
-    unpacked_argv = [sys.argv[0]]
-    for a in sys.argv[1:]:
-        s = a.strip()
-        lower_s = s.lower()
-
-        m_gemini_paren = re.match(r"^gemini\s*\((.*?)\)$", lower_s)
-        m_gemini_angle = re.match(r"^gemini\s*<(.*?)>$", lower_s)
-        m_gemini = m_gemini_paren or m_gemini_angle
-        if m_gemini:
-            inner = m_gemini.group(1).strip()
-            unpacked_argv.append("gemini")
-            if inner:
-                unpacked_argv.append(inner)
-            continue
-
-        if lower_s.startswith("gemini(") and not s.endswith(")"):
-            inner = s[7:].strip()
-            unpacked_argv.append("gemini")
-            if inner:
-                unpacked_argv.append(inner)
-            continue
-
-        if lower_s.startswith("gemini<") and not s.endswith(">"):
-            inner = s[7:].strip()
-            unpacked_argv.append("gemini")
-            if inner:
-                unpacked_argv.append(inner)
-            continue
-
-        if s in ("(", ")", "<", ">"):
-            continue
-
-        clean_token = s
-        if (clean_token.startswith("(") and clean_token.endswith(")")) or (
-            clean_token.startswith("<") and clean_token.endswith(">")
-        ):
-            clean_token = clean_token[1:-1].strip()
-        elif clean_token.startswith("(") or clean_token.startswith("<"):
-            clean_token = clean_token[1:].strip()
-        elif clean_token.endswith(")") or clean_token.endswith(">"):
-            clean_token = clean_token[:-1].strip()
-
-        clean_token = clean_token.strip("()<>").strip()
-        if clean_token:
-            unpacked_argv.append(clean_token)
-    sys.argv = unpacked_argv
-
-    # Pre-scan for Gemini context flag/token or Gemini model version
-    is_gemini_context = any(
-        a.strip().lower().lstrip("-/\\").replace(" ", "").replace('"', "").replace("'", "").strip("()<>") in (
-            "gemini", "start-with-gemini", "startwithgemini", "withgemini", "&&gemini", "&gemini", "@gemini", "version"
-        )
-        or a.strip() in ("--gemini", "-g")
-        or is_recognized_gemini_model(a)
-        for a in sys.argv[1:]
-    )
-    if is_gemini_context:
-        _CLI_DETECTED_DEVICE = "gemini"
 
     # 1. Scan and extract any CPU/GPU/Gemini flags from sys.argv
     new_argv = [sys.argv[0]]
@@ -170,40 +104,21 @@ def _normalize_cli_argv() -> None:
             new_argv.append(arg)
             continue
 
-        # Handle Gemini model alias (e.g. `3.8`, `version`, `3.8flash`, `3.5`, `gemini-3.8-flash`)
-        if is_recognized_gemini_model(arg) and prev_arg not in ("--model", "-m"):
-            set_volatile_gemini_model(arg)
-            _CLI_DETECTED_DEVICE = "gemini"
-            continue
-
-        # Handle direct Gemini API key passed on CLI (e.g. `gemini "AIzaSy..."` or `(api_key)` or `<api_key>`)
-        if is_gemini_api_key(arg) or (
-            is_gemini_context
-            and not arg.startswith("-")
-            and not is_recognized_language_arg(arg)
-            and not is_recognized_thinking_level(arg)
-            and not is_recognized_gemini_model(arg)
-            and cleaned not in ("gemini", "with", "start", "trigger", "status", "stop", "diag", "levels", "languages", "config")
-            and not has_volatile_gemini_api_key()
-        ):
-            set_volatile_gemini_api_key(arg)
-            _CLI_DETECTED_DEVICE = "gemini"
-            continue
-
-        # Handle Gemini flags and multi-token "with Gemini"
-        if arg in ("--gemini", "-g") or cleaned in (
-            "gemini", "start-with-gemini", "startwithgemini", "withgemini",
-            "&&gemini", "&gemini", "@gemini", "@\\gemini", "@/gemini"
-        ):
-            _CLI_DETECTED_DEVICE = "gemini"
-            continue
-
+        # Detect `start with Gemini` / `with Gemini`
         if cleaned == "with" and i + 1 < len(sys.argv):
             next_arg = sys.argv[i + 1].strip().lower().replace('"', '').replace("'", "").strip("()<>")
             if next_arg in ("gemini", "gemini-api", "geminiapi") or next_arg.startswith("gemini"):
                 _CLI_DETECTED_DEVICE = "gemini"
                 skip_next = True
                 continue
+
+        # Detect Gemini flags
+        if arg in ("--gemini", "-g") or cleaned in (
+            "gemini", "start-with-gemini", "startwithgemini", "withgemini",
+            "&&gemini", "&gemini", "@gemini", "@\\gemini", "@/gemini"
+        ):
+            _CLI_DETECTED_DEVICE = "gemini"
+            continue
 
         # Chained or prefixed operators: `@\`, `@/`, `&&`, `&`, `@`
         if arg in ("@\\", "@/","@", '"@\\"', "'@\\'", "&&", "&") or cleaned in ("@\\", "@/"):
@@ -217,7 +132,6 @@ def _normalize_cli_argv() -> None:
                     _CLI_DETECTED_DEVICE = "gpu"
                     skip_next = True
                     continue
-            # `@\` or `"@\"` by itself indicates CPU mode
             _CLI_DETECTED_DEVICE = "cpu"
             continue
 
@@ -464,6 +378,12 @@ def trigger(
         "-d",
         help="Výpočetní jednotka: gpu nebo cpu.",
     ),
+    secret: bool = typer.Option(
+        False,
+        "--secret",
+        "-s",
+        help="Aktivuje Secret Mode (zkratka Ctrl+Alt+Shift+Q, přímá odpověď max 25 slov na horní liště).",
+    ),
 ) -> None:
     """Okamžitě vyfotí obrazovku do RAM a otevře fullscreen overlay."""
     chosen_lang, chosen_level, chosen_dev = _resolve_lang_and_level_and_device(
@@ -485,15 +405,55 @@ def trigger(
         cfg_lang = str(load_config().get("language", "cs"))
         typer.echo(f"[AI Lens] Výpočetní jednotka nastavena na: {get_compute_device_display(d, cfg_lang)}")
 
-    resp = send_daemon_command("TRIGGER")
-    if resp == "OK:TRIGGERED":
-        typer.echo("[AI Lens] Signál odeslán běžící instanci -> overlay aktivován.")
+    cmd = "SECRET" if secret else "TRIGGER"
+    resp = send_daemon_command(cmd)
+    if resp in ("OK:TRIGGERED", "OK:SECRET"):
+        mode_str = "Secret Mode " if secret else ""
+        typer.echo(f"[AI Lens] Signál odeslán běžící instanci -> {mode_str}overlay aktivován.")
     else:
         run_overlay_mvp(
             language=chosen_lang,
             thinking_level=chosen_level,
             compute_device=chosen_dev,
+            secret_mode=secret,
         )
+
+
+@app.command("secret")
+def secret_cmd(
+    arg1: Optional[str] = typer.Argument(
+        None,
+        help="Volitelná zkratka jazyka (cs, en, de...) nebo úroveň myšlení (Low, Medium, High).",
+    ),
+    arg2: Optional[str] = typer.Argument(
+        None,
+        help="Volitelná úroveň myšlení (Low, Medium, High) nebo jazyk.",
+    ),
+    arg3: Optional[str] = typer.Argument(
+        None,
+        help="Volitelná výpočetní jednotka (CPU, GPU).",
+    ),
+    lang: Optional[str] = typer.Option(
+        None,
+        "--lang",
+        "-l",
+        help="Nastaví jazyk odpovědí i UI.",
+    ),
+    level: Optional[str] = typer.Option(
+        None,
+        "--level",
+        "-q",
+        help="Nastaví hloubku myšlení: Low, Medium, nebo High.",
+    ),
+    device: Optional[str] = typer.Option(
+        None,
+        "--device",
+        "-d",
+        help="Výpočetní jednotka: gpu nebo cpu.",
+    ),
+) -> None:
+    """Spustí AI Lens v Secret Quick-Answer Mode (zkratka Ctrl+Alt+Shift+Q, přímá odpověď max 25 slov na horní liště)."""
+    trigger(arg1=arg1, arg2=arg2, arg3=arg3, lang=lang, level=level, device=device, secret=True)
 
 
 @app.command("status")
@@ -523,7 +483,7 @@ def status() -> None:
         typer.echo(
             f"[AI Lens] Proces momentálně neběží (jazyk: {lang_disp}, myšlení: {level_disp} [{tier_cfg['num_predict']} tokenů], výpočet: {dev_disp}).\n"
             "Spusť jej např. příkazem:\n"
-            "  .\\ai-lens.bat start with Gemini  (Google Gemini API — RAM klíč)\n"
+            "  .\\ai-lens.bat start with Gemini  (Google Gemini API — výběr modelu a RAM klíč)\n"
             "  .\\ai-lens.bat cs High            (GPU lokální model)\n"
             "  .\\ai-lens.bat cs High CPU        (CPU lokální model)"
         )

@@ -14,8 +14,8 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from PyQt6.QtCore import QObject, QPoint, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QGuiApplication, QMouseEvent
+from PyQt6.QtCore import QObject, QPoint, QRectF, Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import QColor, QGuiApplication, QMouseEvent, QPainter, QPen
 from PyQt6.QtWidgets import (
     QApplication,
     QFrame,
@@ -35,6 +35,7 @@ from ai_lens.overlay import (
 )
 from ai_lens.vision_engine import (
     DEFAULT_GEMINI_MODEL,
+    choose_gemini_model_interactive,
     clear_volatile_gemini_api_key,
     get_volatile_gemini_model,
     set_volatile_gemini_model,
@@ -47,6 +48,7 @@ from ai_lens.vision_engine import (
     normalize_compute_device,
     normalize_language_code,
     normalize_thinking_level,
+    prompt_for_gemini_api_key,
     set_volatile_gemini_api_key,
     warmup_local_model,
 )
@@ -62,6 +64,7 @@ HOTKEY_ID_F8 = 2
 HOTKEY_ID_CTRL_SHIFT_G = 3
 HOTKEY_ID_CTRL_ALT_SHIFT_G = 4
 HOTKEY_ID_CUSTOM = 5
+HOTKEY_ID_SECRET = 6
 HOTKEY_ID_STOP = 99
 
 MOD_ALT = 0x0001
@@ -78,72 +81,6 @@ VK_RMENU = 0xA5
 VK_F8 = 0x77
 
 FUNCTION_KEY_VKS = {f"f{i}": 0x70 + (i - 1) for i in range(1, 13)}
-
-
-def prompt_for_gemini_api_key(lang: Optional[str] = "cs") -> str:
-    """
-    Prompts the user in the command line to provide their Gemini API key.
-    The key is stored strictly in volatile short-term RAM for the current session
-    and is never written to disk or config.json.
-    """
-    _ensure_utf8_stdio()
-    code = normalize_language_code(lang)
-    is_cz_sk = code in ("cs", "sk")
-    active_m = get_volatile_gemini_model()
-    print("=" * 74, flush=True)
-    if is_cz_sk:
-        print(f" AI Lens — Spuštění přes Google Gemini API (model: {active_m})", flush=True)
-        print(" Ochrana klíče : API klíč je uložen POUZE v krátkodobé paměti (RAM).", flush=True)
-        print("                 Při každém spuštění se zadává znovu a při zavření", flush=True)
-        print("                 programu se automaticky vymaže.", flush=True)
-    else:
-        print(f" AI Lens — Starting with Google Gemini API (model: {active_m})", flush=True)
-        print(" Key Security  : Your API key is stored ONLY in short-term memory (RAM).", flush=True)
-        print("                 It must be entered every time and is cleared whenever", flush=True)
-        print("                 the program is closed.", flush=True)
-    print("=" * 74, flush=True)
-
-    prompt_label = (
-        "Zadej svůj Gemini API klíč (Enter pro potvrzení): "
-        if is_cz_sk
-        else "Enter your Gemini API key (Press Enter to confirm): "
-    )
-
-    for _ in range(3):
-        try:
-            raw_key = input(prompt_label)
-        except (EOFError, KeyboardInterrupt):
-            print("\n[AI Lens] Zadávání Gemini API klíče bylo zrušeno.", flush=True)
-            sys.exit(1)
-
-        cleaned_key = raw_key.strip().strip('"').strip("'").strip("()").strip("<>").strip()
-        if cleaned_key:
-            set_volatile_gemini_api_key(cleaned_key)
-            cleaned_key = ""
-            raw_key = ""
-            if is_cz_sk:
-                print(
-                    f"[AI Lens] Gemini API klíč načten do RAM pro model {active_m}. Po ukončení programu bude vymazán.",
-                    flush=True,
-                )
-            else:
-                print(
-                    f"[AI Lens] Gemini API key loaded into RAM for model {active_m}. It will be cleared when the program closes.",
-                    flush=True,
-                )
-            return "ok"
-
-        if is_cz_sk:
-            print("[AI Lens] API klíč nesmí být prázdný. Zkus to prosím znovu.", flush=True)
-        else:
-            print("[AI Lens] API key cannot be empty. Please try again.", flush=True)
-
-    if is_cz_sk:
-        print("[AI Lens] Nebyl zadán platný Gemini API klíč. Ukončuji.", flush=True)
-    else:
-        print("[AI Lens] No valid Gemini API key provided. Exiting.", flush=True)
-    sys.exit(1)
-
 
 
 def _log_debug(msg: str) -> None:
@@ -213,74 +150,13 @@ def _parse_win32_hotkey(hotkey_str: str) -> tuple[int, int, list[int]]:
 
 class FloatingTriggerBar(QFrame):
     """
-    Sleek, draggable floating mini-dock on the screen edge ('AI Lens [Alt+F8]').
-    Can be minimized into a razor-thin unobtrusive 'čárka' (dash) that covers nothing,
-    and expanded back on a single click or double-click.
+    Ultra-mini green dot indicator in the top-right corner of the screen.
+    Shows that AI Lens is running in the background.
+    Clicking this mini dot immediately turns off / shuts down the entire AI Lens process.
     """
 
     triggerClicked = pyqtSignal()
     quitClicked = pyqtSignal()
-
-    STYLE_EXPANDED = """
-        QFrame#FloatingTriggerBar {
-            background-color: rgba(15, 23, 42, 235);
-            border: 1.5px solid #38BDF8;
-            border-radius: 18px;
-        }
-        QPushButton#ActionBtn {
-            background-color: transparent;
-            color: #F8FAFC;
-            border: none;
-            font-family: "Segoe UI", system-ui, sans-serif;
-            font-size: 12px;
-            font-weight: 600;
-            padding: 6px 12px;
-        }
-        QPushButton#ActionBtn:hover {
-            color: #38BDF8;
-        }
-        QPushButton#MinBtn {
-            background-color: transparent;
-            color: #94A3B8;
-            border: none;
-            font-size: 14px;
-            font-weight: bold;
-            padding: 4px 6px;
-        }
-        QPushButton#MinBtn:hover {
-            color: #38BDF8;
-        }
-        QPushButton#QuitBtn {
-            background-color: transparent;
-            color: #94A3B8;
-            border: none;
-            font-size: 12px;
-            font-weight: bold;
-            padding: 4px 8px;
-        }
-        QPushButton#QuitBtn:hover {
-            color: #F87171;
-        }
-    """
-
-    STYLE_MINIMIZED = """
-        QFrame#FloatingTriggerBar {
-            background-color: rgba(15, 23, 42, 220);
-            border: 1px solid rgba(56, 189, 248, 180);
-            border-radius: 5px;
-        }
-        QFrame#FloatingTriggerBar:hover {
-            background-color: rgba(30, 41, 59, 245);
-            border: 1.5px solid #38BDF8;
-        }
-        QFrame#DashLine {
-            background-color: #38BDF8;
-            border-radius: 1.5px;
-        }
-        QFrame#FloatingTriggerBar:hover QFrame#DashLine {
-            background-color: #7DD3FC;
-        }
-    """
 
     def __init__(
         self,
@@ -290,196 +166,93 @@ class FloatingTriggerBar(QFrame):
     ) -> None:
         super().__init__(None)
         self.setObjectName("FloatingTriggerBar")
-        self.setWindowTitle("AI Lens Mini-Dock")
+        self.setWindowTitle("AI Lens Dot")
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
             | Qt.WindowType.WindowStaysOnTopHint
+            | Qt.WindowType.Tool
         )
         self.setAttribute(Qt.WidgetAttribute.WA_QuitOnClose, False)
-        self._drag_offset: Optional[QPoint] = None
-        self._drag_start_pos: Optional[QPoint] = None
-        self._has_dragged = False
-        self._is_minimized = False
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setFixedSize(18, 18)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._hovered = False
 
         self.lang_code = normalize_language_code(language)
-        self.level_norm = normalize_thinking_level(thinking_level)
-        self.compute_device = normalize_compute_device(compute_device)
-        self.tier_cfg = get_thinking_level_config(self.level_norm, self.compute_device)
-        self.ui = get_ui_strings(self.lang_code)
-
-        # Root layout
-        root_layout = QHBoxLayout(self)
-        root_layout.setContentsMargins(0, 0, 0, 0)
-        root_layout.setSpacing(0)
-
-        # 1. Full Container (Expanded Mode)
-        self._full_container = QWidget(self)
-        full_layout = QHBoxLayout(self._full_container)
-        full_layout.setContentsMargins(6, 2, 6, 2)
-        full_layout.setSpacing(2)
-
-        self.trigger_btn = QPushButton(
-            f"🔍 AI Lens [{self.lang_code.upper()} · {self.tier_cfg['label']} · {'GEMINI API' if self.compute_device == 'gemini' else self.compute_device.upper()}] (Alt+F8)",
-            self._full_container,
+        self.setToolTip(
+            "AI Lens [Aktivní] — Kliknutím vypnout celou AI"
+            if self.lang_code in ("cs", "sk")
+            else "AI Lens [Active] — Click to shut down AI"
         )
-        self.trigger_btn.setObjectName("ActionBtn")
-        self.trigger_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.trigger_btn.setToolTip(self.ui["dock_tooltip"])
-        self.trigger_btn.clicked.connect(self.triggerClicked.emit)
 
-        self.min_btn = QPushButton("—", self._full_container)
-        self.min_btn.setObjectName("MinBtn")
-        self.min_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.min_btn.setToolTip(
-            self.ui.get("dock_minimize_tooltip", "Zmenšit do tenké čárky (aby nic nezakrýval)")
-        )
-        self.min_btn.clicked.connect(self.collapse)
-
-        self.quit_btn = QPushButton("✕", self._full_container)
-        self.quit_btn.setObjectName("QuitBtn")
-        self.quit_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.quit_btn.setToolTip(self.ui["dock_quit_tooltip"])
-        self.quit_btn.clicked.connect(self.quitClicked.emit)
-
-        full_layout.addWidget(self.trigger_btn)
-        full_layout.addWidget(self.min_btn)
-        full_layout.addWidget(self.quit_btn)
-
-        # 2. Dash Container (Minimized 'Čárka' Mode)
-        self._dash_container = QWidget(self)
-        dash_layout = QHBoxLayout(self._dash_container)
-        dash_layout.setContentsMargins(8, 2, 8, 2)
-        dash_layout.setSpacing(0)
-
-        self._dash_line = QFrame(self._dash_container)
-        self._dash_line.setObjectName("DashLine")
-        self._dash_line.setFixedHeight(3)
-        self._dash_line.setFixedWidth(36)
-        dash_layout.addWidget(self._dash_line, alignment=Qt.AlignmentFlag.AlignCenter)
-        self._dash_container.hide()
-
-        root_layout.addWidget(self._full_container)
-        root_layout.addWidget(self._dash_container)
-
-        self.setStyleSheet(self.STYLE_EXPANDED)
-        self.adjustSize()
-
-        # Position at top-right of primary screen
+        # Position right in the top-right corner of primary screen:
         screen = QGuiApplication.primaryScreen()
         if screen is not None:
-            geom = screen.availableGeometry()
-            x = geom.right() - self.width() - 24
-            y = geom.top() + 18
-            self.move(max(10, x), max(10, y))
+            sgeom = screen.geometry()
+            avail = screen.availableGeometry()
+            dot_w = self.width()
+            max_x = min(sgeom.x() + sgeom.width(), avail.x() + avail.width())
+            min_y = max(sgeom.y(), avail.y())
+            x = max_x - dot_w - 6
+            y = min_y + 6
+            self.move(int(x), int(y))
 
-    def collapse(self) -> None:
-        """Minimizes the floating pill into a sleek, unobtrusive thin dash ('čárka')."""
-        if self._is_minimized:
+        self._topmost_timer = QTimer(self)
+        self._topmost_timer.setInterval(2000)
+        self._topmost_timer.timeout.connect(self._force_win32_topmost)
+        self._topmost_timer.start()
+
+    def _force_win32_topmost(self) -> None:
+        """Forces the green dot to stay in foreground over full-screen and maximized windows."""
+        if sys.platform != "win32":
             return
-        top_right = self.geometry().topRight()
-        self._is_minimized = True
-        self._full_container.hide()
-        self._dash_container.show()
-        self.setStyleSheet(self.STYLE_MINIMIZED)
-        self.setFixedSize(54, 9)
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setToolTip(self.ui.get("dock_expand_tooltip", "AI Lens (kliknutím rozbalit / Alt+F8)"))
+        try:
+            hwnd = int(self.winId())
+            user32 = ctypes.windll.user32
+            HWND_TOPMOST = -1
+            SWP_NOMOVE = 0x0002
+            SWP_NOSIZE = 0x0001
+            SWP_NOACTIVATE = 0x0010
+            SWP_SHOWWINDOW = 0x0040
+            user32.SetWindowPos(
+                hwnd,
+                HWND_TOPMOST,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW,
+            )
+        except Exception:
+            pass
 
-        # Keep anchored to the top-right position
-        self.move(max(10, top_right.x() - 54), top_right.y())
+    def showEvent(self, event) -> None:  # noqa: N802
+        super().showEvent(event)
+        self._force_win32_topmost()
 
-    def expand(self) -> None:
-        """Expands the thin dash back into the full mini-dock."""
-        if not self._is_minimized:
-            return
-        top_right = self.geometry().topRight()
-        self._is_minimized = False
-        self._dash_container.hide()
-        self._full_container.show()
-        self.setStyleSheet(self.STYLE_EXPANDED)
-        self.setMinimumSize(0, 0)
-        self.setMaximumSize(16777215, 16777215)
-        self.adjustSize()
-        self.setCursor(Qt.CursorShape.ArrowCursor)
-        self.setToolTip("")
+    def enterEvent(self, event) -> None:  # noqa: N802
+        self._hovered = True
+        self.update()
+        super().enterEvent(event)
 
-        # Anchor to top-right without overflowing left edge
-        target_x = max(10, top_right.x() - self.width())
-        self.move(target_x, top_right.y())
+    def leaveEvent(self, event) -> None:  # noqa: N802
+        self._hovered = False
+        self.update()
+        super().leaveEvent(event)
 
-    def toggle_minimized(self) -> None:
-        """Toggles between full mini-dock and thin dash ('čárka')."""
-        if self._is_minimized:
-            self.expand()
-        else:
-            self.collapse()
+    def paintEvent(self, event) -> None:  # noqa: N802
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        # Ultra-mini 9x9 px round dot centered inside the 18x18 clickable area
+        dot_rect = QRectF(4.5, 4.5, 9.0, 9.0)
+        dot_color = QColor("#EF4444") if self._hovered else QColor("#22C55E")
+        painter.setBrush(dot_color)
+        painter.setPen(QPen(QColor(255, 255, 255, 220), 1.0))
+        painter.drawEllipse(dot_rect)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:  # noqa: N802
-        if event.button() == Qt.MouseButton.LeftButton:
-            self._drag_start_pos = event.globalPosition().toPoint()
-            self._drag_offset = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
-            self._has_dragged = False
-        super().mousePressEvent(event)
-
-    def mouseMoveEvent(self, event: QMouseEvent) -> None:  # noqa: N802
-        if self._drag_offset is not None and (event.buttons() & Qt.MouseButton.LeftButton):
-            if self._drag_start_pos is not None:
-                delta = (event.globalPosition().toPoint() - self._drag_start_pos).manhattanLength()
-                if delta > 4:
-                    self._has_dragged = True
-            self.move(event.globalPosition().toPoint() - self._drag_offset)
-        super().mouseMoveEvent(event)
-
-    def mouseReleaseEvent(self, event: QMouseEvent) -> None:  # noqa: N802
-        if event.button() == Qt.MouseButton.LeftButton:
-            # If user clicked on the minimized dash without dragging -> expand!
-            if self._is_minimized and not self._has_dragged:
-                self.expand()
-            self._drag_offset = None
-            self._drag_start_pos = None
-            self._has_dragged = False
-        super().mouseReleaseEvent(event)
-
-    def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:  # noqa: N802
-        if event.button() == Qt.MouseButton.LeftButton:
-            self.toggle_minimized()
-        super().mouseDoubleClickEvent(event)
-
-    def contextMenuEvent(self, event) -> None:  # noqa: N802
-        menu = QMenu(self)
-        menu.setStyleSheet(
-            """
-            QMenu {
-                background-color: #0F172A;
-                color: #F8FAFC;
-                border: 1px solid #38BDF8;
-                border-radius: 8px;
-                padding: 4px;
-                font-family: "Segoe UI", system-ui, sans-serif;
-                font-size: 12px;
-            }
-            QMenu::item {
-                padding: 6px 14px;
-                border-radius: 4px;
-            }
-            QMenu::item:selected {
-                background-color: #1E293B;
-                color: #38BDF8;
-            }
-            """
-        )
-        toggle_label = "🔍 Rozbalit panel" if self._is_minimized else "— Zmenšit do čárky"
-        toggle_action = menu.addAction(toggle_label)
-        toggle_action.triggered.connect(self.toggle_minimized)
-
-        trigger_action = menu.addAction("📷 Spustit výběr (Alt+F8)")
-        trigger_action.triggered.connect(self.triggerClicked.emit)
-
-        menu.addSeparator()
-        quit_action = menu.addAction("✕ Ukončit AI Lens")
-        quit_action.triggered.connect(self.quitClicked.emit)
-
-        menu.exec(event.globalPos())
+        if event.button() in (Qt.MouseButton.LeftButton, Qt.MouseButton.RightButton):
+            self.quitClicked.emit()
 
 
 def _is_pid_alive(pid: int) -> bool:
@@ -559,6 +332,9 @@ def send_daemon_command(command: str) -> Optional[str]:
         if cmd == "TRIGGER" and tid:
             ok = bool(user32.PostThreadMessageW(tid, WM_HOTKEY, HOTKEY_ID_ALT_F8, 0))
             return "OK:TRIGGERED" if ok else None
+        if cmd == "SECRET" and tid:
+            ok = bool(user32.PostThreadMessageW(tid, WM_HOTKEY, HOTKEY_ID_SECRET, 0))
+            return "OK:SECRET" if ok else None
         if cmd == "STOP" and tid:
             ok = bool(user32.PostThreadMessageW(tid, WM_HOTKEY, HOTKEY_ID_STOP, 0))
             return "OK:STOPPING" if ok else None
@@ -595,14 +371,10 @@ def run_daemon(
 
     norm_dev = normalize_compute_device(compute_device) if compute_device else None
 
-    # Handle Gemini API mode: prompt for API key into volatile RAM if not already stored
+    # Handle Gemini API mode: always show model selection table first, then prompt for API key
     if norm_dev == "gemini":
-        if not has_volatile_gemini_api_key():
-            env_key = os.environ.get("GEMINI_API_KEY", "").strip().strip('"').strip("'")
-            if env_key:
-                set_volatile_gemini_api_key(env_key)
-            else:
-                prompt_for_gemini_api_key(language or "cs")
+        chosen_m = choose_gemini_model_interactive(language or "cs")
+        prompt_for_gemini_api_key(language or "cs", chosen_model=chosen_m)
 
     if language:
         set_language_in_config(language)
@@ -619,7 +391,7 @@ def run_daemon(
     if existing is not None:
         if norm_dev == "gemini":
             _log_debug(
-                f"[AI Lens] Zastavuji předchozí instanci (PID {existing['pid']}) pro spuštění v režimu Google Gemini API…"
+                f"[AI Lens] Stopping previous instance (PID {existing['pid']}) to launch with Google Gemini API…"
             )
             send_daemon_command("STOP")
             time.sleep(0.6)
@@ -633,7 +405,7 @@ def run_daemon(
                 str(cfg_now.get("thinking_level", "medium")), lang_code_now, dev_now
             )
             _log_debug(
-                f"[AI Lens] Proces již běží (PID {existing['pid']}, jazyk: {lang_disp}, hloubka myšlení: {level_disp}, výpočet: {dev_disp}). Aktivuji překryvné okno…"
+                f"[AI Lens] Process already running (PID {existing['pid']}, language: {lang_disp}, thinking depth: {level_disp}, mode: {dev_disp}). Activating overlay…"
             )
             send_daemon_command("TRIGGER")
             return
@@ -678,23 +450,25 @@ def run_daemon(
             return
         last_trigger_time = now
 
-        # Hide floating mini-bar BEFORE capturing screen so it isn't in the screenshot
+        # Hide floating green dot BEFORE capturing screen so it isn't in the screenshot
         if floating_bar.isVisible():
             floating_bar.hide()
             QApplication.processEvents()
 
-        capture_ms = overlay.activate_overlay()
+        is_secret = "secret" in source.lower()
+        capture_ms = overlay.activate_overlay(secret_mode=is_secret)
         backend = overlay.capture_result.capture_backend if overlay.capture_result else "unknown"
+        mode_label = "SECRET MODE" if is_secret else "Standard"
         _log_debug(
-            f"[AI Lens] Aktivace ({source}) -> obrazovka ({backend}) zmrazena za {capture_ms:.1f} ms."
+            f"[AI Lens] Activation ({source} · {mode_label}) -> screen ({backend}) frozen in {capture_ms:.1f} ms."
         )
 
     def _on_stop() -> None:
-        _log_debug("[AI Lens] Ukončuji AI Lens…")
+        _log_debug("[AI Lens] Terminating AI Lens…")
         _clear_daemon_state()
         if clear_volatile_gemini_api_key():
             print(
-                "[AI Lens] Gemini API klíč byl bezpečně vymazán z krátkodobé paměti (RAM).",
+                "[AI Lens] Gemini API key was securely wiped from short-term memory (RAM).",
                 flush=True,
             )
         if sys.platform == "win32" and hotkey_thread_tid:
@@ -738,6 +512,12 @@ def run_daemon(
                 MOD_CONTROL | MOD_ALT | MOD_SHIFT | MOD_NOREPEAT,
                 ord("G"),
             )
+            r_secret = u32.RegisterHotKey(
+                None,
+                HOTKEY_ID_SECRET,
+                MOD_CONTROL | MOD_ALT | MOD_SHIFT | MOD_NOREPEAT,
+                ord("Q"),
+            )
             if (mods, vk) not in (
                 (MOD_ALT | MOD_NOREPEAT, VK_F8),
                 (MOD_NOREPEAT, VK_F8),
@@ -747,8 +527,9 @@ def run_daemon(
                 u32.RegisterHotKey(None, HOTKEY_ID_CUSTOM, mods, vk)
 
             _log_debug(
-                f"[AI Lens] Win32 RegisterHotKey stav: Alt+F8={bool(r_alt_f8)}, "
-                f"F8={bool(r_f8)}, Ctrl+Shift+G={bool(r_csg)}, Ctrl+Alt+Shift+G={bool(r_casg)}"
+                f"[AI Lens] Win32 RegisterHotKey status: Alt+F8={bool(r_alt_f8)}, "
+                f"F8={bool(r_f8)}, Ctrl+Shift+G={bool(r_csg)}, Ctrl+Alt+Shift+G={bool(r_casg)}, "
+                f"Ctrl+Alt+Shift+Q (Secret)={bool(r_secret)}"
             )
 
             _write_daemon_state(os.getpid(), hotkey_thread_tid, dev_code)
@@ -760,13 +541,17 @@ def run_daemon(
                     if wp == HOTKEY_ID_STOP:
                         bridge.stopRequested.emit()
                         break
-                    bridge.triggerRequested.emit(f"WM_HOTKEY(id={wp})")
+                    if wp == HOTKEY_ID_SECRET:
+                        bridge.triggerRequested.emit("secret:WM_HOTKEY(Ctrl+Alt+Shift+Q)")
+                    else:
+                        bridge.triggerRequested.emit(f"WM_HOTKEY(id={wp})")
 
             for hid in (
                 HOTKEY_ID_ALT_F8,
                 HOTKEY_ID_F8,
                 HOTKEY_ID_CTRL_SHIFT_G,
                 HOTKEY_ID_CTRL_ALT_SHIFT_G,
+                HOTKEY_ID_SECRET,
                 HOTKEY_ID_CUSTOM,
             ):
                 u32.UnregisterHotKey(None, hid)
@@ -792,17 +577,22 @@ def run_daemon(
             shift_down = _is_down(VK_SHIFT)
             f8_down = _is_down(VK_F8)
             g_down = _is_down(ord("G"))
+            q_down = _is_down(ord("Q"))
 
             alt_f8 = alt_down and f8_down
             just_f8 = f8_down
             ctrl_shift_g = ctrl_down and shift_down and g_down
+            ctrl_alt_shift_q = ctrl_down and alt_down and shift_down and q_down
             custom_combo = all(_is_down(k) for k in vk_list)
 
-            triggered = alt_f8 or just_f8 or ctrl_shift_g or custom_combo
+            triggered = alt_f8 or just_f8 or ctrl_shift_g or ctrl_alt_shift_q or custom_combo
             if triggered and not combo_was_down:
                 combo_was_down = True
-                label = "Alt+F8" if alt_f8 else ("F8" if just_f8 else "Ctrl+Shift+G")
-                bridge.triggerRequested.emit(f"GetAsyncKeyState({label})")
+                if ctrl_alt_shift_q:
+                    bridge.triggerRequested.emit("secret:GetAsyncKeyState(Ctrl+Alt+Shift+Q)")
+                else:
+                    label = "Alt+F8" if alt_f8 else ("F8" if just_f8 else "Ctrl+Shift+G")
+                    bridge.triggerRequested.emit(f"GetAsyncKeyState({label})")
             elif not triggered:
                 combo_was_down = False
 
@@ -851,36 +641,38 @@ def run_daemon(
             daemon=True,
         ).start()
 
-    level_disp = get_thinking_level_display(level_code, lang_code, dev_code)
-    dev_disp = get_compute_device_display(dev_code, lang_code)
+    level_disp = get_thinking_level_display(level_code, "en", dev_code)
+    dev_disp = get_compute_device_display(dev_code, "en")
     print("=" * 74, flush=True)
     if dev_code == "gemini":
-        print(" AI Lens BĚŽÍ V POHOTOVOSTI (Google Gemini API — RAM-only klíč)", flush=True)
-        print(f" Gemini AI model      : {active_model}", flush=True)
-        print(f" Jazyk (UI + AI)      : {get_language_display(lang_code)}", flush=True)
+        print(" AI Lens RUNNING IN STANDBY (Google Gemini API — RAM-only key)", flush=True)
+        print(f" Gemini AI Model      : {active_model}", flush=True)
+        print(f" Language (UI + AI)   : {get_language_display(lang_code)}", flush=True)
         print(
-            f" Hloubka myšlení      : {level_disp} (max {tier_cfg['num_predict']} tokenů)",
+            f" Thinking Depth       : {level_disp} (max {tier_cfg['num_predict']} tokens)",
             flush=True,
         )
-        print(f" Výpočet / Poskytovatel: {dev_disp}", flush=True)
-        print(" Zabezpečení klíče    : 100% RAM-only (klíč se neukládá na disk a po ukončení se smaže)", flush=True)
-        print(" Zkratky              : [Alt + F8]  |  [F8]  |  [Ctrl + Alt + Shift + G]", flush=True)
-        print(" Plovoucí tlačítko    : Nahoře vpravo na obrazovce 'AI Lens [GEMINI API] (Alt+F8)'", flush=True)
-        print(" Zavření overlaye     : Klávesa [Esc] nebo pravé tlačítko myši", flush=True)
-        print(" Ochrana soukromí     : 100% RAM-only (okamžité vymazání výřezu i chatu po zavření)", flush=True)
+        print(f" Compute / Provider   : {dev_disp}", flush=True)
+        print(" Key Security         : 100% RAM-only (key is not stored on disk, cleared on exit)", flush=True)
+        print(" Shortcuts            : [Alt + F8]  |  [F8]  |  [Ctrl + Alt + Shift + G]", flush=True)
+        print(" Secret Mode (Fast)   : [Ctrl + Alt + Shift + Q] (text drag, max 25 words)", flush=True)
+        print(" Green Status Dot     : Mini dot at top-right corner (click to exit AI Lens immediately)", flush=True)
+        print(" Close Overlay        : [Esc] key, click outside card, or right mouse button", flush=True)
+        print(" Privacy Protection   : 100% RAM-only (selection and chat cleared from RAM upon closing)", flush=True)
     else:
-        print(" AI Lens BĚŽÍ V POHOTOVOSTI (Plovoucí lišta + Trojitá detekce zkratky)", flush=True)
-        print(f" Lokální AI model     : {model_name}", flush=True)
-        print(f" Jazyk (UI + AI)      : {get_language_display(lang_code)}", flush=True)
+        print(" AI Lens RUNNING IN STANDBY (Green Dot + Triple Shortcut Detection)", flush=True)
+        print(f" Local AI Model       : {model_name}", flush=True)
+        print(f" Language (UI + AI)   : {get_language_display(lang_code)}", flush=True)
         print(
-            f" Hloubka myšlení      : {level_disp} (max {tier_cfg['num_predict']} tokenů, kontext {tier_cfg['num_ctx']})",
+            f" Thinking Depth       : {level_disp} (max {tier_cfg['num_predict']} tokens, context {tier_cfg['num_ctx']})",
             flush=True,
         )
-        print(f" Výpočet / Akcelerace : {dev_disp}", flush=True)
-        print(" Zkratky              : [Alt + F8]  |  [F8]  |  [Ctrl + Alt + Shift + G]", flush=True)
-        print(" Plovoucí tlačítko    : Nahoře vpravo na obrazovce 'AI Lens (Alt+F8)'", flush=True)
-        print(" Zavření overlaye     : Klávesa [Esc] nebo pravé tlačítko myši", flush=True)
-        print(" Ochrana soukromí     : 100% RAM-only (okamžité vymazání výřezu i chatu po zavření)", flush=True)
+        print(f" Compute / Device     : {dev_disp}", flush=True)
+        print(" Shortcuts            : [Alt + F8]  |  [F8]  |  [Ctrl + Alt + Shift + G]", flush=True)
+        print(" Secret Mode (Fast)   : [Ctrl + Alt + Shift + Q] (text drag, max 25 words)", flush=True)
+        print(" Green Status Dot     : Mini dot at top-right corner (click to exit AI Lens immediately)", flush=True)
+        print(" Close Overlay        : [Esc] key, click outside card, or right mouse button", flush=True)
+        print(" Privacy Protection   : 100% RAM-only (selection and chat cleared from RAM upon closing)", flush=True)
     print("=" * 74, flush=True)
 
     if open_immediately:
@@ -892,7 +684,7 @@ def run_daemon(
         _clear_daemon_state()
         if clear_volatile_gemini_api_key():
             print(
-                "[AI Lens] Gemini API klíč byl bezpečně vymazán z krátkodobé paměti (RAM).",
+                "[AI Lens] Gemini API key was securely wiped from short-term memory (RAM).",
                 flush=True,
             )
         if pynput_listener is not None:

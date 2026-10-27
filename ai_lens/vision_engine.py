@@ -19,7 +19,7 @@ import httpx
 from PIL import Image
 from PyQt6.QtCore import QThread, pyqtSignal
 
-DEFAULT_GEMINI_MODEL = "gemini-3.8-flash"
+DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
 GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 
 # Short-term memory (RAM-only) storage for Gemini API key and active model.
@@ -27,7 +27,116 @@ GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 _VOLATILE_GEMINI_API_KEY: Optional[str] = None
 _VOLATILE_GEMINI_MODEL: Optional[str] = None
 
+PAID_GEMINI_MODELS: list[dict[str, str]] = [
+    {
+        "id": "1",
+        "model": "gemini-2.5-flash",
+        "name": "Gemini 2.5 Flash",
+        "tag": "Recommended",
+        "desc_en": "Next-gen lightning-fast multimodal model with reasoning (thinking). High precision, instant response.",
+        "desc_cs": "Bleskový multimodální model nové generace s podporou uvažování (thinking). Vysoká přesnost, okamžitý start.",
+        "capabilities": "Multimodal · Thinking · Ultra-Fast",
+    },
+    {
+        "id": "2",
+        "model": "gemini-3.1-pro",
+        "name": "Gemini 3.1 Pro",
+        "tag": "Complex Reasoning",
+        "desc_en": "Advanced flagship model for complex logical reasoning, intricate code, mathematics, and deep analysis.",
+        "desc_cs": "Pokročilý model pro komplexní logické uvažování, kód, matematiku a hloubkový rozbor detailů.",
+        "capabilities": "Multimodal · Deep Logic · Coding & STEM",
+    },
+    {
+        "id": "3",
+        "model": "gemini-3.5-flash",
+        "name": "Gemini 3.5 Flash",
+        "tag": "High Intelligence & Speed",
+        "desc_en": "Next-generation multimodal model balancing high intelligence with responsive real-time generation.",
+        "desc_cs": "Nová generace multimodálního modelu kombinující vysokou inteligenci s rychlou odezvou.",
+        "capabilities": "Multimodal · Fast Reasoning · Next-Gen",
+    },
+    {
+        "id": "4",
+        "model": "gemini-3.8-flash",
+        "name": "Gemini 3.8 Flash",
+        "tag": "Agentic Reasoning Preview",
+        "desc_en": "Cutting-edge preview model engineered for advanced STEM reasoning, complex workflows, and autonomous agents.",
+        "desc_cs": "Špičkový náhledový model pro pokročilé uvažování ve STEM, komplexní úlohy a autonomní agenty.",
+        "capabilities": "Multimodal · Agentic Thinking · Flagship Preview",
+    },
+    {
+        "id": "5",
+        "model": "gemini-3.5-flash-lite",
+        "name": "Gemini 3.5 Flash-Lite",
+        "tag": "Ultra-Lightweight",
+        "desc_en": "Lightest, most cost-efficient preview model designed for minimal latency and high query volume.",
+        "desc_cs": "Nejlehčí a nejúspornější model navržený pro minimální latenci a maximální propustnost.",
+        "capabilities": "Multimodal · Ultra-Low Latency · Lightweight",
+    },
+    {
+        "id": "6",
+        "model": "custom",
+        "name": "Custom Model ID",
+        "tag": "User Choice",
+        "desc_en": "Enter any Google Gemini model identifier manually (e.g. gemini-2.5-pro, gemini-2.0-flash).",
+        "desc_cs": "Zadat libovolný název Google Gemini modelu ručně (např. gemini-2.5-pro).",
+        "capabilities": "Custom Model ID",
+    },
+]
+
+FREE_GEMINI_MODELS: list[dict[str, str]] = [
+    {
+        "id": "1",
+        "model": "gemini-2.5-flash",
+        "name": "Gemini 2.5 Flash",
+        "tag": "Recommended (Free Quota)",
+        "desc_en": "Fast multimodal model with reasoning support available under standard Google AI Studio free quota.",
+        "desc_cs": "Rychlý multimodální model s podporou uvažování dostupný i ve standardní bezplatné kvótě.",
+        "capabilities": "Multimodal · Thinking · Free Quota",
+    },
+    {
+        "id": "2",
+        "model": "gemini-3.5-flash-lite",
+        "name": "Gemini 3.5 Flash-Lite",
+        "tag": "Lightweight (Free Quota)",
+        "desc_en": "Ultra-lightweight multimodal model with high rate limits and low latency on free quota tiers.",
+        "desc_cs": "Ultralehký multimodální model s vysokými limity a nízkou latencí ve volné kvótě.",
+        "capabilities": "Multimodal · Ultra-Fast · Free Quota",
+    },
+    {
+        "id": "3",
+        "model": "custom",
+        "name": "Custom Model ID",
+        "tag": "User Choice",
+        "desc_en": "Enter any Google Gemini model identifier manually.",
+        "desc_cs": "Zadat libovolný název Google Gemini modelu ručně.",
+        "capabilities": "Custom Model ID",
+    },
+]
+
+AVAILABLE_GEMINI_MODELS: list[dict[str, str]] = PAID_GEMINI_MODELS
+
 GEMINI_MODEL_ALIASES: dict[str, str] = {
+    "1": "gemini-2.5-flash",
+    "2.5": "gemini-2.5-flash",
+    "2.5flash": "gemini-2.5-flash",
+    "2.5-flash": "gemini-2.5-flash",
+    "gemini-2.5": "gemini-2.5-flash",
+    "gemini-2.5-flash": "gemini-2.5-flash",
+    "flash": "gemini-2.5-flash",
+    "2.5pro": "gemini-2.5-pro",
+    "2.5-pro": "gemini-2.5-pro",
+    "gemini-2.5-pro": "gemini-2.5-pro",
+    "3.1": "gemini-3.1-pro",
+    "3.1pro": "gemini-3.1-pro",
+    "3.1-pro": "gemini-3.1-pro",
+    "gemini-3.1": "gemini-3.1-pro",
+    "gemini-3.1-pro": "gemini-3.1-pro",
+    "3.5": "gemini-3.5-flash",
+    "3.5flash": "gemini-3.5-flash",
+    "3.5-flash": "gemini-3.5-flash",
+    "gemini-3.5": "gemini-3.5-flash",
+    "gemini-3.5-flash": "gemini-3.5-flash",
     "3.8": "gemini-3.8-flash",
     "3.8flash": "gemini-3.8-flash",
     "3.8-flash": "gemini-3.8-flash",
@@ -36,19 +145,12 @@ GEMINI_MODEL_ALIASES: dict[str, str] = {
     "3.8pro": "gemini-3.8-pro",
     "3.8-pro": "gemini-3.8-pro",
     "gemini-3.8-pro": "gemini-3.8-pro",
-    "version": "gemini-3.8-flash",
-    "(version)": "gemini-3.8-flash",
-    "<version>": "gemini-3.8-flash",
-    "3.5": "gemini-3.5-flash",
-    "3.5flash": "gemini-3.5-flash",
-    "3.5-flash": "gemini-3.5-flash",
-    "gemini-3.5": "gemini-3.5-flash",
-    "gemini-3.5-flash": "gemini-3.5-flash",
-    "2.5": "gemini-2.5-flash",
-    "2.5flash": "gemini-2.5-flash",
-    "2.5-flash": "gemini-2.5-flash",
-    "gemini-2.5": "gemini-2.5-flash",
-    "gemini-2.5-flash": "gemini-2.5-flash",
+    "3.5-lite": "gemini-3.5-flash-lite",
+    "3.5-flash-lite": "gemini-3.5-flash-lite",
+    "3.5flashlite": "gemini-3.5-flash-lite",
+    "gemini-3.5-flash-lite": "gemini-3.5-flash-lite",
+    "flash-lite": "gemini-3.5-flash-lite",
+    "lite": "gemini-3.5-flash-lite",
     "2.0": "gemini-2.0-flash",
     "2.0flash": "gemini-2.0-flash",
     "2.0-flash": "gemini-2.0-flash",
@@ -59,19 +161,14 @@ GEMINI_MODEL_ALIASES: dict[str, str] = {
     "1.5-flash": "gemini-1.5-flash",
     "gemini-1.5": "gemini-1.5-flash",
     "gemini-1.5-flash": "gemini-1.5-flash",
-    "flash": "gemini-3.8-flash",
-    "pro": "gemini-1.5-pro",
     "1.5pro": "gemini-1.5-pro",
     "1.5-pro": "gemini-1.5-pro",
     "gemini-1.5-pro": "gemini-1.5-pro",
-    "2.5pro": "gemini-2.5-pro",
-    "2.5-pro": "gemini-2.5-pro",
-    "gemini-2.5-pro": "gemini-2.5-pro",
 }
 
 
 def is_recognized_gemini_model(arg: Optional[str]) -> bool:
-    """Returns True if `arg` represents a recognized Gemini model alias or model name (e.g. 3.8, 3.8flash, 3.5, gemini-3.8-flash, Gemini(3.8), Gemini(version))."""
+    """Returns True if `arg` represents a recognized Gemini model alias or model name."""
     if not arg or not isinstance(arg, str):
         return False
     cleaned = (
@@ -88,12 +185,6 @@ def is_recognized_gemini_model(arg: Optional[str]) -> bool:
         return False
     if cleaned in GEMINI_MODEL_ALIASES:
         return True
-    if cleaned.startswith("gemini(") and cleaned.endswith(")"):
-        inner = cleaned[7:-1].strip()
-        return is_recognized_gemini_model(inner) or inner in ("version", "3.8", "3.5", "2.5", "2.0", "1.5")
-    if cleaned.startswith("gemini<") and cleaned.endswith(">"):
-        inner = cleaned[7:-1].strip()
-        return is_recognized_gemini_model(inner) or inner in ("version", "3.8", "3.5", "2.5", "2.0", "1.5")
     if cleaned.startswith("gemini-") and len(cleaned) > 7:
         return True
     if re.match(r"^\d+(\.\d+)?(-[a-z0-9]+)?$", cleaned):
@@ -102,7 +193,7 @@ def is_recognized_gemini_model(arg: Optional[str]) -> bool:
 
 
 def resolve_gemini_model_name(model_str: Optional[str]) -> str:
-    """Resolves a shorthand model alias (e.g. '3.8', '3.8flash', '3.5', 'version', 'Gemini(3.8)') into a canonical Gemini model ID."""
+    """Resolves a shorthand model alias (e.g. '1', '2.5', 'flash', '3.8') into a canonical Gemini model ID."""
     if not model_str or not isinstance(model_str, str):
         return DEFAULT_GEMINI_MODEL
     cleaned = (
@@ -115,14 +206,10 @@ def resolve_gemini_model_name(model_str: Optional[str]) -> str:
         .strip("<>")
         .strip()
     )
-    if cleaned in ("gemini", "geminiapi", "startwithgemini", "withgemini", "@gemini", "version"):
+    if cleaned in ("gemini", "geminiapi", "startwithgemini", "withgemini", "@gemini", "default"):
         return DEFAULT_GEMINI_MODEL
-    if cleaned.startswith("gemini(") and cleaned.endswith(")"):
-        inner = cleaned[7:-1].strip()
-        return resolve_gemini_model_name(inner)
-    if cleaned.startswith("gemini<") and cleaned.endswith(">"):
-        inner = cleaned[7:-1].strip()
-        return resolve_gemini_model_name(inner)
+    if cleaned.startswith("models/"):
+        cleaned = cleaned[7:]
     if cleaned in GEMINI_MODEL_ALIASES:
         return GEMINI_MODEL_ALIASES[cleaned]
     if cleaned.startswith("gemini-") and len(cleaned) > 7:
@@ -148,7 +235,6 @@ def is_gemini_api_key(arg: Optional[str]) -> bool:
     )
     if (cleaned.startswith("AIzaSy") or cleaned.startswith("AIza")) and len(cleaned) >= 8:
         return True
-    # General API key heuristics (alphanumeric with dashes/underscores, >= 16 chars)
     if len(cleaned) >= 16 and not any(c in cleaned for c in (" ", "/", "\\")):
         lower = cleaned.lower()
         if (
@@ -181,12 +267,10 @@ def set_volatile_gemini_api_key(api_key: Optional[str]) -> None:
 
 
 def set_volatile_gemini_model(model: Optional[str]) -> None:
-    """Sets the Gemini model alias in short-term volatile RAM (e.g. 3.8 -> gemini-3.8-flash)."""
+    """Stores the user-selected Gemini model name strictly in short-term process RAM."""
     global _VOLATILE_GEMINI_MODEL
     if model and model.strip():
-        resolved = resolve_gemini_model_name(model)
-        _VOLATILE_GEMINI_MODEL = resolved
-        print(f"[AI Lens] Aktivní Gemini model (RAM): {_VOLATILE_GEMINI_MODEL}", flush=True)
+        _VOLATILE_GEMINI_MODEL = resolve_gemini_model_name(model)
     else:
         _VOLATILE_GEMINI_MODEL = DEFAULT_GEMINI_MODEL
 
@@ -199,15 +283,6 @@ def get_volatile_gemini_api_key() -> Optional[str]:
 def has_volatile_gemini_api_key() -> bool:
     """Returns True if a Gemini API key is currently active in short-term RAM."""
     return bool(_VOLATILE_GEMINI_API_KEY)
-
-
-def set_volatile_gemini_model(model: Optional[str]) -> None:
-    """Stores the user-selected Gemini model name strictly in short-term process RAM."""
-    global _VOLATILE_GEMINI_MODEL
-    if model and model.strip():
-        _VOLATILE_GEMINI_MODEL = resolve_gemini_model_name(model)
-    else:
-        _VOLATILE_GEMINI_MODEL = None
 
 
 def get_volatile_gemini_model() -> str:
@@ -229,6 +304,228 @@ def clear_volatile_gemini_api_key() -> bool:
 
 
 atexit.register(clear_volatile_gemini_api_key)
+
+
+def choose_gemini_model_interactive(lang: Optional[str] = "en") -> str:
+    """
+    Renders an English interactive selection dialog and table of Google Gemini models in the terminal.
+    Prompts the user whether they have a paid Google Cloud / AI Studio subscription with billing enabled:
+      - If Yes: displays the full/paid lineup (2.5 Flash, 3.1 Pro, 3.5 Flash, 3.8 Flash, 3.5 Flash-Lite, Custom).
+      - If No: displays standard/free quota models (2.5 Flash, 3.5 Flash-Lite, Custom).
+    """
+    print("\n" + "=" * 88, flush=True)
+    print("  AI LENS — GOOGLE GEMINI API SETUP & SUBSCRIPTION TIER", flush=True)
+    print("=" * 88, flush=True)
+    print("  Note: Advanced preview models (Gemini 3.8 Flash, 3.1 Pro, 3.5 Flash) require", flush=True)
+    print("  a paid Google Cloud / AI Studio account with billing enabled.", flush=True)
+    print("  Free-tier accounts only have quota for Gemini 2.5 Flash and Gemini 3.5 Flash-Lite.\n", flush=True)
+
+    has_paid_subscription = False
+    try:
+        sub_ans = (
+            input("Do you have a paid Google Cloud / AI Studio subscription with billing enabled? [y/N]: ")
+            .strip()
+            .lower()
+        )
+        if sub_ans in ("y", "yes", "ano", "a", "true", "1"):
+            has_paid_subscription = True
+    except (EOFError, KeyboardInterrupt):
+        print("\n[AI Lens] Model selection cancelled.", flush=True)
+        sys.exit(1)
+
+    models_to_show = PAID_GEMINI_MODELS if has_paid_subscription else FREE_GEMINI_MODELS
+    tier_title = (
+        "Available Google Gemini Models (Paid / Billing Tier)"
+        if has_paid_subscription
+        else "Available Google Gemini Models (Free / Standard Quota Tier)"
+    )
+
+    print("\n" + "-" * 88, flush=True)
+    print(f"  {tier_title.upper()}", flush=True)
+    print("-" * 88, flush=True)
+
+    rendered_rich = False
+    try:
+        from rich.console import Console
+        from rich.table import Table
+
+        console = Console()
+        table = Table(
+            title=tier_title,
+            show_header=True,
+            header_style="bold cyan",
+        )
+        table.add_column("#", style="bold yellow", justify="center")
+        table.add_column("Model ID", style="bold white")
+        table.add_column("Name & Description", style="white")
+        table.add_column("Capabilities", style="green")
+
+        for m in models_to_show:
+            is_rec = "Recommended" in m["tag"]
+            tag_markup = f" [bold cyan]({m['tag']})[/]" if is_rec else f" [dim]({m['tag']})[/]"
+            desc = m["desc_en"]
+            mid = m["model"] if m["model"] != "custom" else "<custom>"
+            table.add_row(
+                m["id"],
+                mid,
+                f"{m['name']}{tag_markup}\n{desc}",
+                m["capabilities"],
+            )
+
+        console.print(table)
+        rendered_rich = True
+    except Exception:
+        rendered_rich = False
+
+    if not rendered_rich:
+        for m in models_to_show:
+            desc = m["desc_en"]
+            mid = m["model"] if m["model"] != "custom" else "<custom>"
+            print(f"  [{m['id']}] {m['name']} ({m['tag']}) — {mid}", flush=True)
+            print(f"      └─ {desc} [{m['capabilities']}]", flush=True)
+        print("-" * 88, flush=True)
+
+    max_num = len(models_to_show)
+    prompt_text = f"Select model number [1-{max_num}] (Enter for recommended 1 - gemini-2.5-flash): "
+
+    choice = ""
+    try:
+        raw_choice = input(prompt_text).strip()
+        choice = raw_choice
+    except (EOFError, KeyboardInterrupt):
+        print("\n[AI Lens] Model selection cancelled.", flush=True)
+        sys.exit(1)
+
+    selected = "gemini-2.5-flash"
+    if not choice or choice in ("1", "flash", "default", "recommended"):
+        selected = "gemini-2.5-flash"
+    elif has_paid_subscription:
+        if choice in ("2", "3.1", "3.1-pro", "3.1pro"):
+            selected = "gemini-3.1-pro"
+        elif choice in ("3", "3.5", "3.5-flash", "3.5flash"):
+            selected = "gemini-3.5-flash"
+        elif choice in ("4", "3.8", "3.8-flash", "3.8flash"):
+            selected = "gemini-3.8-flash"
+        elif choice in ("5", "lite", "flash-lite", "3.5-lite", "3.5-flash-lite"):
+            selected = "gemini-3.5-flash-lite"
+        elif choice in ("6", "custom", "vlastni", "vlastní"):
+            try:
+                custom_val = input("Enter exact Google Gemini model ID (e.g. gemini-2.5-pro): ").strip()
+                selected = resolve_gemini_model_name(custom_val) if custom_val else "gemini-2.5-flash"
+            except (EOFError, KeyboardInterrupt):
+                print("\n[AI Lens] Model selection cancelled.", flush=True)
+                sys.exit(1)
+        else:
+            selected = resolve_gemini_model_name(choice)
+    else:
+        # Free tier
+        if choice in ("2", "lite", "flash-lite", "3.5-lite", "3.5-flash-lite"):
+            selected = "gemini-3.5-flash-lite"
+        elif choice in ("3", "custom", "vlastni", "vlastní"):
+            try:
+                custom_val = input("Enter exact Google Gemini model ID (e.g. gemini-2.5-pro): ").strip()
+                selected = resolve_gemini_model_name(custom_val) if custom_val else "gemini-2.5-flash"
+            except (EOFError, KeyboardInterrupt):
+                print("\n[AI Lens] Model selection cancelled.", flush=True)
+                sys.exit(1)
+        else:
+            selected = resolve_gemini_model_name(choice)
+
+    set_volatile_gemini_model(selected)
+    print(f"[AI Lens] ✓ Selected model: {selected}\n", flush=True)
+    return selected
+
+
+def validate_gemini_api_key_live(api_key: str) -> tuple[bool, str, list[str]]:
+    """
+    Performs a live validation check against Google Generative Language API
+    using `https://generativelanguage.googleapis.com/v1beta/models?key={api_key}`.
+    Returns (is_valid, message, available_models).
+    """
+    cleaned = api_key.strip().strip('"\'()<>').strip()
+    if not cleaned:
+        return False, "API key cannot be empty", []
+    try:
+        url = f"{GEMINI_API_BASE_URL}/models?key={cleaned}"
+        headers = {"x-goog-api-key": cleaned}
+        with httpx.Client(timeout=9.0, trust_env=False) as client:
+            resp = client.get(url, headers=headers)
+            if resp.status_code == 200:
+                data = resp.json()
+                models = [
+                    str(m.get("name", "")).replace("models/", "").strip()
+                    for m in data.get("models", [])
+                ]
+                return True, "OK", models
+            try:
+                err_json = resp.json()
+                err_msg = str((err_json.get("error") or {}).get("message") or resp.text)
+            except Exception:
+                err_msg = resp.text
+            return False, err_msg, []
+    except httpx.ConnectError:
+        return True, "CONNECT_WARNING", []
+    except Exception as exc:
+        return True, f"EXCEPTION_WARNING: {exc}", []
+
+
+def prompt_for_gemini_api_key(
+    lang: Optional[str] = "en",
+    chosen_model: Optional[str] = None,
+) -> str:
+    """
+    Prompts the user to enter their Gemini API key, validates it live with Google API,
+    and stores it strictly in volatile short-term RAM for this session.
+    """
+    active_m = chosen_model or get_volatile_gemini_model()
+
+    print("=" * 88, flush=True)
+    print(f"  AI LENS — GOOGLE GEMINI API KEY INPUT (Model: {active_m})", flush=True)
+    print("  • Key Security  : Your API key is stored ONLY in short-term memory (RAM).", flush=True)
+    print("  • Safety        : Never written to config.json, logs, or disk.", flush=True)
+    print("  • Auto-Purge    : Immediately cleared from RAM when AI Lens is closed.", flush=True)
+    print("=" * 88, flush=True)
+
+    prompt_label = "Enter your Gemini API key: "
+
+    for attempt in range(1, 4):
+        try:
+            raw_key = input(prompt_label)
+        except (EOFError, KeyboardInterrupt):
+            print("\n[AI Lens] API key entry cancelled.", flush=True)
+            sys.exit(1)
+
+        cleaned_key = raw_key.strip().strip('"\'()<>').strip()
+        if not cleaned_key:
+            print("[AI Lens] API key cannot be empty. Please try again.", flush=True)
+            continue
+
+        print("[AI Lens] Validating API key with Google Generative Language API…", flush=True)
+        is_ok, err_msg, remote_models = validate_gemini_api_key_live(cleaned_key)
+
+        if is_ok and err_msg == "OK":
+            set_volatile_gemini_api_key(cleaned_key)
+            cleaned_key = ""
+            raw_key = ""
+            print(f"[AI Lens] ✓ Gemini API key successfully verified with Google API!", flush=True)
+            print(f"[AI Lens] ✓ Active model: {active_m} (loaded into volatile RAM).\n", flush=True)
+            return "ok"
+        elif is_ok:
+            set_volatile_gemini_api_key(cleaned_key)
+            cleaned_key = ""
+            raw_key = ""
+            print(f"[AI Lens] ! Warning: Could not verify key online ({err_msg}). Key stored in RAM.\n", flush=True)
+            return "ok"
+        else:
+            print(f"[AI Lens] ✕ Invalid API key (Google: {err_msg}).", flush=True)
+            if attempt < 3:
+                print(f"Please try again (attempt {attempt + 1}/3):", flush=True)
+
+    if is_cs:
+        print("[AI Lens] Nebyl zadán platný Gemini API klíč. Ukončuji.", flush=True)
+    else:
+        print("[AI Lens] No valid Gemini API key provided. Exiting.", flush=True)
+    sys.exit(1)
 
 
 
@@ -1096,6 +1393,25 @@ def build_system_prompt(
 DEFAULT_SYSTEM_PROMPT = build_system_prompt("cs", "medium")
 
 
+def build_secret_system_prompt(lang: str = "cs") -> str:
+    """System prompt for Secret Quick-Answer Mode: max 25 words, direct answer only, smart task-aware language selection."""
+    code = normalize_language_code(lang)
+    en_name, native_name = SUPPORTED_LANGUAGES.get(code, ("Czech", "Čeština"))
+    return (
+        f"You are AI Lens in Secret Quick-Answer Mode.\n"
+        f"CRITICAL RULES:\n"
+        f"1. Give ONLY the direct, verified answer or solution to the question/exercise in the selected text/region.\n"
+        f"2. STRICT LIMIT: MAXIMUM 25 WORDS. Keep it as short as humanly possible.\n"
+        f"3. Absolutely NO pleasantries, NO intro, NO step-by-step tutorial, and NO lengthy explanations. Just the direct answer.\n"
+        f"4. SMART EXERCISE & LANGUAGE EVALUATION (CRITICAL):\n"
+        f"   - Foreign Language Exercises (Grammar, Cloze, Fill-in-the-blank, Matching): If the selected text is in English (or another language) and is testing language skills (e.g. fill a missing word into an English sentence, verb form, vocabulary test, or matching terms to definitions), DO NOT translate the answer into {native_name}! Provide the missing word or solution in the original language of the exercise (e.g. if an English sentence needs a verb 'She ___ to school', output 'went', NEVER Czech 'šla'; for definitions matching, match the terms/letters in English).\n"
+        f"   - Explicit Translation Request: If the exercise explicitly instructs to translate (e.g. 'Přeložte', 'Translate into...'), provide the translated word or phrase in the requested target language.\n"
+        f"   - General Knowledge & Descriptive Questions: If the text is an ordinary question asking to describe, explain, or state a general fact (e.g. 'What is the capital of Italy?', 'Explain the function of DNA polymerase:'), answer in {en_name} ({native_name}) (e.g. 'Řím.').\n"
+        f"   - Multiple-Choice Questions (A/B/C/D): Give the correct letter and the exact option text as written in the exercise.\n"
+        f"5. Save both tokens and time."
+    )
+
+
 def prepare_image_for_vlm(image: Image.Image, max_side: int = 1024, min_side: int = 320) -> Image.Image:
     """
     Normalizes the cropped PIL image for fast, accurate CLIP/VLM vision encoding:
@@ -1267,10 +1583,17 @@ class VisionInferenceWorker(QThread):
         )
         self.history = list(history) if history else []
         self._cancelled = False
+        self._client: Optional[httpx.Client] = None
 
     def cancel(self) -> None:
-        """Signals the streaming loop to abort cleanly."""
+        """Signals the streaming loop to abort cleanly and breaks open network sockets."""
         self._cancelled = True
+        client = self._client
+        if client is not None:
+            try:
+                client.close()
+            except Exception:
+                pass
 
     def clear_memory(self) -> None:
         """Immediately releases the worker's in-memory image copy and conversation history."""
@@ -1323,53 +1646,66 @@ class VisionInferenceWorker(QThread):
         payload: dict[str, Any],
     ) -> tuple[bool, int, str]:
         """Executes streaming SSE POST request to Google Gemini API; returns (success, status_code, error_message)."""
-        with client.stream("POST", url, headers=headers, json=payload) as response:
-            if response.status_code != 200:
-                raw_body = response.read().decode("utf-8", errors="replace")
-                try:
-                    err_json = json.loads(raw_body)
-                    err_msg = str((err_json.get("error") or {}).get("message") or raw_body)
-                except Exception:
-                    err_msg = raw_body
-                return False, response.status_code, err_msg
+        emitted_any_token = False
+        thought_backup: list[str] = []
 
-            for line in response.iter_lines():
-                if self._cancelled:
-                    return True, 200, ""
-                if not line:
-                    continue
-                stripped = line.strip()
-                if stripped.startswith("data:"):
+        try:
+            with client.stream("POST", url, headers=headers, json=payload) as response:
+                if response.status_code != 200:
+                    raw_body = response.read().decode("utf-8", errors="replace")
+                    try:
+                        err_json = json.loads(raw_body)
+                        err_msg = str((err_json.get("error") or {}).get("message") or raw_body)
+                    except Exception:
+                        err_msg = raw_body
+                    return False, response.status_code, err_msg
+
+                for line in response.iter_lines():
+                    if self._cancelled:
+                        return True, 200, ""
+                    if not line:
+                        continue
+                    stripped = line.strip()
+                    if not stripped.startswith("data:"):
+                        continue
                     data_str = stripped[5:].strip()
-                else:
-                    continue
 
-                if not data_str or data_str == "[DONE]":
-                    continue
+                    if not data_str or data_str == "[DONE]":
+                        continue
 
-                try:
-                    chunk = json.loads(data_str)
-                except json.JSONDecodeError:
-                    continue
+                    try:
+                        chunk = json.loads(data_str)
+                    except json.JSONDecodeError:
+                        continue
 
-                if "error" in chunk:
-                    err_obj = chunk["error"]
-                    msg = err_obj.get("message", str(err_obj)) if isinstance(err_obj, dict) else str(err_obj)
-                    return False, 400, msg
+                    if "error" in chunk:
+                        err_obj = chunk["error"]
+                        msg = err_obj.get("message", str(err_obj)) if isinstance(err_obj, dict) else str(err_obj)
+                        return False, 400, msg
 
-                candidates = chunk.get("candidates") or []
-                for cand in candidates:
-                    content = cand.get("content") or {}
-                    parts = content.get("parts") or []
-                    for part in parts:
-                        if part.get("thought"):
-                            self.thinkingProgress.emit()
-                        else:
-                            token = part.get("text", "")
-                            if token:
-                                self.tokenReceived.emit(token)
+                    candidates = chunk.get("candidates") or []
+                    for cand in candidates:
+                        content = cand.get("content") or {}
+                        parts = content.get("parts") or []
+                        for part in parts:
+                            if part.get("thought"):
+                                self.thinkingProgress.emit()
+                                thought_text = part.get("text", "")
+                                if thought_text:
+                                    thought_backup.append(thought_text)
+                            else:
+                                token = part.get("text", "")
+                                if token:
+                                    emitted_any_token = True
+                                    self.tokenReceived.emit(token)
 
-        return True, 200, ""
+            if not emitted_any_token and thought_backup:
+                self.tokenReceived.emit("".join(thought_backup))
+                emitted_any_token = True
+
+            return True, 200, ""
+        except Exception as exc:
+            return False, 500, str(exc)
 
     def _run_gemini(self, t0: float, ui: dict[str, str], b64_img: str) -> None:
         """Runs multimodal streaming inference via the Gemini API using the volatile RAM-only API key."""
@@ -1385,9 +1721,13 @@ class VisionInferenceWorker(QThread):
 
         gemini_model = (
             self.model
-            if self.model.lower().startswith("gemini-")
+            if self.model and self.model.lower().startswith("gemini-")
             else get_volatile_gemini_model()
         )
+        if gemini_model.startswith("models/"):
+            gemini_model = gemini_model[7:]
+
+        prompt_text = self.prompt.strip() if self.prompt else get_default_prompt(self.language)
 
         contents: list[dict[str, Any]] = []
         if not self.history:
@@ -1395,8 +1735,8 @@ class VisionInferenceWorker(QThread):
                 {
                     "role": "user",
                     "parts": [
-                        {"inline_data": {"mime_type": "image/jpeg", "data": b64_img}},
-                        {"text": self.prompt},
+                        {"inlineData": {"mimeType": "image/jpeg", "data": b64_img}},
+                        {"text": prompt_text},
                     ],
                 }
             )
@@ -1408,9 +1748,9 @@ class VisionInferenceWorker(QThread):
                 for img_data in item.get("images") or []:
                     has_image_in_history = True
                     parts.append(
-                        {"inline_data": {"mime_type": "image/jpeg", "data": img_data}}
+                        {"inlineData": {"mimeType": "image/jpeg", "data": img_data}}
                     )
-                text_val = str(item.get("content") or "")
+                text_val = str(item.get("content") or "").strip()
                 if text_val:
                     parts.append({"text": text_val})
                 if parts:
@@ -1419,25 +1759,42 @@ class VisionInferenceWorker(QThread):
             followup_parts: list[dict[str, Any]] = []
             if not has_image_in_history and b64_img:
                 followup_parts.append(
-                    {"inline_data": {"mime_type": "image/jpeg", "data": b64_img}}
+                    {"inlineData": {"mimeType": "image/jpeg", "data": b64_img}}
                 )
-            followup_parts.append({"text": self.prompt})
+            followup_parts.append({"text": prompt_text})
             contents.append({"role": "user", "parts": followup_parts})
 
         gen_cfg: dict[str, Any] = {
-            "temperature": self.temperature,
+            "temperature": float(self.temperature),
             "topP": float(self.tier_cfg.get("top_p", 0.88)),
             "maxOutputTokens": int(self.tier_cfg.get("num_predict", 4096)),
         }
-        thinking_budget = 0 if not self.think else (4096 if self.thinking_level == "high" else 1024)
-        gen_cfg["thinkingConfig"] = {"thinkingBudget": thinking_budget}
+
+        is_gemini_3 = any(k in gemini_model.lower() for k in ("3.8", "3.5", "3.1", "3."))
+        is_gemini_25 = "2.5" in gemini_model.lower()
+
+        if is_gemini_3:
+            # Gemini 3.x models (3.8 Flash, 3.5 Flash, 3.1 Pro) require thinkingLevel instead of thinkingBudget!
+            # Sending thinkingBudget causes HTTP 400 Bad Request.
+            # User requirement: Gemini 3.8 Flash is strictly locked to "low" thinking level so it never stalls.
+            if "3.8" in gemini_model.lower():
+                t_level = "low"
+            else:
+                t_level = "low" if self.thinking_level in ("low", "medium") else "high"
+            gen_cfg["thinkingConfig"] = {
+                "thinkingLevel": t_level,
+                "includeThoughts": True,
+            }
+        elif is_gemini_25 and self.think:
+            budget = 2048 if self.thinking_level == "high" else 1024
+            gen_cfg["thinkingConfig"] = {"thinkingBudget": budget}
 
         payload: dict[str, Any] = {
             "contents": contents,
             "generationConfig": gen_cfg,
         }
         if self.system_prompt:
-            payload["system_instruction"] = {
+            payload["systemInstruction"] = {
                 "parts": [{"text": self.system_prompt}],
             }
 
@@ -1445,42 +1802,81 @@ class VisionInferenceWorker(QThread):
             "Content-Type": "application/json",
             "x-goog-api-key": api_key,
         }
-        timeout_sec = 300.0 if self.thinking_level == "high" else 180.0
+        timeout_sec = 25.0 if self.thinking_level == "low" else (120.0 if self.thinking_level == "high" else 60.0)
 
         try:
-            with httpx.Client(timeout=httpx.Timeout(timeout_sec, connect=10.0), trust_env=False) as client:
-                url = f"{GEMINI_API_BASE_URL}/models/{gemini_model}:streamGenerateContent?alt=sse"
+            with httpx.Client(timeout=httpx.Timeout(timeout_sec, connect=6.0), trust_env=False) as client:
+                self._client = client
+                url = f"{GEMINI_API_BASE_URL}/models/{gemini_model}:streamGenerateContent?key={api_key}&alt=sse"
                 ok, status_code, err_body = self._stream_gemini_chat(client, url, headers, payload)
 
-                # Fallback 1: If the selected Gemini model rejects thinkingConfig, retry without it
-                if not ok and status_code == 400 and "thinking" in err_body.lower():
+                # Fallback 1: If 400 error occurs and thinkingConfig was included, retry without it
+                if not ok and status_code == 400 and "thinkingConfig" in payload.get("generationConfig", {}):
                     payload["generationConfig"].pop("thinkingConfig", None)
                     ok, status_code, err_body = self._stream_gemini_chat(client, url, headers, payload)
 
-                # Fallback 2: If requested model is unavailable (404), try fallback to available standard models
-                if not ok and status_code == 404:
-                    for fallback_model in ("gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"):
+                # Fallback 2: Handle 429 Quota / Rate-limit / Concurrency saturation from rapid sequential calls
+                if not ok and status_code == 429:
+                    time.sleep(1.2)
+                    ok, status_code, err_body = self._stream_gemini_chat(client, url, headers, payload)
+
+                # Fallback 3: If still failing or quota exhausted (429/403/404), switch to high-quota alternative models
+                if not ok and status_code in (403, 404, 429):
+                    orig_err_code = status_code
+                    for fallback_model in ("gemini-3.5-flash-lite", "gemini-2.5-flash", "gemini-1.5-flash"):
                         if gemini_model == fallback_model:
                             continue
-                        fallback_url = f"{GEMINI_API_BASE_URL}/models/{fallback_model}:streamGenerateContent?alt=sse"
+                        time.sleep(0.8)
+                        fallback_url = f"{GEMINI_API_BASE_URL}/models/{fallback_model}:streamGenerateContent?key={api_key}&alt=sse"
                         payload["generationConfig"].pop("thinkingConfig", None)
                         ok, status_code, err_body = self._stream_gemini_chat(
                             client, fallback_url, headers, payload
                         )
                         if ok:
                             print(
-                                f"[AI Lens] Model '{gemini_model}' nebyl na Google API nalezen (404), automaticky použita záloha '{fallback_model}'.",
+                                f"[AI Lens] Model '{gemini_model}' was rate-limited or unavailable ({orig_err_code}), automatically fell back to '{fallback_model}'.",
                                 flush=True,
                             )
+                            gemini_model = fallback_model
                             break
 
+                # Fallback 4: Standard non-streaming generateContent if streaming had any issue
                 if not ok:
-                    err_prefix = (
-                        "Chyba Gemini API"
-                        if self.language in ("cs", "sk")
-                        else "Gemini API Error"
-                    )
-                    self.errorOccurred.emit(f"{err_prefix} ({status_code}): {err_body}")
+                    non_stream_url = f"{GEMINI_API_BASE_URL}/models/{gemini_model}:generateContent?key={api_key}"
+                    payload["generationConfig"].pop("thinkingConfig", None)
+                    try:
+                        resp = client.post(non_stream_url, headers=headers, json=payload)
+                        if resp.status_code == 200:
+                            data = resp.json()
+                            candidates = data.get("candidates") or []
+                            for cand in candidates:
+                                parts = (cand.get("content") or {}).get("parts") or []
+                                for part in parts:
+                                    txt = part.get("text", "")
+                                    if txt:
+                                        self.tokenReceived.emit(txt)
+                            ok = True
+                        else:
+                            status_code = resp.status_code
+                            err_body = resp.text
+                    except Exception as ex:
+                        err_body = str(ex)
+
+                if not ok:
+                    if status_code == 429:
+                        user_friendly_err = (
+                            "Překročen limit dotazů Google Gemini API (429). Počkej 2–3 sekundy a zkus to znovu."
+                            if self.language in ("cs", "sk")
+                            else "Google Gemini API rate limit exceeded (429). Please wait 2–3 seconds and try again."
+                        )
+                    else:
+                        err_prefix = (
+                            "Chyba Gemini API"
+                            if self.language in ("cs", "sk")
+                            else "Gemini API Error"
+                        )
+                        user_friendly_err = f"{err_prefix} ({status_code}): {err_body}"
+                    self.errorOccurred.emit(user_friendly_err)
                     return
 
             if not self._cancelled:
@@ -1494,6 +1890,7 @@ class VisionInferenceWorker(QThread):
             )
             self.errorOccurred.emit(msg)
         finally:
+            self._client = None
             api_key = ""
             headers.clear()
             contents.clear()
@@ -1567,6 +1964,7 @@ class VisionInferenceWorker(QThread):
             timeout_sec = 300.0 if self.thinking_level == "high" else 180.0
 
             with httpx.Client(timeout=httpx.Timeout(timeout_sec, connect=5.0), trust_env=False) as client:
+                self._client = client
                 ok, err_body = self._stream_chat(client, url, payload)
                 if not ok and "think" in err_body.lower():
                     payload.pop("think", None)
@@ -1588,6 +1986,7 @@ class VisionInferenceWorker(QThread):
             if not self._cancelled:
                 self.errorOccurred.emit(f"{ui['err_title']}: {exc}")
         finally:
+            self._client = None
             b64_img = ""
             messages.clear()
             self.clear_memory()

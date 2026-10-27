@@ -1,14 +1,9 @@
 # enable-cpu-syntax.ps1
-# Umoznuje pouzivat syntaxi:
-#   .\ai-lens.bat start with Gemini(version) (api_key)
-#   .\ai-lens.bat start with Gemini(version) <api_key>
-#   start with Gemini(3.8) (api_key)
-#   start with Gemini(3.8) <api_key>
-#   start 3.8
-#   start 3.8 (api_key) / start 3.8 <api_key> / start 3.8 "api_key"
-#   gemini( api_key ) / gemini <api_key>
-#   @\ a && CPU
-# primo ve Windows PowerShell bez chyb v parseru a bez nutnosti rucnich uvozovek.
+# Poskytuje čistou podporu pro:
+#   .\ai-lens.bat start with Gemini
+#   start with Gemini
+#   @\ CPU
+# přímo ve Windows PowerShellu.
 
 if (Test-Path Alias:start) {
     Remove-Item Alias:start -Force -ErrorAction SilentlyContinue
@@ -38,7 +33,17 @@ function global:start {
     }
 
     $firstArg = if ($AllArgs -and $AllArgs.Count -gt 0) { $AllArgs[0].ToLower().Trim() } else { "" }
-    $isAiLensArg = $firstArg -in @("with", "gemini", "3.8", "3.5", "2.5", "2.0", "1.5", "flash", "pro", "cs", "en", "sk", "de", "diag", "status", "stop", "cpu", "gpu", "low", "medium", "high") -or ($firstArg -like "gemini*") -or ($firstArg -like "3.*") -or ($firstArg -like "2.*")
+    $secondArg = if ($AllArgs -and $AllArgs.Count -gt 1) { $AllArgs[1].ToLower().Trim() } else { "" }
+
+    # start with Gemini
+    if ($firstArg -eq "with" -and $secondArg -like "*gemini*") {
+        if (Test-Path $aiLensBat) {
+            & $aiLensBat start with Gemini
+            return
+        }
+    }
+
+    $isAiLensArg = $firstArg -in @("with", "gemini", "cs", "en", "sk", "de", "diag", "status", "stop", "cpu", "gpu", "low", "medium", "high")
 
     if (Test-Path $aiLensBat) {
         if ($isAiLensArg -or -not $AllArgs -or $AllArgs.Count -eq 0) {
@@ -58,24 +63,11 @@ function global:gemini {
     )
     $scriptDir = $PSScriptRoot
     if (-not $scriptDir) { $scriptDir = (Get-Location).Path }
-    $batPath = Join-Path $scriptDir "Gemini.bat"
-    if (-not (Test-Path $batPath)) {
-        foreach ($cand in @(
-            "$env:USERPROFILE\ai-lens-1\Gemini.bat",
-            "$env:USERPROFILE\Desktop\ai-lens-main\Gemini.bat",
-            "$env:USERPROFILE\Desktop\ai-lens-main3\Gemini.bat",
-            "$env:USERPROFILE\ai-lens\Gemini.bat"
-        )) {
-            if (Test-Path $cand) {
-                $batPath = $cand
-                break
-            }
-        }
+    $aiLensBat = Join-Path $scriptDir "ai-lens.bat"
+    if (-not (Test-Path $aiLensBat)) {
+        $aiLensBat = ".\ai-lens.bat"
     }
-    if (-not (Test-Path $batPath)) {
-        $batPath = ".\Gemini.bat"
-    }
-    & $batPath @AllArgs
+    & $aiLensBat start with Gemini
 }
 
 if (Get-Module -ListAvailable -Name PSReadLine) {
@@ -84,40 +76,13 @@ if (Get-Module -ListAvailable -Name PSReadLine) {
         $cursor = $null
         [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState([ref]$line, [ref]$cursor)
 
-        # 1. start with Gemini(version) (api_key) / <api_key> / "api_key" / etc.
-        if ($line -match '(?i)^\s*(?:(?:(?:\.\\)?ai-lens(?:\.bat)?\s+)?start(?:\.bat|\.ps1)?|(?:\.\\)?start(?:\.bat|\.ps1)?)\s+with\s+gemini(?:\((.*?)\)|<(.*?)>)?(?:\s+[\(<]\s*([^>\)]*?)\s*[\)>]|\s+"?(.*?)"?)?\s*$') {
-            $verParen = if ($Matches[1]) { $Matches[1].Trim() } elseif ($Matches[2]) { $Matches[2].Trim() } else { "" }
-            $keyRaw = if ($Matches[3]) { $Matches[3].Trim() } elseif ($Matches[4]) { $Matches[4].Trim().Trim('"').Trim("'") } else { "" }
-            $verToken = if ($verParen) { "`"Gemini($verParen)`"" } else { "Gemini" }
-            $keyToken = if ($keyRaw) { "`"$keyRaw`"" } else { "" }
-            $newLine = ".\ai-lens.bat start with $verToken $keyToken".Trim()
+        # start with gemini
+        if ($line -match '(?i)^\s*(?:(?:(?:\.\\)?ai-lens(?:\.bat)?\s+)?start(?:\.bat|\.ps1)?|(?:\.\\)?start(?:\.bat|\.ps1)?)\s+with\s+gemini.*$') {
+            $newLine = ".\ai-lens.bat start with Gemini"
             [Microsoft.PowerShell.PSConsoleReadLine]::RevertLine()
             [Microsoft.PowerShell.PSConsoleReadLine]::Insert($newLine)
         }
-        # 2. start 3.8 / start 3.8 (api_key) / start 3.8 <api_key> / start 3.8 "api_key" / .\start 3.8
-        elseif ($line -match '(?i)^\s*(?:(?:(?:\.\\)?ai-lens(?:\.bat)?\s+)?start(?:\.bat|\.ps1)?|(?:\.\\)?start(?:\.bat|\.ps1)?)\s+(\d+(?:\.\d+)?[a-z0-9\-]*(?:flash|pro)?)(?:\s+[\(<]\s*([^>\)]*?)\s*[\)>]|\s+([^\s]+))?\s*$') {
-            $ver = $Matches[1].Trim()
-            $key = if ($Matches[2]) { $Matches[2].Trim() } elseif ($Matches[3]) { $Matches[3].Trim().Trim('"').Trim("'") } else { "" }
-            $keyToken = if ($key) { "`"$key`"" } else { "" }
-            $newLine = ".\ai-lens.bat start $ver $keyToken".Trim()
-            [Microsoft.PowerShell.PSConsoleReadLine]::RevertLine()
-            [Microsoft.PowerShell.PSConsoleReadLine]::Insert($newLine)
-        }
-        # 3. gemini( api_key ) / gemini(3.8) (api_key) / gemini <api_key>
-        elseif ($line -match '(?i)^\s*(?:(?:\.\\)?gemini(?:\.bat|\.ps1)?)\s*[\(<]\s*([^>\)]*?)\s*[\)>](?:\s+[\(<]\s*([^>\)]*?)\s*[\)>]|\s+(.*))?$') {
-            $arg1 = $Matches[1].Trim().Trim('"').Trim("'")
-            $extra = if ($Matches[2]) { "`"$($Matches[2].Trim())`"" } elseif ($Matches[3]) { $Matches[3].Trim() } else { "" }
-            $newLine = ".\Gemini.bat `"$arg1`" $extra".Trim()
-            [Microsoft.PowerShell.PSConsoleReadLine]::RevertLine()
-            [Microsoft.PowerShell.PSConsoleReadLine]::Insert($newLine)
-        }
-        elseif ($line -match '^\s*gemini\s+(.*)$') {
-            $rawArg = $Matches[1].Trim()
-            $newLine = ".\Gemini.bat " + $rawArg
-            [Microsoft.PowerShell.PSConsoleReadLine]::RevertLine()
-            [Microsoft.PowerShell.PSConsoleReadLine]::Insert($newLine)
-        }
-        # 4. @\ CPU / && CPU
+        # @\ CPU / && CPU
         elseif ($line -match 'ai-lens.*(?<!["''])@\\') {
             $newLine = $line -replace '(?<!["''])@\\', '"@\"'
             [Microsoft.PowerShell.PSConsoleReadLine]::RevertLine()
@@ -130,12 +95,12 @@ if (Get-Module -ListAvailable -Name PSReadLine) {
         }
         [Microsoft.PowerShell.PSConsoleReadLine]::AcceptLine()
     }
-    Write-Host "[AI Lens] Podpora pro 'start with Gemini(version) (api_key)', 'start with Gemini(version) <api_key>', 'start 3.8', '@\' a 'gemini' byla uspesne aktivovana v PowerShellu." -ForegroundColor Green
+    Write-Host "[AI Lens] Podpora pro '.\ai-lens.bat start with Gemini' a '@\' byla úspěšně aktivována v PowerShellu." -ForegroundColor Green
 } else {
-    Write-Host "[AI Lens] PSReadLine neni k dispozici. V PowerShellu pouzijte: .\ai-lens.bat start with `"Gemini(3.8)`" `"<api_key>`"" -ForegroundColor Yellow
+    Write-Host "[AI Lens] Spuštění Gemini API režimu: .\ai-lens.bat start with Gemini" -ForegroundColor Yellow
 }
 
-# Auto-persist into PowerShell Profile so new terminal windows have full support automatically
+# Auto-persist into PowerShell Profile
 try {
     $profPath = $PROFILE
     if ($profPath) {

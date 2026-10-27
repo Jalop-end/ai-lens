@@ -135,7 +135,7 @@ def render_styled_markdown_html(markdown_text: str) -> str:
                     f'<div style="margin: 6px 0; display: inline-block; background-color: {bg}; '
                     f'border: 1px solid {border}; border-radius: 6px; padding: 2px 8px; '
                     f'color: {color}; font-size: 11.5px; font-weight: 700;">'
-                    f'🎯 Odhad jistoty / pravděpodobnost: {pct} %</div>'
+                    f'Odhad jistoty / pravděpodobnost: {pct} %</div>'
                 )
                 continue
 
@@ -189,8 +189,10 @@ def render_styled_markdown_html(markdown_text: str) -> str:
 from typing import Optional
 
 from PyQt6.QtCore import QPoint, QRect, QSize, Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QFrame,
+    QGraphicsDropShadowEffect,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -429,7 +431,7 @@ class PopoverCard(QFrame):
             self.confidence_badge.setStyleSheet(
                 f"background-color: {bg}; border: 1px solid {border}; color: {color};"
             )
-            self.confidence_badge.setText(f"🎯 {pct} %")
+            self.confidence_badge.setText(f"{pct} %")
             self.confidence_badge.setToolTip(
                 f"Odhadovaná pravděpodobnost správnosti / jistota modelu: {pct} %"
             )
@@ -542,3 +544,167 @@ class PopoverCard(QFrame):
         self.show()
         self.raise_()
         return pos
+
+
+class SecretTopBar(QFrame):
+    """
+    Sleek, unobtrusive horizontal floating bar positioned right below the screen's top bar (horní lišta)
+    for Secret Mode. Displays direct, ultra-concise answers (max 25 words) to save tokens and time.
+    """
+
+    closeRequested = pyqtSignal()
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("SecretTopBar")
+        self.setCursor(Qt.CursorShape.ArrowCursor)
+        self._raw_text = ""
+        self._language = "cs"
+        self.setMinimumWidth(540)
+        self.setMaximumWidth(920)
+        self._setup_style()
+        self._setup_effects()
+        self._setup_ui()
+
+    def _setup_effects(self) -> None:
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(24)
+        shadow.setColor(QColor(0, 0, 0, 185))
+        shadow.setOffset(0, 3)
+        self.setGraphicsEffect(shadow)
+
+    def _setup_style(self) -> None:
+        self.setStyleSheet(
+            """
+            QFrame#SecretTopBar {
+                background-color: rgba(12, 20, 36, 135);
+                border: 1px solid rgba(56, 189, 248, 0.40);
+                border-radius: 12px;
+            }
+            QLabel#SecretContent {
+                color: #FFFFFF;
+                font-family: "Segoe UI", system-ui, sans-serif;
+                font-size: 15px;
+                font-weight: 700;
+                line-height: 1.45;
+                background: transparent;
+            }
+            QPushButton#SecretCopyBtn {
+                background-color: rgba(255, 255, 255, 0.12);
+                color: #F8FAFC;
+                border: 1px solid rgba(255, 255, 255, 0.22);
+                border-radius: 6px;
+                font-family: "Segoe UI", system-ui, sans-serif;
+                font-size: 12px;
+                font-weight: 600;
+                padding: 6px 12px;
+            }
+            QPushButton#SecretCopyBtn:hover {
+                background-color: rgba(56, 189, 248, 0.35);
+                color: #FFFFFF;
+                border: 1px solid #38BDF8;
+            }
+            QPushButton#SecretCloseBtn {
+                background-color: transparent;
+                color: #CBD5E1;
+                border: none;
+                font-size: 15px;
+                font-weight: bold;
+                padding: 4px 8px;
+            }
+            QPushButton#SecretCloseBtn:hover {
+                color: #EF4444;
+            }
+            """
+        )
+
+    def _setup_ui(self) -> None:
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(16, 10, 14, 10)
+        layout.setSpacing(12)
+        layout.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+
+        self.content_label = QLabel("...", self)
+        self.content_label.setObjectName("SecretContent")
+        self.content_label.setWordWrap(True)
+        self.content_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+
+        btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(6)
+        btn_layout.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+
+        self.copy_btn = QPushButton("Kopírovat", self)
+        self.copy_btn.setObjectName("SecretCopyBtn")
+        self.copy_btn.setToolTip("Kopírovat odpověď do schránky")
+        self.copy_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.copy_btn.clicked.connect(self._on_copy)
+
+        self.close_btn = QPushButton("✕", self)
+        self.close_btn.setObjectName("SecretCloseBtn")
+        self.close_btn.setToolTip("Zavřít (Esc)")
+        self.close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.close_btn.clicked.connect(self.closeRequested.emit)
+
+        btn_layout.addWidget(self.copy_btn)
+        btn_layout.addWidget(self.close_btn)
+
+        layout.addWidget(self.content_label, 1)
+        layout.addLayout(btn_layout)
+
+    def set_locale(self, language: str) -> None:
+        """Updates SecretTopBar button text and tooltips according to language."""
+        self._language = normalize_language_code(language)
+        if self._language in ("cs", "sk"):
+            self.copy_btn.setText("Kopírovat")
+            self.copy_btn.setToolTip("Kopírovat odpověď do schránky")
+            self.close_btn.setToolTip("Zavřít (Esc)")
+        else:
+            self.copy_btn.setText("Copy")
+            self.copy_btn.setToolTip("Copy answer to clipboard")
+            self.close_btn.setToolTip("Close (Esc)")
+
+    def _on_copy(self) -> None:
+        from PyQt6.QtWidgets import QApplication
+        cb = QApplication.clipboard()
+        if cb is not None:
+            cb.setText(self._raw_text)
+            copied_text = "Zkopírováno" if self._language in ("cs", "sk") else "Copied"
+            reset_text = "Kopírovat" if self._language in ("cs", "sk") else "Copy"
+            self.copy_btn.setText(copied_text)
+            QTimer.singleShot(1500, lambda: self.copy_btn.setText(reset_text))
+
+    def _recenter_on_screen(self) -> None:
+        parent = self.parentWidget()
+        if parent is not None and parent.width() > 0:
+            new_x = (parent.width() - self.width()) // 2
+            self.move(max(10, new_x), 14)
+
+    def start_loading(self, text: str = "Řeším...") -> None:
+        self._raw_text = ""
+        self.content_label.setText(text)
+        self.adjustSize()
+        self._recenter_on_screen()
+
+    def append_token(self, token: str) -> None:
+        cur = self.content_label.text()
+        if cur.startswith("Řeším") or cur.startswith("Solving") or cur == "...":
+            self.content_label.setText("")
+        self._raw_text += token
+        self.content_label.setText(self._raw_text)
+        if self.layout() is not None:
+            self.layout().activate()
+        self.adjustSize()
+        self._recenter_on_screen()
+
+    def set_content(self, text: str) -> None:
+        self._raw_text = text
+        self.content_label.setText(text)
+        if self.layout() is not None:
+            self.layout().activate()
+        self.adjustSize()
+        self._recenter_on_screen()
+
+    def clear_sensitive_data(self) -> None:
+        self._raw_text = ""
+        self.content_label.setText("")
+        self.hide()

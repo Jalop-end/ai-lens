@@ -86,13 +86,12 @@ def compute_bounding_box(
     points: Sequence[QPointF | tuple[float, float]],
     screen_width: int,
     screen_height: int,
-    padding: int = 20,
+    padding: int = 4,
 ) -> QRect:
     """
     Computes the Bounding Box [xmin - p, ymin - p, xmax + p, ymax + p]
     from a sequence of lasso points in logical screen coordinates, clamped to screen bounds.
-    Includes adaptive proportional padding so freehand loops that slightly cut through
-    the edges of an object or animal still capture the complete subject and nearby labels.
+    Fits closely around the user's drawn contour with tight padding.
     """
     if not points:
         return QRect()
@@ -112,18 +111,13 @@ def compute_bounding_box(
     raw_xmax = max(xs)
     raw_ymax = max(ys)
 
-    raw_w = max(1.0, raw_xmax - raw_xmin)
-    raw_h = max(1.0, raw_ymax - raw_ymin)
+    # Tight padding directly around the drawn outline
+    pad = max(0, padding)
 
-    # Add 10% proportional margin (up to 40 px extra) on top of base padding so
-    # quick freehand circles don't clip heads/tails/edges of objects.
-    pad_x = max(padding, min(padding + 40, int(round(raw_w * 0.12)) + padding))
-    pad_y = max(padding, min(padding + 40, int(round(raw_h * 0.12)) + padding))
-
-    x_min = max(0, int(raw_xmin) - pad_x)
-    y_min = max(0, int(raw_ymin) - pad_y)
-    x_max = min(screen_width, int(raw_xmax) + pad_x)
-    y_max = min(screen_height, int(raw_ymax) + pad_y)
+    x_min = max(0, int(raw_xmin) - pad)
+    y_min = max(0, int(raw_ymin) - pad)
+    x_max = min(screen_width, int(raw_xmax) + pad)
+    y_max = min(screen_height, int(raw_ymax) + pad)
 
     width = max(1, x_max - x_min)
     height = max(1, y_max - y_min)

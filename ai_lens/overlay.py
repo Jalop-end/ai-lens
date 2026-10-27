@@ -29,12 +29,13 @@ from ai_lens.capture import (
     compute_bounding_box,
     crop_from_capture,
 )
-from ai_lens.popover import PopoverCard
+from ai_lens.popover import PopoverCard, SecretTopBar
 from ai_lens.vision_engine import (
     DEFAULT_GEMINI_MODEL,
     DEFAULT_PROMPTS_BY_LANG,
     THINKING_LEVELS,
     VisionInferenceWorker,
+    build_secret_system_prompt,
     clear_volatile_gemini_api_key,
     encode_pil_to_base64,
     get_volatile_gemini_model,
@@ -81,7 +82,7 @@ def load_config(config_path: Path = DEFAULT_CONFIG_PATH) -> dict[str, Any]:
         "hotkey": "<alt>+<f8>",
         "border_width": 3,
         "border_color": "#FFFFFF",
-        "padding": 20,
+        "padding": 4,
         "ollama_host": "http://127.0.0.1:11434",
         "model": "gemma4:latest",
         "language": "cs",
@@ -113,9 +114,9 @@ def load_config(config_path: Path = DEFAULT_CONFIG_PATH) -> dict[str, Any]:
         defaults["compute_device"] = "cpu" if raw_dev == "cpu" else "gpu"
     defaults["ollama_host"] = validate_local_ollama_host(str(defaults.get("ollama_host", "")))
     try:
-        defaults["padding"] = max(0, min(200, int(defaults.get("padding", 20))))
+        defaults["padding"] = max(0, min(200, int(defaults.get("padding", 4))))
     except Exception:
-        defaults["padding"] = 20
+        defaults["padding"] = 4
     try:
         defaults["border_width"] = max(1, min(20, int(defaults.get("border_width", 3))))
     except Exception:
@@ -201,8 +202,11 @@ class OverlayWindow(QWidget):
         self.daemon_mode = daemon_mode
         self.capture_result: Optional[ScreenCaptureResult] = None
 
-        # Lasso & crop state
+        # Lasso, text selection & crop state
         self._is_drawing: bool = False
+        self._is_secret_mode: bool = False
+        self._drag_start_pos: Optional[QPointF] = None
+        self._drag_current_pos: Optional[QPointF] = None
         self._lasso_points: list[QPointF] = []
         self._lasso_path = QPainterPath()
         self._selected_bbox: QRect = QRect()
@@ -222,11 +226,16 @@ class OverlayWindow(QWidget):
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setCursor(Qt.CursorShape.CrossCursor)
 
-        # Floating Popover Card (child widget inside the same overlay)
+        # Floating Popover Card (standard mode)
         self.popover = PopoverCard(self)
         self.popover.hide()
         self.popover.closeRequested.connect(self.dismiss_overlay)
         self.popover.promptSubmitted.connect(self._on_followup_prompt)
+
+        # Secret Quick-Answer Top Bar (secret mode)
+        self.secret_top_bar = SecretTopBar(self)
+        self.secret_top_bar.hide()
+        self.secret_top_bar.closeRequested.connect(self.dismiss_overlay)
 
     def _force_win32_foreground(self) -> None:
         """
@@ -269,26 +278,31 @@ class OverlayWindow(QWidget):
             pass
 
     def _stop_active_worker(self) -> None:
-        """Cancels any running QThread inference worker and scrubs its RAM buffers."""
+        """Cancels any running QThread inference worker, breaks open sockets, and scrubs its RAM buffers."""
         if self._worker is not None:
+            worker = self._worker
+            self._worker = None
             try:
-                self._worker.cancel()
-                self._worker.clear_memory()
-                self._worker.tokenReceived.disconnect()
-                self._worker.thinkingProgress.disconnect()
-                self._worker.finishedInference.disconnect()
-                self._worker.errorOccurred.disconnect()
+                worker.cancel()
+                worker.clear_memory()
+                worker.tokenReceived.disconnect()
+                worker.thinkingProgress.disconnect()
+                worker.finishedInference.disconnect()
+                worker.errorOccurred.disconnect()
             except Exception:
                 pass
-            self._worker = None
+            if worker.isRunning():
+                worker.wait(350)
 
     def reset_selection(self) -> None:
         """
-        Immediately erases the current lasso path, cropped image, base64 history,
-        and Popover chat text from RAM as soon as the selection/chat is closed.
+        Immediately erases the current lasso/rectangle path, cropped image, base64 history,
+        and Popover/Secret chat text from RAM as soon as the selection/chat is closed.
         """
         self._stop_active_worker()
         self._is_drawing = False
+        self._drag_start_pos = None
+        self._drag_current_pos = None
         self._lasso_points.clear()
         self._lasso_path = QPainterPath()
         self._selected_bbox = QRect()
@@ -308,22 +322,34 @@ class OverlayWindow(QWidget):
 
         self.popover.clear_sensitive_data()
         self.popover.hide()
+        self.secret_top_bar.clear_sensitive_data()
+        self.secret_top_bar.hide()
         gc.collect()
         self.update()
 
-    def activate_overlay(self) -> float:
+    def activate_overlay(self, secret_mode: bool = False) -> float:
         """
         Captures the current screen into RAM BEFORE showing the window,
         then immediately displays the fullscreen frozen overlay on top of everything.
+
+        Args:
+            secret_mode: If True, activates Secret Quick-Answer Mode (drag text selection, max 25 words).
 
         Returns:
             Capture time in milliseconds.
         """
         self.config = load_config()
+        self._is_secret_mode = secret_mode
         lang_code = normalize_language_code(str(self.config.get("language", "cs")))
         thinking_level = normalize_thinking_level(str(self.config.get("thinking_level", "medium")))
         self.popover.set_locale(lang_code, thinking_level)
         self.reset_selection()
+
+        if secret_mode:
+            self.setCursor(Qt.CursorShape.IBeamCursor)
+        else:
+            self.setCursor(Qt.CursorShape.CrossCursor)
+
         if self.isVisible():
             self.hide()
             QApplication.processEvents()
@@ -364,13 +390,13 @@ class OverlayWindow(QWidget):
             self.hide()
             self.overlayDismissed.emit()
             print(
-                "[AI Lens] Chat a výřez byly vymazány z RAM. Overlay skryt do pohotovosti (Alt+F8 pro další výběr).",
+                "[AI Lens] Chat and cropped selection cleared from RAM. Overlay hidden to standby (Alt+F8 for next selection).",
                 flush=True,
             )
         else:
             if clear_volatile_gemini_api_key():
                 print(
-                    "[AI Lens] Gemini API klíč byl bezpečně vymazán z krátkodobé paměti (RAM).",
+                    "[AI Lens] Gemini API key was securely wiped from short-term memory (RAM).",
                     flush=True,
                 )
             self.close()
@@ -379,30 +405,51 @@ class OverlayWindow(QWidget):
                 app.quit()
 
     def mousePressEvent(self, event: QMouseEvent) -> None:  # noqa: N802
-        """Starts recording the freehand lasso trajectory on left mouse button press."""
+        """Handles mouse press: click-away dismissal if result is showing, or starts selection."""
         if event.button() == Qt.MouseButton.LeftButton:
             pos = event.position()
-            if self.popover.isVisible() and self.popover.geometry().contains(pos.toPoint()):
-                super().mousePressEvent(event)
+
+            # 1. If PopoverCard is visible:
+            if self.popover.isVisible():
+                if self.popover.geometry().contains(pos.toPoint()):
+                    super().mousePressEvent(event)
+                    return
+                # Clicked outside popover -> dismiss overlay immediately
+                self.dismiss_overlay()
                 return
 
+            # 2. If SecretTopBar is visible:
+            if self.secret_top_bar.isVisible():
+                if self.secret_top_bar.geometry().contains(pos.toPoint()):
+                    super().mousePressEvent(event)
+                    return
+                # Clicked outside secret bar -> dismiss overlay immediately
+                self.dismiss_overlay()
+                return
+
+            # 3. If a selection was already completed and user clicks elsewhere:
+            if not self._selected_bbox.isNull():
+                self.dismiss_overlay()
+                return
+
+            # 4. Fresh selection:
             self.reset_selection()
             self._is_drawing = True
+            self._drag_start_pos = pos
+            self._drag_current_pos = pos
             self._lasso_points = [pos]
             self._lasso_path = QPainterPath(pos)
             self.update()
         elif event.button() == Qt.MouseButton.RightButton:
-            if not self._selected_bbox.isNull():
-                self.reset_selection()
-            else:
-                self.dismiss_overlay()
+            self.dismiss_overlay()
         else:
             super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:  # noqa: N802
-        """Appends cursor coordinates [x_i, y_i] and extends the smooth lasso path."""
+        """Appends cursor coordinates and updates the selection path."""
         if self._is_drawing:
             pos = event.position()
+            self._drag_current_pos = pos
             self._lasso_points.append(pos)
             self._lasso_path.lineTo(pos)
             self.update()
@@ -411,33 +458,74 @@ class OverlayWindow(QWidget):
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:  # noqa: N802
         """
-        Computes the Bounding Box with adaptive padding, crops the clean screenshot in RAM only
-        (never written to disk), displays the PopoverCard, and launches QThread VLM inference.
+        Computes the Bounding Box with tight padding, crops screenshot in RAM only,
+        displays PopoverCard or SecretTopBar, and launches QThread VLM inference.
         """
         if event.button() == Qt.MouseButton.LeftButton and self._is_drawing:
             self._is_drawing = False
             pos = event.position()
+            self._drag_current_pos = pos
             self._lasso_points.append(pos)
             self._lasso_path.lineTo(pos)
 
-            padding = int(self.config.get("padding", 20))
-            bbox = compute_bounding_box(
-                points=self._lasso_points,
-                screen_width=self.width(),
-                screen_height=self.height(),
-                padding=padding,
-            )
+            if self._is_secret_mode:
+                start_p = self._drag_start_pos if self._drag_start_pos is not None else pos
+                rect = QRectF(start_p, pos).normalized().toRect()
+                rect = rect.intersected(self.rect())
+                if rect.width() < 5 or rect.height() < 5:
+                    self.reset_selection()
+                    return
+                bbox = rect
 
-            if bbox.width() < 24 and bbox.height() < 24:
-                self.reset_selection()
+                if self.capture_result is not None:
+                    cropped = crop_from_capture(self.capture_result, bbox)
+                    self._last_cropped_image = cropped
+
+                # Discard marking/selection highlight immediately so it disappears upon mouse release
+                self._is_drawing = False
+                self._drag_start_pos = None
+                self._drag_current_pos = None
+                self._selected_bbox = QRect()
+                self._lasso_points.clear()
+                self._lasso_path = QPainterPath()
+
+                bar_w = min(880, max(560, int(self.width() * 0.52)))
+                self.secret_top_bar.setFixedWidth(bar_w)
+                bar_x = (self.width() - bar_w) // 2
+                bar_y = 14
+                self.secret_top_bar.move(bar_x, bar_y)
+                lang_code = normalize_language_code(str(self.config.get("language", "cs")))
+                self.secret_top_bar.set_locale(lang_code)
+                load_msg = (
+                    "Řeším otázku (max 25 slov)…"
+                    if lang_code in ("cs", "sk")
+                    else "Solving question (max 25 words)…"
+                )
+                self.secret_top_bar.start_loading(load_msg)
+                self.secret_top_bar.show()
+                self.secret_top_bar.raise_()
+                if self._last_cropped_image is not None:
+                    self._start_secret_inference(self._last_cropped_image)
+
+                self.update()
                 return
+            else:
+                padding = int(self.config.get("padding", 4))
+                bbox = compute_bounding_box(
+                    points=self._lasso_points,
+                    screen_width=self.width(),
+                    screen_height=self.height(),
+                    padding=padding,
+                )
+                if bbox.width() < 16 and bbox.height() < 16:
+                    self.reset_selection()
+                    return
 
             self._selected_bbox = bbox
 
             if self.capture_result is not None:
                 cropped = crop_from_capture(self.capture_result, bbox)
                 self._last_cropped_image = cropped
-
                 self.popover.place_near_bbox(bbox, self.rect())
                 lang_code = normalize_language_code(str(self.config.get("language", "cs")))
                 custom_prompt = str(self.config.get("custom_prompt", "")).strip()
@@ -448,6 +536,58 @@ class OverlayWindow(QWidget):
             self.update()
         else:
             super().mouseReleaseEvent(event)
+
+    def _start_secret_inference(self, cropped_image: Image.Image) -> None:
+        """Spawns VisionInferenceWorker in Secret Mode: max 25 words, low tokens, zero filler, instant streaming."""
+        self._stop_active_worker()
+        self._current_reply_buffer = ""
+
+        raw_model_name = str(self.config.get("model", "gemma4:latest"))
+        ollama_host = str(self.config.get("ollama_host", "http://127.0.0.1:11434"))
+        lang_code = normalize_language_code(str(self.config.get("language", "cs")))
+        compute_device = normalize_compute_device(str(self.config.get("compute_device", "gpu")))
+        if has_volatile_gemini_api_key():
+            compute_device = "gemini"
+
+        display_model = (
+            get_volatile_gemini_model()
+            if compute_device == "gemini"
+            else raw_model_name
+        )
+
+        secret_sys_prompt = build_secret_system_prompt(lang_code)
+        secret_user_prompt = (
+            "Vyřeš / odpověz přímo na otázku či cvičení v označeném textu. "
+            "U jazykových cvičení (doplňování slov do cizího textu, gramatika, spojování definic) nepřekládej a doplň slovo v původním jazyce cvičení. "
+            "Překládej pouze tehdy, když to zadání výslovně požaduje. "
+            "U obecných vědomostních otázek odpověz v češtině. "
+            "Maximálně 25 slov. Pouze přímá odpověď bez vysvětlování."
+            if lang_code in ("cs", "sk")
+            else "Solve / answer directly to the question or exercise in the selected text. "
+            "For foreign language exercises (fill-in-the-blank, grammar, matching definitions), do not translate; supply the answer in the exercise's language. "
+            "Only translate if explicitly asked by the instruction. "
+            f"For general knowledge questions, answer in {lang_code}. "
+            "MAXIMUM 25 WORDS. Direct answer only, no explanation."
+        )
+
+        worker = VisionInferenceWorker(
+            image=cropped_image,
+            prompt=secret_user_prompt,
+            ollama_host=ollama_host,
+            model=display_model,
+            language=lang_code,
+            thinking_level="low",
+            compute_device=compute_device,
+            system_prompt=secret_sys_prompt,
+            think=False,
+            temperature=0.05,
+            history=None,
+            parent=self,
+        )
+        worker.tokenReceived.connect(self.secret_top_bar.append_token)
+        worker.errorOccurred.connect(lambda err: self.secret_top_bar.set_content(f"Error: {err}"))
+        self._worker = worker
+        worker.start()
 
     def _start_inference(
         self,
@@ -575,38 +715,47 @@ class OverlayWindow(QWidget):
         if self.capture_result is not None:
             painter.drawPixmap(0, 0, self.capture_result.qpixmap)
 
-        # 2. Dimming overlay: subtle dim when waiting for lasso, deeper dim outside selected Bounding Box
-        if not self._selected_bbox.isNull() and not self._is_drawing:
-            outer_path = QPainterPath()
-            outer_path.addRect(
-                float(self.rect().x()),
-                float(self.rect().y()),
-                float(self.width()),
-                float(self.height()),
-            )
-            inner_path = QPainterPath()
-            inner_path.addRoundedRect(
-                float(self._selected_bbox.x()),
-                float(self._selected_bbox.y()),
-                float(self._selected_bbox.width()),
-                float(self._selected_bbox.height()),
-                6.0,
-                6.0,
-            )
-            dim_path = outer_path.subtracted(inner_path)
-            painter.fillPath(dim_path, QColor(0, 0, 0, 105))
-
-            bbox_pen = QPen(QColor("#60A5FA"))
-            bbox_pen.setWidth(2)
-            painter.setPen(bbox_pen)
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawRoundedRect(self._selected_bbox, 6.0, 6.0)
+        # 2. Dimming overlay & selection rendering
+        if self._is_secret_mode:
+            # Secret Mode: pure text selection highlight only while actively dragging.
+            # Upon release, the highlight vanishes immediately so the screen is completely unmarked.
+            if self._is_drawing and self._drag_start_pos and self._drag_current_pos:
+                rect = QRectF(self._drag_start_pos, self._drag_current_pos).normalized()
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(QColor(0, 120, 215, 120))
+                painter.drawRect(rect)
         else:
-            # Subtle tint across the frozen screen so user immediately sees the screen is captured
-            painter.fillRect(self.rect(), QColor(10, 15, 28, 45))
+            # Standard Mode: subtle screen dimming with cutout hole & framed bounding box
+            if not self._selected_bbox.isNull() and not self._is_drawing:
+                outer_path = QPainterPath()
+                outer_path.addRect(
+                    float(self.rect().x()),
+                    float(self.rect().y()),
+                    float(self.width()),
+                    float(self.height()),
+                )
+                inner_path = QPainterPath()
+                inner_path.addRoundedRect(
+                    float(self._selected_bbox.x()),
+                    float(self._selected_bbox.y()),
+                    float(self._selected_bbox.width()),
+                    float(self._selected_bbox.height()),
+                    4.0,
+                    4.0,
+                )
+                dim_path = outer_path.subtracted(inner_path)
+                painter.fillPath(dim_path, QColor(0, 0, 0, 105))
 
-        # 3. Draw the active freehand lasso trail while dragging (or faintly after release)
-        if not self._lasso_path.isEmpty():
+                bbox_pen = QPen(QColor("#38BDF8"))
+                bbox_pen.setWidth(2)
+                painter.setPen(bbox_pen)
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.drawRoundedRect(self._selected_bbox, 4.0, 4.0)
+            else:
+                painter.fillRect(self.rect(), QColor(10, 15, 28, 45))
+
+        # 3. Draw the active freehand lasso trail only in standard mode
+        if not self._is_secret_mode and not self._lasso_path.isEmpty():
             glow_pen = QPen(QColor(96, 165, 250, 130 if self._is_drawing else 55))
             glow_pen.setWidth(8)
             glow_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
@@ -622,24 +771,28 @@ class OverlayWindow(QWidget):
             painter.setPen(core_pen)
             painter.drawPath(self._lasso_path)
 
-        # 4. Draw unmistakable inner glow + crisp white perimeter border
-        glow_border = QPen(QColor(56, 189, 248, 140))
-        glow_border.setWidth(6)
-        glow_border.setJoinStyle(Qt.PenJoinStyle.MiterJoin)
-        painter.setPen(glow_border)
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawRect(self.rect().adjusted(3, 3, -3, -3))
+        # 4. Draw unmistakable inner glow + crisp white perimeter border (standard mode only)
+        if not self._is_secret_mode:
+            glow_border = QPen(QColor(56, 189, 248, 140))
+            glow_border.setWidth(6)
+            glow_border.setJoinStyle(Qt.PenJoinStyle.MiterJoin)
+            painter.setPen(glow_border)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRect(self.rect().adjusted(3, 3, -3, -3))
 
-        border_width = max(2, int(self.config.get("border_width", 3)))
-        border_color = QColor(self.config.get("border_color", "#FFFFFF"))
-        pen = QPen(border_color)
-        pen.setWidth(border_width)
-        pen.setJoinStyle(Qt.PenJoinStyle.MiterJoin)
-        painter.setPen(pen)
-        half = border_width // 2
-        painter.drawRect(self.rect().adjusted(half, half, -half, -half))
+            border_width = max(2, int(self.config.get("border_width", 3)))
+            border_color = QColor(self.config.get("border_color", "#FFFFFF"))
+            pen = QPen(border_color)
+            pen.setWidth(border_width)
+            pen.setJoinStyle(Qt.PenJoinStyle.MiterJoin)
+            painter.setPen(pen)
+            half = border_width // 2
+            painter.drawRect(self.rect().adjusted(half, half, -half, -half))
 
-        # 5. Draw localized top-center HUD pill so the user immediately sees AI Lens is active
+        # 5. Draw localized top-center HUD pill (hidden in secret mode or if top bar is active)
+        if self._is_secret_mode or self.secret_top_bar.isVisible():
+            return
+
         lang_code = normalize_language_code(str(self.config.get("language", "cs")))
         thinking_level = normalize_thinking_level(str(self.config.get("thinking_level", "medium")))
         compute_device = (
@@ -649,10 +802,18 @@ class OverlayWindow(QWidget):
         )
         tier_cfg = get_thinking_level_config(thinking_level, compute_device)
         ui = get_ui_strings(lang_code)
-        hud_text = ui["hud_banner"].format(
-            lang=lang_code.upper(),
-            level=f"{tier_cfg['label']} · {compute_device.upper()}",
-        )
+
+        if self._is_secret_mode:
+            hud_text = (
+                "AI Lens [SECRET REŽIM] — Označ text myší jako při kopírování   |   [Esc] Zavřít"
+                if lang_code in ("cs", "sk")
+                else "AI Lens [SECRET MODE] — Drag to select text like copying   |   [Esc] Close"
+            )
+        else:
+            hud_text = ui["hud_banner"].format(
+                lang=lang_code.upper(),
+                level=f"{tier_cfg['label']} · {compute_device.upper()}",
+            )
 
         pill_w, pill_h = 590, 38
         pill_x = (self.width() - pill_w) // 2
@@ -684,6 +845,7 @@ def run_overlay_mvp(
     language: Optional[str] = None,
     thinking_level: Optional[str] = None,
     compute_device: Optional[str] = None,
+    secret_mode: bool = False,
 ) -> None:
     """Standalone launcher for immediate screen capture + overlay."""
     _ensure_utf8_stdio()
@@ -695,25 +857,25 @@ def run_overlay_mvp(
         set_compute_device_in_config(compute_device)
     app = QApplication.instance() or QApplication(sys.argv)
     overlay = OverlayWindow(daemon_mode=False)
-    capture_ms = overlay.activate_overlay()
+    capture_ms = overlay.activate_overlay(secret_mode=secret_mode)
     lang_code = str(overlay.config.get("language", "cs"))
     lang_disp = get_language_display(lang_code)
     dev_code = "gemini" if has_volatile_gemini_api_key() else str(overlay.config.get("compute_device", "gpu"))
     level_disp = get_thinking_level_display(str(overlay.config.get("thinking_level", "medium")), lang_code, dev_code)
     dev_disp = get_compute_device_display(dev_code, lang_code)
     active_model = get_volatile_gemini_model() if dev_code == "gemini" else overlay.config.get("model")
-    print(f"[AI Lens] Obrazovka zachycena do RAM za {capture_ms:.2f} ms.")
+    print(f"[AI Lens] Screen captured into RAM in {capture_ms:.2f} ms.")
     print(
-        f"[AI Lens] VLM ({active_model}, jazyk: {lang_disp}, "
-        f"hloubka myšlení: {level_disp}, režim: {dev_disp}) připraven. "
-        "Zakroužkuj oblast myší, odpověď se bude streamovat v reálném čase. [Esc] pro zavření."
+        f"[AI Lens] VLM ({active_model}, language: {lang_disp}, "
+        f"thinking depth: {level_disp}, mode: {dev_disp}) ready. "
+        "Draw a selection to stream response in real time. [Esc] to close."
     )
     try:
         exit_code = app.exec()
     finally:
         if clear_volatile_gemini_api_key():
             print(
-                "[AI Lens] Gemini API klíč byl bezpečně vymazán z krátkodobé paměti (RAM).",
+                "[AI Lens] Gemini API key was securely wiped from short-term memory (RAM).",
                 flush=True,
             )
     sys.exit(exit_code)

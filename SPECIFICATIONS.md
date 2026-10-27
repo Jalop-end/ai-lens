@@ -9,17 +9,35 @@ Tento dokument obsahuje kompletní technickou specifikaci aplikace **AI Lens**, 
 AI Lens běží jako plně lokální desktopová aplikace rozdělená do dvou oddělených vrstev, které spolu komunikují výhradně přes lokální loopback rozhraní (`127.0.0.1`):
 
 1. **Klientská GUI & Capture vrstva (Python + PyQt6 + Win32 API):**
-   - Po spuštění (`.\ai-lens.bat en High`, `.\ai-lens.bat cs High` nebo `.\ai-lens.bat`) běží v lehkém pohotovostním režimu (**Standby Daemon**).
-   - **Neotevírá žádný naslouchající TCP/UDP port** – komunikace mezi CLI příkazy (`trigger`, `status`, `stop`) a běžícím procesem probíhá přes nativní Windows zprávu `PostThreadMessageW` (`WM_HOTKEY`).
-   - Detekce zkratky (`Alt+F8` / `F8` / `Ctrl+Alt+Shift+G`) využívá trojitý engine: dedikované Win32 `GetMessageW` vlákno (`RegisterHotKey`), 15ms hardwarový poller `GetAsyncKeyState` a nízkourovňový hook `pynput`.
+   - Po spuštění (`.\ai-lens.bat en High`, `.\ai-lens.bat cs High` nebo `.\ai-lens.bat start with Gemini`) běží v lehkém pohotovostním režimu (**Standby Daemon**).
+   - **Ultra-mini zelená tečka v pravém rohu:** V pravém horním rohu obrazovky je zobrazeno ultra-mini zelené kolečko (7×7 px, `#22C55E`). Přejetím myši zčervená (`#EF4444`) a kliknutím na něj se AI Lens okamžitě a bezpečně kompletně vypne.
+   - **Neotevírá žádný naslouchající TCP/UDP port** – komunikace mezi CLI příkazy (`trigger`, `secret`, `status`, `stop`) a běžícím procesem probíhá přes nativní Windows zprávu `PostThreadMessageW` (`WM_HOTKEY`).
+   - Detekce zkratek využívá trojitý engine (Win32 `RegisterHotKey`, 15ms hardwarový poller `GetAsyncKeyState` a fallback `pynput`):
+     - **Standardní režim lasa:** `Alt + F8`, `F8`, `Ctrl + Alt + Shift + G`.
+     - **Secret Quick-Answer Mode:** `Ctrl + Alt + Shift + Q` (nebo `Ctrl + Shift + Alt + Q`).
+   - **Těsný Bounding Box (4px padding):** Z kódu bylo odstraněno dřívější 12% nafukování okrajů; rámeček výběru nyní těsně kopíruje nakreslené laso s přesným 4px odsazením.
+   - **Inteligentní odkliknutí (Click-Away Dismissal):** Pokud je zobrazen výsledek (karta `PopoverCard` nebo horní lišta `SecretTopBar`), kliknutí kamkoliv mimo tuto kartu overlay ihned bezpečně zavře a vyčistí RAM, čímž se zamezí nechtěnému spuštění nového výběru.
+   - **Secret Mode (`Ctrl+Alt+Shift+Q`):**
+     - Funguje jako čisté označení textu tažením myší (poloprůhledné zvýraznění jako při kopírování textu bez vytváření ohraničujícího rámečku/pole) a vezme přesně to, co je v něm.
+     - **Okamžité zmizení zvýraznění po puštění myši:** Jakmile uživatel pustí levé tlačítko myši, modré zvýraznění textu okamžitě zmizí a obrazovka zůstává 100% čistá, přirozená a neoznačená během inference i čtení.
+     - **Vysoce čitelná horní lišta (`SecretTopBar`):** Zobrazuje odpověď přímo v horní liště zarovnané k hornímu okraji obrazovky v poloprůhledném glassmorphic stylu (`rgba(12, 20, 36, 135)` s jemným stínovým efektem a 15px tučným písmem). Text je skvěle viditelný i na světlém podkladu webu či dokumentu a dynamicky se přizpůsobuje počtu řádků textu. Obsahuje čisté tlačítko kopírování a zavření (`✕`), zcela bez emotikonů.
+     - **Inteligentní vyhodnocení jazyka (Smart Language Evaluation):**
+       - Pokud je označen cizojazyčný test nebo cvičení (např. doplňování chybějícího slova do anglické věty, gramatický tvar, spojování anglických definic nebo výběr možností), model **odpověď nepřekládá do češtiny**, ale doplní přímo správné anglické slovo (např. `"went"`, nikoliv `"šla"`).
+       - Pokud zadání výslovně žádá překlad (*"Přeložte:"*, *"Translate into..."*), poskytne přeložený výraz v cílovém jazyce.
+       - Pokud jde o běžnou faktickou či popisnou otázku (např. *"What is the capital of France?"*), odpovídá přirozeně ve zvoleném jazyce aplikace (např. česky *"Paříž."*).
+     - Striktní systémové omezení na **maximálně 25 slov** přímé odpovědi bez úvodních frází a vysvětlování — maximalizuje rychlost a šetří tokeny i čas.
+     - **Anglický formát pohotovostního banneru a hlášení:** Úvodní informační tabulka v konzoli, veškeré notifikace o zmrazení obrazovky, čištění RAM i výmazu API klíče se vypisují do konzole anglicky; při přetížení kvóty (HTTP 429) probíhá automatický fallback na `gemini-3.5-flash-lite` se správným kódem chyby.
 2. **Inference vrstva: Duální podpora (Lokální VLM vs. Google Gemini API):**
    - **Lokální režim (Výchozí):** Ollama na `127.0.0.1:11434` (akcelerace GPU nebo CPU přes `@\`). 100% offline.
    - **Režim Google Gemini API (`start with Gemini`):**
-     - Umožňuje spuštění přes Google Gemini API (`gemini-3.8-flash` / `gemini-3.5-flash` / `gemini-2.5-flash`).
+     - Umožňuje spuštění přes Google Gemini API s výběrem modelů rozdělených podle předplatného Google:
+       - **Placené předplatné (Paid / Billing enabled):** `gemini-2.5-flash`, `gemini-3.1-pro`, `gemini-3.5-flash`, `gemini-3.8-flash`, `gemini-3.5-flash-lite` (+ vlastní model).
+       - **Bezplatná kvóta (Free tier):** `gemini-2.5-flash`, `gemini-3.5-flash-lite` (+ vlastní model).
+     - **Striktní zrychlení 3.8 Flash (Low Thinking Lock):** Gemini 3.8 Flash je záměrně uzamčen na `thinkingLevel: "low"`, což eliminuje nekonečné smyčky interního uvažování a garantuje bleskové doručení odpovědi do ~1.5–2.5 s (stejně rychle jako 2.5 Flash).
      - **Ochrana API klíče v RAM:** Klíč se zadává v příkazové řádce při startu, je uložen **výhradně v krátkodobé paměti (RAM)** a **nikdy se nezapisuje na disk** do `config.json` ani logů.
-     - **Automatický výmaz:** Při jakémkoliv zavření programu ([Esc], pravé tlačítko myši, zavření docku, Ctrl+C nebo stop) je API klíč z RAM okamžitě smazán a paměť uvolněna.
-   - Při zakroužkování oblasti myší se z originálního snímku v RAM vyřízne pouze ohraničený obdélník (**Bounding Box** s adaptivním paddingem).
-   - Výřez se přímo v paměti RAM převede na optimalizovaný JPEG base64 řetězec a streamuje se token po tokenu do plovoucího okna (`PopoverCard`).
+     - **Automatický výmaz:** Při jakémkoliv zavření programu ([Esc], pravé tlačítko myši, klik na zelenou tečku, Ctrl+C nebo stop) je API klíč z RAM okamžitě smazán a paměť uvolněna.
+   - Při označení oblasti myší se z originálního snímku v RAM vyřízne pouze ohraničený obdélník (**Bounding Box** s těsným 4px paddingem).
+   - Výřez se přímo v paměti RAM převede na optimalizovaný JPEG base64 řetězec a streamuje se token po tokenu do plovoucího okna (`PopoverCard` nebo `SecretTopBar`).
 
 ---
 
@@ -100,7 +118,7 @@ Pojem **„kontext“** v režimech **`Low`**, **`Medium`** a **`High`** zahrnuj
 | **Extra spotřeba RAM (KV-cache)** | **+ ~150 – 250 MB** | **+ ~250 – 400 MB** | **+ ~400 – 600 MB** |
 | **Typická doba generování (CPU)** | **~1.5 – 3 s** *(blesková odezva)* | **~4 – 8 s** | **~8 – 15 s** |
 
-### 4.1 Kalibrované rozpoznávání druhů zvířat, plemen a realistická skepse u pravděpodobnosti (`🎯 XX %`)
+### 4.1 Kalibrované rozpoznávání druhů zvířat, plemen a realistická skepse u pravděpodobnosti (`XX %`)
 
 Model byl instrukcemi striktně kalibrován tak, aby **nepřestřeloval jistotu u zvířat a obtížně rozlišitelných plemen**:
 - **Přísná skepse u koček, psů a divoké zvěře:**
@@ -110,10 +128,10 @@ Model byl instrukcemi striktně kalibrován tak, aby **nepřestřeloval jistotu 
 - **Povinné zdůvodnění (Rationale):**
   - Za každým procentem následuje **1 věta vysvětlující**, jaké znaky byly potvrzeny a které alternativní druhy či křížence nelze ze snímku stoprocentně vyloučit.
 - **Zobrazení v UI:**
-  - Hodnota je dynamicky extrahována a v hlavičce `PopoverCard` vykreslena jako barevný odznak:
-    - 🟢 **≥ 85 %:** Zelený odznak (např. `🎯 92 %`) – učebnicový, nezaměnitelný druh.
-    - 🔵 **70 – 84 %:** Modrý odznak (např. `🎯 78 %`) – dobrá shoda hlavních znaků.
-    - 🟡 **< 70 %:** Žlutý odznak (např. `🎯 54 %` nebo `🎯 42 %`) – realistická skepse u kříženců, plemen či chybějících mikro-detailů.
+  - Hodnota je dynamicky extrahována a v hlavičce `PopoverCard` vykreslena jako čistý barevný odznak bez emotikonů:
+    - 🟢 **≥ 85 %:** Zelený odznak (např. `92 %`) – učebnicový, nezaměnitelný druh.
+    - 🔵 **70 – 84 %:** Modrý odznak (např. `78 %`) – dobrá shoda hlavních znaků.
+    - 🟡 **< 70 %:** Žlutý odznak (např. `54 %` nebo `42 %`) – realistická skepse u kříženců, plemen či chybějících mikro-detailů.
 
 ---
 
@@ -167,20 +185,15 @@ ai-lens diagnostika
 ai-lens levels
 .\ai-lens.bat levels
 
-# Spuštění přímo s volbou modelu a Gemini API klíčem:
-.\ai-lens.bat start with Gemini(version) (api_key)
-.\ai-lens.bat start with Gemini(version) <api_key>
-.\ai-lens.bat start with Gemini(3.8) (TVUJ_API_KLIC)
-.\ai-lens.bat start with Gemini(3.8) <TVUJ_API_KLIC>
-
-# Volba modelu napřed a zadání API klíče po vyzvání:
-start 3.8
-start 3.8 (TVUJ_API_KLIC)
-start 3.8 <TVUJ_API_KLIC>
+# Spuštění v režimu Google Gemini API (výběr modelu z tabulky + zadání RAM klíče):
 .\ai-lens.bat start with Gemini
 
 # Spuštění lokálního modelu s GPU (výchozí) vs. s vynuceným CPU:
 .\ai-lens.bat cs High            # GPU
 .\ai-lens.bat cs High @\         # CPU (nebo v PowerShellu ".\ai-lens.bat cs High `"@\`"")
+
+# Secret Mode (zkratka Ctrl+Alt+Shift+Q, přímá odpověď max 25 slov na horní liště):
+.\ai-lens.bat secret
+.\ai-lens.bat trigger --secret
 ```
 
