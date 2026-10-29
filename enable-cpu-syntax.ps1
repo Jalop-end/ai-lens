@@ -9,28 +9,41 @@ if (Test-Path Alias:start) {
     Remove-Item Alias:start -Force -ErrorAction SilentlyContinue
 }
 
+function global:Find-AiLensBat {
+    if (Test-Path ".\ai-lens.bat") { return (Resolve-Path ".\ai-lens.bat").Path }
+    if (Test-Path "..\ai-lens.bat") { return (Resolve-Path "..\ai-lens.bat").Path }
+    $scriptDir = $PSScriptRoot
+    if ($scriptDir -and (Test-Path (Join-Path $scriptDir "ai-lens.bat"))) {
+        return (Join-Path $scriptDir "ai-lens.bat")
+    }
+    foreach ($cand in @(
+        "$env:USERPROFILE\ai-lens-1\ai-lens.bat",
+        "$env:USERPROFILE\Desktop\ai-lens-main\ai-lens.bat",
+        "$env:USERPROFILE\Desktop\ai-lens-main3\ai-lens.bat",
+        "$env:USERPROFILE\ai-lens\ai-lens.bat"
+    )) {
+        if (Test-Path $cand) { return $cand }
+    }
+    return ".\ai-lens.bat"
+}
+
+function global:ai-lens {
+    [CmdletBinding()]
+    param(
+        [Parameter(Position = 0, ValueFromRemainingArguments = $true)]
+        [string[]]$AllArgs
+    )
+    $bat = Find-AiLensBat
+    & $bat @AllArgs
+}
+
 function global:start {
     [CmdletBinding()]
     param(
         [Parameter(Position = 0, ValueFromRemainingArguments = $true)]
         [string[]]$AllArgs
     )
-    $scriptDir = $PSScriptRoot
-    if (-not $scriptDir) { $scriptDir = (Get-Location).Path }
-    $aiLensBat = Join-Path $scriptDir "ai-lens.bat"
-    if (-not (Test-Path $aiLensBat)) {
-        foreach ($cand in @(
-            "$env:USERPROFILE\ai-lens-1\ai-lens.bat",
-            "$env:USERPROFILE\Desktop\ai-lens-main\ai-lens.bat",
-            "$env:USERPROFILE\Desktop\ai-lens-main3\ai-lens.bat",
-            "$env:USERPROFILE\ai-lens\ai-lens.bat"
-        )) {
-            if (Test-Path $cand) {
-                $aiLensBat = $cand
-                break
-            }
-        }
-    }
+    $aiLensBat = Find-AiLensBat
 
     $firstArg = if ($AllArgs -and $AllArgs.Count -gt 0) { $AllArgs[0].ToLower().Trim() } else { "" }
     $secondArg = if ($AllArgs -and $AllArgs.Count -gt 1) { $AllArgs[1].ToLower().Trim() } else { "" }
@@ -61,12 +74,7 @@ function global:gemini {
         [Parameter(Position = 0, ValueFromRemainingArguments = $true)]
         [string[]]$AllArgs
     )
-    $scriptDir = $PSScriptRoot
-    if (-not $scriptDir) { $scriptDir = (Get-Location).Path }
-    $aiLensBat = Join-Path $scriptDir "ai-lens.bat"
-    if (-not (Test-Path $aiLensBat)) {
-        $aiLensBat = ".\ai-lens.bat"
-    }
+    $aiLensBat = Find-AiLensBat
     & $aiLensBat start with Gemini
 }
 
@@ -78,7 +86,8 @@ if (Get-Module -ListAvailable -Name PSReadLine) {
 
         # start with gemini
         if ($line -match '(?i)^\s*(?:(?:(?:\.\\)?ai-lens(?:\.bat)?\s+)?start(?:\.bat|\.ps1)?|(?:\.\\)?start(?:\.bat|\.ps1)?)\s+with\s+gemini.*$') {
-            $newLine = ".\ai-lens.bat start with Gemini"
+            $cmd = if (Test-Path ".\ai-lens.bat") { ".\ai-lens.bat" } elseif (Test-Path "..\ai-lens.bat") { "..\ai-lens.bat" } else { "ai-lens" }
+            $newLine = "$cmd start with Gemini"
             [Microsoft.PowerShell.PSConsoleReadLine]::RevertLine()
             [Microsoft.PowerShell.PSConsoleReadLine]::Insert($newLine)
         }

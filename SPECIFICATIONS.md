@@ -25,7 +25,12 @@ AI Lens běží jako plně lokální desktopová aplikace rozdělená do dvou od
        - Pokud je označen cizojazyčný test nebo cvičení (např. doplňování chybějícího slova do anglické věty, gramatický tvar, spojování anglických definic nebo výběr možností), model **odpověď nepřekládá do češtiny**, ale doplní přímo správné anglické slovo (např. `"went"`, nikoliv `"šla"`).
        - Pokud zadání výslovně žádá překlad (*"Přeložte:"*, *"Translate into..."*), poskytne přeložený výraz v cílovém jazyce.
        - Pokud jde o běžnou faktickou či popisnou otázku (např. *"What is the capital of France?"*), odpovídá přirozeně ve zvoleném jazyce aplikace (např. česky *"Paříž."*).
-     - Striktní systémové omezení na **maximálně 25 slov** přímé odpovědi bez úvodních frází a vysvětlování — maximalizuje rychlost a šetří tokeny i čas.
+     - **Identické hluboké porozumění a spolehlivost jako v klasickém módu:**
+       - Secret mód provádí stejnou důkladnou analýzu, OCR ověření znaků, kontrolu kontextu před i za mezerami (`_`) a negací (`NENÍ`, `NOT`) jako klasický mód s aktivním interním myšlením (thinking).
+       - **Stručný výstup s minimem textu:** Odpovídá přímo, bez zbytečné omáčky, úvodních frází a dlouhých esejistických vysvětlení — doručí exaktní řešení bez zahlcení obrazovky.
+       - **Myšlenkový postup přísně na pozadí (Zero Thoughts v UI):** Vnitřní uvažování modelu (thoughts / thinking proces) zůstává výhradně na pozadí a nikdy se nevypisuje do lišty SecretTopBar ani do chatu. Během analýzy lišta zobrazuje pouze elegantní indikátor *"Přemýšlím..."* a po dokončení ihned doručí čistou odpověď.
+       - **Lidský zápis výpočtů v chatu (Human-Friendly Chat Math):** Všechny matematické výpočty, rovnice a vzorce se automaticky převádějí ze surového LaTeXu (`\text{...}`, `\times`, `{,}`, `\frac`, `$`) do přirozeného lidského zápisu jako v běžném chatu (např. `11 % × 0,81 = 8,91 % (0,0891)` nebo `x - 5`, `10 / 2 = 5`).
+       - **Značení možností u otázek (✓ a ✗):** U testů a otázek s možnostmi (A/B/C/D apod.) model vždy označí správnou možnost malou fajfkou (`✓`) a chybné možnosti křížkem (`✗`).
      - **Anglický formát pohotovostního banneru a hlášení:** Úvodní informační tabulka v konzoli, veškeré notifikace o zmrazení obrazovky, čištění RAM i výmazu API klíče se vypisují do konzole anglicky; při přetížení kvóty (HTTP 429) probíhá automatický fallback na `gemini-3.5-flash-lite` se správným kódem chyby.
 2. **Inference vrstva: Duální podpora (Lokální VLM vs. Google Gemini API):**
    - **Lokální režim (Výchozí):** Ollama na `127.0.0.1:11434` (akcelerace GPU nebo CPU přes `@\`). 100% offline.
@@ -33,6 +38,8 @@ AI Lens běží jako plně lokální desktopová aplikace rozdělená do dvou od
      - Umožňuje spuštění přes Google Gemini API s výběrem modelů rozdělených podle předplatného Google:
        - **Placené předplatné (Paid / Billing enabled):** `gemini-2.5-flash`, `gemini-3.1-pro`, `gemini-3.5-flash`, `gemini-3.8-flash` *(Currently Out of Working — v nabídce zobrazen, ale nelze vybrat)*, `gemini-3.5-flash-lite` (+ vlastní model).
        - **Bezplatná kvóta (Free tier):** `gemini-2.5-flash`, `gemini-3.5-flash-lite` (+ vlastní model).
+     - **Rozšířené myšlení pro modely v placené / Pro verzi:** Modely z nabídky placeného předplatného, které nejsou ve Free kvótě (zejména `gemini-3.1-pro`, `gemini-3.5-flash` a další Pro modely), mají aktivní hluboké uvažování (`thinkingLevel: "high"` / rozšířený budget) a systém jim přidává o 0.5–1.0 s delší čas na myšlení pro maximální pochopení všech detailů, kontextu a zadání otázky před doručením odpovědi.
+     - **Značení možností u otázek (✓ a ✗):** Kdykoliv je na obrazovce otázka či test s možnostmi (A/B/C/D, True/False apod.), model vždy označí správnou možnost malou fajfkou (`✓`) a chybné možnosti křížkem (`✗`).
      - **Striktní zrychlení 3.8 Flash (Low Thinking Lock):** Gemini 3.8 Flash je záměrně uzamčen na `thinkingLevel: "low"`, což eliminuje nekonečné smyčky interního uvažování a garantuje bleskové doručení odpovědi do ~1.5–2.5 s (stejně rychle jako 2.5 Flash).
      - **Ochrana API klíče v RAM:** Klíč se zadává v příkazové řádce při startu, je uložen **výhradně v krátkodobé paměti (RAM)** a **nikdy se nezapisuje na disk** do `config.json` ani logů.
      - **Automatický výmaz:** Při jakémkoliv zavření programu ([Esc], pravé tlačítko myši, klik na zelenou tečku, Ctrl+C nebo stop) je API klíč z RAM okamžitě smazán a paměť uvolněna.
@@ -192,7 +199,7 @@ ai-lens levels
 .\ai-lens.bat cs High            # GPU
 .\ai-lens.bat cs High @\         # CPU (nebo v PowerShellu ".\ai-lens.bat cs High `"@\`"")
 
-# Secret Mode (zkratka Ctrl+Alt+Shift+Q, přímá odpověď max 25 slov na horní liště):
+# Secret Mode (zkratka Ctrl+Alt+Shift+Q, stručná přímá odpověď s plným pochopením na horní liště):
 .\ai-lens.bat secret
 .\ai-lens.bat trigger --secret
 ```

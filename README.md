@@ -48,7 +48,7 @@ flowchart TD
     subgraph S4 [4. Results Display and Zero-Retention Wipe]
         direction TB
         STREAM -->|Standard Mode| POP[Floating Popover Card next to selection]
-        STREAM -->|Secret Mode| SECTOP[Sleek Secret Top Bar along upper screen - Max 25 Words]
+        STREAM -->|Secret Mode| SECTOP[Sleek Secret Top Bar along upper screen - Concise Direct Answer]
         POP --> RENDER[16px Bold Answers and Serif Citations]
         POP --> ACC[Calibrated Confidence Badge: e.g. 54 % or 92 %]
         RENDER --> BADGE[Status Badge: Done in 9.4s]
@@ -102,7 +102,10 @@ flowchart TD
     - If the selected text is a foreign language exercise (e.g. English fill-in-the-blank, grammar test, vocabulary cloze, or matching terms with definitions), the AI **does not translate the answer into Czech**—it fills the correct missing word or matching term directly in English (e.g. `"went"` instead of `"šla"`).
     - If the exercise explicitly asks for translation (e.g. *"Přeložte:"*, *"Translate into..."*), it provides the translated answer in the target language.
     - If the question is an ordinary general knowledge or descriptive inquiry (e.g. *"What is the speed of light?"*), it responds in the user's selected language (e.g. Czech).
-  - **Strict 25-Word Limit:** Enforces a hard maximum limit of **25 words** with direct answers only (no intro filler, no conversational fluff). Saves tokens, RAM, and precious time.
+  - **Deep Comprehension & Concise Direct Output:** Retains the exact same deep reasoning, OCR character verification, context analysis, and negations check as classic mode with active internal thinking, while presenting a concise, direct answer with minimal text (no filler, no essay).
+  - **Zero Thoughts in UI (Background-Only Reasoning):** The model's internal thinking process stays strictly in the background and is never output as visible text in the Secret Top Bar or chat.
+  - **Human-Friendly Chat Math (No Raw LaTeX):** Math formulas, equations, and calculations are automatically converted from raw LaTeX (`\text`, `\times`, `{,}`, `\frac`, `$`) into natural, clean chat-friendly format (e.g. `11 % × 0.81 = 8.91 % (0.0891)` or `x - 5`, `10 / 2 = 5`).
+  - **Question Options Marking (✓ and ✗):** For any question with multiple options (A/B/C/D, True/False, etc.), correct options are marked with a small checkmark (`✓`) and wrong options with a cross (`✗`).
   - Includes a 1-click clipboard copy button and close button (`✕`), entirely free of emojis.
 - **Ultra-Mini Green Dot Standby Indicator (Click to Exit):**
   - AI Lens displays an ultra-mini **7px glowing green dot** (`#22C55E`) anchored in the very top-right corner of your screen showing that AI Lens is running in the background.
@@ -326,7 +329,7 @@ Pass an optional language shortcut (`cs`, `en`, `de`, `sk`, etc.) and/or thinkin
 - A discrete **14px green status dot** appears in the top-right corner of your screen indicating that AI Lens is active in standby.
   - **1-Click Clean Exit:** Hovering turns the dot red (`#EF4444`); clicking it immediately shuts down AI Lens and clears memory.
 - Press **`Alt + F8`** (or **`F8`** / **`Ctrl + Alt + Shift + G`**) and draw a tight selection around any region with your left mouse button.
-- Press **`Ctrl + Alt + Shift + Q`** to activate **Secret Quick-Answer Mode**: drag a rectangular text highlight and get a direct answer (max 25 words) streaming directly on the top bar.
+- Press **`Ctrl + Alt + Shift + Q`** to activate **Secret Quick-Answer Mode**: drag a rectangular text highlight and get a concise direct answer streaming directly on the top bar.
 - Click anywhere outside the result card, press **`Esc`**, or right-click to return to standby and instantly wipe RAM.
 
 ### 2. Immediate One-Shot Trigger & Secret Mode
@@ -337,7 +340,7 @@ Trigger the overlay immediately from the command line:
 .\ai-lens.bat trigger en High
 .\ai-lens.bat trigger cs Low
 
-# Secret Quick-Answer Mode (max 25 words, top bar):
+# Secret Quick-Answer Mode (concise direct answer, top bar):
 .\ai-lens.bat secret
 .\ai-lens.bat secret en Low
 .\ai-lens.bat trigger --secret
@@ -379,7 +382,7 @@ Run via `.\ai-lens.bat <command>` (or `ai-lens <command>` if installed globally/
 | `.\ai-lens.bat [lang] [Low\|Medium\|High]` | Starts AI Lens in local VLM standby mode on GPU (e.g., `.\ai-lens.bat en High`, `.\ai-lens.bat cs High`). |
 | `.\ai-lens.bat start --now` | Starts the daemon and immediately opens the fullscreen capture overlay. |
 | `.\ai-lens.bat trigger [lang] [level]` | Triggers standard lasso overlay on the running instance or runs a one-shot capture. |
-| `.\ai-lens.bat secret` *(or `trigger -s`)* | Triggers **Secret Quick-Answer Mode** (text-selection highlight, max 25 words on top bar). |
+| `.\ai-lens.bat secret` *(or `trigger -s`)* | Triggers **Secret Quick-Answer Mode** (text-selection highlight, concise direct answer on top bar). |
 | `.\ai-lens.bat diag` *(or `diagnostika`)* | Prints a live terminal report of active model, live RAM/CPU usage, `Low`/`Medium`/`High` accuracy & factual context specs, Zero-Retention RAM check, and 7-point security audit. |
 | `.\ai-lens.bat levels` | Lists the `Low`, `Medium`, and `High` thinking tiers, answer accuracy, factual context depth, and token limits. |
 | `.\ai-lens.bat languages` | Lists all 15 supported language codes and highlights the active language. |
