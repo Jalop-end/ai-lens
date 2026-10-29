@@ -79,6 +79,18 @@ def _format_inline_Runs(text: str) -> str:
     # Standard *italic*
     working = _ITALIC_RE.sub(r"<i>\1</i>", working)
 
+    # Style checkmark (✓, ✔) in vivid emerald green and cross (✗, ✕, ❌) in vivid crimson red
+    working = re.sub(
+        r"([✓✔])",
+        r'<span style="color: #34D399; font-weight: 800; font-size: 15px;">\1</span>',
+        working,
+    )
+    working = re.sub(
+        r"([✗✕❌])",
+        r'<span style="color: #F87171; font-weight: 800; font-size: 15px;">\1</span>',
+        working,
+    )
+
     for idx, slot_html in enumerate(code_slots):
         working = working.replace(f"\x00CODE{idx}\x00", slot_html)
 
@@ -88,12 +100,14 @@ def _format_inline_Runs(text: str) -> str:
 def render_styled_markdown_html(markdown_text: str) -> str:
     """
     Converts streamed Markdown into rich HTML for QTextBrowser:
+      - Strips internal thoughts and cleans raw LaTeX math to human chat style
       - Base text: #E5E7EB, 13px Segoe UI
       - Highlighted answers & key terms (**...**): #E5E7EB, 16px, bold (800)
       - Citations ("..."): wrapped in "" using italic Georgia / Times New Roman serif font
     """
     if not markdown_text:
         return ""
+    markdown_text = clean_chat_math_and_thoughts(markdown_text)
 
     parts = re.split(r"(```[\s\S]*?```)", markdown_text)
     html_blocks: list[str] = []
@@ -546,10 +560,92 @@ class PopoverCard(QFrame):
         return pos
 
 
+def clean_chat_math_and_thoughts(text: str) -> str:
+    """
+    Cleans internal thoughts and transforms raw LaTeX / KaTeX math expressions
+    into natural human-friendly chat representations (e.g. 'x - 5', '11 % × 0,81 = 8,91 %').
+    """
+    if not text:
+        return ""
+
+    # 1. Strip internal thoughts blocks: <thought>...</thought>, <think>...</think>, and unclosed tags
+    text = re.sub(r'(?is)<\s*(?:thought|think)[^>]*>.*?<\s*/\s*(?:thought|think)\s*>', '', text)
+    text = re.sub(r'(?is)<\s*(?:thought|think)[^>]*>.*', '', text)
+    text = re.sub(
+        r'(?im)^\s*(?:\*\*)?(?:thoughts?|internal reasoning|myšlenkový postup|úvaha):\s*(?:\*\*)?\s*.*?(?=\n\n|\Z)',
+        '',
+        text,
+    )
+
+    # 2. Convert LaTeX text wrappers: \text{...}, \mathrm{...}, \mathbf{...}, \mathit{...}
+    text = re.sub(r'\\(?:text|mathrm|mathbf|mathit)\s*\{([^}]*)\}', r'\1', text)
+
+    # 3. Handle LaTeX math escapes and spacing
+    text = text.replace(r'\%', '%')
+    text = text.replace(r'\{,\}', ',')
+    text = text.replace('{,}', ',')
+    text = re.sub(r'(\d+)\{,\}(\d+)', r'\1,\2', text)
+    text = text.replace(r'\,', ' ').replace(r'\;', ' ').replace(r'\:', ' ').replace(r'\ ', ' ')
+
+    # 4. Math symbols to clean human chat style
+    text = re.sub(r'\\times\b', '×', text)
+    text = re.sub(r'\\cdot\b', '·', text)
+    text = re.sub(r'\\div\b', '/', text)
+    text = re.sub(r'\\pm\b', '±', text)
+    text = re.sub(r'\\approx\b', '≈', text)
+    text = re.sub(r'\\le(?:q)?\b', '<=', text)
+    text = re.sub(r'\\ge(?:q)?\b', '>=', text)
+    text = re.sub(r'\\ne(?:q)?\b', '!=', text)
+    text = re.sub(r'\\rightarrow\b', '->', text)
+    text = re.sub(r'\\leftarrow\b', '<-', text)
+    text = re.sub(r'\\left\(', '(', text)
+    text = re.sub(r'\\right\)', ')', text)
+    text = re.sub(r'\\left\[', '[', text)
+    text = re.sub(r'\\right\]', ']', text)
+
+    # 5. Fractions: \frac{a}{b} -> a / b
+    for _ in range(3):
+        text = re.sub(r'\\frac\{([^{}]+)\}\{([^{}]+)\}', r'\1 / \2', text)
+
+    # 6. Square roots: \sqrt{x} -> √(x)
+    text = re.sub(r'\\sqrt\{([^{}]+)\}', r'√(\1)', text)
+
+    # 7. Strip single and double dollar signs surrounding inline / block math
+    text = re.sub(r'\$\$([^\$]+)\$\$', r'\1', text)
+    text = re.sub(r'\$([^\$]+)\$', r'\1', text)
+    text = text.replace('$$', '').replace('$', '')
+
+    # 8. Clean redundant whitespace
+    text = re.sub(r'[ \t]+', ' ', text)
+    return text.strip()
+
+
+def _format_secret_display(text: str) -> str:
+    """Escapes HTML, strips thoughts, cleans math to chat style, and highlights checkmarks and crosses for SecretTopBar."""
+    if not text:
+        return ""
+    cleaned = clean_chat_math_and_thoughts(text)
+    if not cleaned:
+        return ""
+    escaped = html.escape(cleaned, quote=False)
+    escaped = re.sub(
+        r"([✓✔])",
+        r'<span style="color: #34D399; font-weight: 800; font-size: 16px;">\1</span>',
+        escaped,
+    )
+    escaped = re.sub(
+        r"([✗✕❌])",
+        r'<span style="color: #F87171; font-weight: 800; font-size: 16px;">\1</span>',
+        escaped,
+    )
+    escaped = escaped.replace("\n", "<br/>")
+    return escaped
+
+
 class SecretTopBar(QFrame):
     """
     Sleek, unobtrusive horizontal floating bar positioned right below the screen's top bar (horní lišta)
-    for Secret Mode. Displays direct, ultra-concise answers (max 25 words) to save tokens and time.
+    for Secret Mode. Displays direct, concise answers with deep comprehension, saving tokens and reading time.
     """
 
     closeRequested = pyqtSignal()
@@ -667,7 +763,8 @@ class SecretTopBar(QFrame):
         from PyQt6.QtWidgets import QApplication
         cb = QApplication.clipboard()
         if cb is not None:
-            cb.setText(self._raw_text)
+            cleaned = clean_chat_math_and_thoughts(self._raw_text)
+            cb.setText(cleaned)
             copied_text = "Zkopírováno" if self._language in ("cs", "sk") else "Copied"
             reset_text = "Kopírovat" if self._language in ("cs", "sk") else "Copy"
             self.copy_btn.setText(copied_text)
@@ -679,6 +776,16 @@ class SecretTopBar(QFrame):
             new_x = (parent.width() - self.width()) // 2
             self.move(max(10, new_x), 14)
 
+    def on_thinking_progress(self) -> None:
+        """Called when internal reasoning / thinking tokens are running."""
+        ui = get_ui_strings(self._language)
+        think_text = f"{ui.get('thinking', 'Přemýšlím')}…"
+        cur = self.content_label.text()
+        if not self._raw_text and cur != think_text:
+            self.content_label.setText(think_text)
+            self.adjustSize()
+            self._recenter_on_screen()
+
     def start_loading(self, text: str = "Řeším...") -> None:
         self._raw_text = ""
         self.content_label.setText(text)
@@ -687,10 +794,21 @@ class SecretTopBar(QFrame):
 
     def append_token(self, token: str) -> None:
         cur = self.content_label.text()
-        if cur.startswith("Řeším") or cur.startswith("Solving") or cur == "...":
+        if (
+            cur.startswith("Řeším")
+            or cur.startswith("Solving")
+            or cur.startswith("Přemýšlím")
+            or cur.startswith("Thinking")
+            or cur == "..."
+        ):
             self.content_label.setText("")
         self._raw_text += token
-        self.content_label.setText(self._raw_text)
+        cleaned_html = _format_secret_display(self._raw_text)
+        if not cleaned_html:
+            ui = get_ui_strings(self._language)
+            self.content_label.setText(f"{ui.get('thinking', 'Přemýšlím')}…")
+        else:
+            self.content_label.setText(cleaned_html)
         if self.layout() is not None:
             self.layout().activate()
         self.adjustSize()
@@ -698,7 +816,7 @@ class SecretTopBar(QFrame):
 
     def set_content(self, text: str) -> None:
         self._raw_text = text
-        self.content_label.setText(text)
+        self.content_label.setText(_format_secret_display(text))
         if self.layout() is not None:
             self.layout().activate()
         self.adjustSize()

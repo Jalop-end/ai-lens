@@ -399,6 +399,7 @@ def run_daemon(
         else:
             cfg_now = load_config()
             lang_code_now = str(cfg_now.get("language", "cs"))
+            lang_disp = get_language_display(lang_code_now)
             dev_now = str(cfg_now.get("compute_device", "gpu"))
             dev_disp = get_compute_device_display(dev_now, lang_code_now)
             level_disp = get_thinking_level_display(
@@ -655,7 +656,7 @@ def run_daemon(
         print(f" Compute / Provider   : {dev_disp}", flush=True)
         print(" Key Security         : 100% RAM-only (key is not stored on disk, cleared on exit)", flush=True)
         print(" Shortcuts            : [Alt + F8]  |  [F8]  |  [Ctrl + Alt + Shift + G]", flush=True)
-        print(" Secret Mode (Fast)   : [Ctrl + Alt + Shift + Q] (text drag, max 25 words)", flush=True)
+        print(" Secret Mode (Fast)   : [Ctrl + Alt + Shift + Q] (text drag, concise direct answer)", flush=True)
         print(" Green Status Dot     : Mini dot at top-right corner (click to exit AI Lens immediately)", flush=True)
         print(" Close Overlay        : [Esc] key, click outside card, or right mouse button", flush=True)
         print(" Privacy Protection   : 100% RAM-only (selection and chat cleared from RAM upon closing)", flush=True)
@@ -669,7 +670,7 @@ def run_daemon(
         )
         print(f" Compute / Device     : {dev_disp}", flush=True)
         print(" Shortcuts            : [Alt + F8]  |  [F8]  |  [Ctrl + Alt + Shift + G]", flush=True)
-        print(" Secret Mode (Fast)   : [Ctrl + Alt + Shift + Q] (text drag, max 25 words)", flush=True)
+        print(" Secret Mode (Fast)   : [Ctrl + Alt + Shift + Q] (text drag, concise direct answer)", flush=True)
         print(" Green Status Dot     : Mini dot at top-right corner (click to exit AI Lens immediately)", flush=True)
         print(" Close Overlay        : [Esc] key, click outside card, or right mouse button", flush=True)
         print(" Privacy Protection   : 100% RAM-only (selection and chat cleared from RAM upon closing)", flush=True)

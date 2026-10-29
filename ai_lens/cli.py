@@ -382,7 +382,7 @@ def trigger(
         False,
         "--secret",
         "-s",
-        help="Aktivuje Secret Mode (zkratka Ctrl+Alt+Shift+Q, přímá odpověď max 25 slov na horní liště).",
+        help="Aktivuje Secret Mode (zkratka Ctrl+Alt+Shift+Q, stručná přímá odpověď s plným pochopením na horní liště).",
     ),
 ) -> None:
     """Okamžitě vyfotí obrazovku do RAM a otevře fullscreen overlay."""
@@ -452,7 +452,7 @@ def secret_cmd(
         help="Výpočetní jednotka: gpu nebo cpu.",
     ),
 ) -> None:
-    """Spustí AI Lens v Secret Quick-Answer Mode (zkratka Ctrl+Alt+Shift+Q, přímá odpověď max 25 slov na horní liště)."""
+    """Spustí AI Lens v Secret Quick-Answer Mode (zkratka Ctrl+Alt+Shift+Q, stručná přímá odpověď s plným pochopením na horní liště)."""
     trigger(arg1=arg1, arg2=arg2, arg3=arg3, lang=lang, level=level, device=device, secret=True)
 
 
