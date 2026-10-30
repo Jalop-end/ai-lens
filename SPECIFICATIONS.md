@@ -8,13 +8,20 @@ Tento dokument obsahuje kompletní technickou specifikaci aplikace **AI Lens**, 
 
 AI Lens běží jako plně lokální desktopová aplikace rozdělená do dvou oddělených vrstev, které spolu komunikují výhradně přes lokální loopback rozhraní (`127.0.0.1`):
 
-1. **Klientská GUI & Capture vrstva (Python + PyQt6 + Win32 API):**
-   - Po spuštění (`.\ai-lens.bat en High`, `.\ai-lens.bat cs High` nebo `.\ai-lens.bat start with Gemini`) běží v lehkém pohotovostním režimu (**Standby Daemon**).
+1. **Klientská GUI & Capture vrstva (Python + PyQt6 + Win32 / POSIX):**
+   - Po spuštění (`.\ai-lens.bat en High`, `./ai-lens.sh cs High` nebo `start with Gemini`) běží v lehkém pohotovostním režimu (**Standby Daemon**).
+   - **Plná podpora pro macOS, Linux i Windows:**
+     - Na **Windows** využívá Win32 `RegisterHotKey`, 15ms `GetAsyncKeyState` a meziprocesovou komunikaci přes `PostThreadMessageW` (`WM_HOTKEY`).
+     - Na **macOS a Linuxu** využívá nativní POSIX signály (`SIGUSR1` pro trigger lasa, `SIGUSR2` pro secret textový mód, `SIGTERM` pro bezpečné ukončení) a cross-platform globální zachytávání kláves přes `pynput.keyboard.GlobalHotKeys`.
    - **Ultra-mini zelená tečka v pravém rohu:** V pravém horním rohu obrazovky je zobrazeno ultra-mini zelené kolečko (7×7 px, `#22C55E`). Přejetím myši zčervená (`#EF4444`) a kliknutím na něj se AI Lens okamžitě a bezpečně kompletně vypne.
-   - **Neotevírá žádný naslouchající TCP/UDP port** – komunikace mezi CLI příkazy (`trigger`, `secret`, `status`, `stop`) a běžícím procesem probíhá přes nativní Windows zprávu `PostThreadMessageW` (`WM_HOTKEY`).
-   - Detekce zkratek využívá trojitý engine (Win32 `RegisterHotKey`, 15ms hardwarový poller `GetAsyncKeyState` a fallback `pynput`):
-     - **Standardní režim lasa:** `Alt + F8`, `F8`, `Ctrl + Alt + Shift + G`.
-     - **Secret Quick-Answer Mode:** `Ctrl + Alt + Shift + Q` (nebo `Ctrl + Shift + Alt + Q`).
+   - **Neotevírá žádný naslouchající TCP/UDP port** – komunikace mezi CLI příkazy (`trigger`, `secret`, `status`, `stop`) a běžícím procesem probíhá zcela offline a lokálně (Win32 zprávy na Windows, POSIX signály na macOS/Linuxu).
+   - Detekce zkratek:
+     - **Windows zkratky:**
+       - Standardní režim lasa: `Alt + F8`, `F8`, `Ctrl + Alt + Shift + G`.
+       - Secret Quick-Answer Mode: `Ctrl + Alt + Shift + Q` (nebo `Ctrl + Shift + Alt + Q`).
+     - **macOS zkratky:**
+       - Standardní režim lasa: `Option + F8`, `F8`, `Cmd + Shift + G`.
+       - Secret Quick-Answer Mode: `Cmd + Option + Shift + Q` (nebo `Cmd + Shift + Option + Q`).
    - **Těsný Bounding Box (4px padding):** Z kódu bylo odstraněno dřívější 12% nafukování okrajů; rámeček výběru nyní těsně kopíruje nakreslené laso s přesným 4px odsazením.
    - **Inteligentní odkliknutí (Click-Away Dismissal):** Pokud je zobrazen výsledek (karta `PopoverCard` nebo horní lišta `SecretTopBar`), kliknutí kamkoliv mimo tuto kartu overlay ihned bezpečně zavře a vyčistí RAM, čímž se zamezí nechtěnému spuštění nového výběru.
    - **Secret Mode (`Ctrl+Alt+Shift+Q`):**
@@ -175,22 +182,14 @@ V rámci bezpečnostního auditu zdrojového kódu byly prověřeny všechny pot
 
 ---
 
-## 7. Živá diagnostika přímo v příkazové řádce (CLI)
+## 7. Živá diagnostika a spouštění přímo v příkazové řádce (Windows & macOS / Linux)
 
-Veškeré specifikace, aktuální vytížení systémové RAM/CPU, přehled přesnosti a kontextu (`Low` / `Medium` / `High`), kontrolu nulového zápisu na disk i 7-bodový bezpečnostní audit si můžeš kdykoliv vypsat přímo do terminálu příkazem:
+Veškeré specifikace, aktuální vytížení systémové RAM/CPU, přehled přesnosti a kontextu (`Low` / `Medium` / `High`), kontrolu nulového zápisu na disk i 7-bodový bezpečnostní audit si můžeš kdykoliv vypsat přímo do terminálu.
 
+### A. Windows (CMD / PowerShell)
 ```powershell
-# Spuštění kompletní živé diagnostiky v příkazové řádce (fungují i aliasy diagnostika, security, specs)
-ai-lens diag
-ai-lens diagnostika
-
-# Nebo přes přiložený spouštěč bez nutnosti aktivovat venv:
+# Spuštění kompletní živé diagnostiky v příkazové řádce:
 .\ai-lens.bat diag
-.\ai-lens.bat diagnostika
-
-# Výpis samotných úrovní myšlení, přesnosti odpovědí a šíře kontextu:
-ai-lens levels
-.\ai-lens.bat levels
 
 # Spuštění v režimu Google Gemini API (výběr modelu z tabulky + zadání RAM klíče):
 .\ai-lens.bat start with Gemini
@@ -199,9 +198,38 @@ ai-lens levels
 .\ai-lens.bat cs High            # GPU
 .\ai-lens.bat cs High @\         # CPU (nebo v PowerShellu ".\ai-lens.bat cs High `"@\`"")
 
-# Secret Mode (zkratka Ctrl+Alt+Shift+Q, stručná přímá odpověď s plným pochopením na horní liště):
+# Secret Mode (stručná přímá odpověď s plným pochopením na horní liště):
 .\ai-lens.bat secret
-.\ai-lens.bat trigger --secret
+
+# Zastavení a vyčištění paměti:
+.\ai-lens.bat stop
+```
+
+### B. macOS & Linux (Terminal / zsh / bash)
+```bash
+# 1. Jednorázové nastavení práv a aliasů (volitelné):
+chmod +x *.sh ai-lens start
+./setup-mac.sh                   # Automaticky přidá aliasy do ~/.zshrc a ~/.bash_profile
+
+# 2. Spuštění v režimu Google Gemini API:
+./ai-lens.sh start with Gemini
+# nebo zkráceně přímo:
+./start-with-gemini.sh
+./Gemini.sh
+./start with Gemini
+
+# 3. Spuštění lokálního modelu:
+./ai-lens.sh cs High             # GPU akcelerace
+./CPU.sh                         # Rychlý spouštěč pro CPU
+./GPU.sh                         # Rychlý spouštěč pro GPU
+
+# 4. Diagnostika a stav systému:
+./ai-lens.sh diag
+./ai-lens.sh status
+
+# 5. Secret Mode a ukončení:
+./ai-lens.sh secret
+./ai-lens.sh stop
 ```
 
 ---

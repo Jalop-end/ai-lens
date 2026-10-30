@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# AI Lens - Universal launcher for macOS and Linux
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export PYTHONUTF8=1
+export PYTHONIOENCODING=utf-8
+export PYTHONPATH="${SCRIPT_DIR}${PYTHONPATH:+:${PYTHONPATH}}"
+
+# Search for virtual environment Python or system Python
+PYTHON_BIN=""
+if [ -x "${SCRIPT_DIR}/.venv/bin/python" ]; then
+    PYTHON_BIN="${SCRIPT_DIR}/.venv/bin/python"
+elif [ -x "${SCRIPT_DIR}/.venv/bin/python3" ]; then
+    PYTHON_BIN="${SCRIPT_DIR}/.venv/bin/python3"
+elif [ -x "${SCRIPT_DIR}/../.venv/bin/python" ]; then
+    PYTHON_BIN="${SCRIPT_DIR}/../.venv/bin/python"
+elif [ -x "${HOME}/ai-lens-1/.venv/bin/python" ]; then
+    PYTHON_BIN="${HOME}/ai-lens-1/.venv/bin/python"
+elif [ -x "${HOME}/ai-lens/.venv/bin/python" ]; then
+    PYTHON_BIN="${HOME}/ai-lens/.venv/bin/python"
+elif [ -x "${HOME}/Desktop/ai-lens-main/.venv/bin/python" ]; then
+    PYTHON_BIN="${HOME}/Desktop/ai-lens-main/.venv/bin/python"
+elif [ -x "${HOME}/Desktop/ai-lens-main3/.venv/bin/python" ]; then
+    PYTHON_BIN="${HOME}/Desktop/ai-lens-main3/.venv/bin/python"
+elif command -v python3 >/dev/null 2>&1; then
+    PYTHON_BIN="python3"
+elif command -v python >/dev/null 2>&1; then
+    PYTHON_BIN="python"
+else
+    echo "[AI Lens] Chyba: Python 3 nebyl nalezen. Nainstalujte prosim Python z https://www.python.org/" >&2
+    exit 1
+fi
+
+exec "$PYTHON_BIN" -m ai_lens "$@"
+

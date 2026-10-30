@@ -229,13 +229,21 @@ You do **not** need a virtual environment (`venv`) to install and run AI Lens—
 
 ### Quick Start
 
-### 1. Launch with Google Gemini API (`.\ai-lens.bat start with Gemini`)
+### 1. Launch with Google Gemini API (`start with Gemini`)
 The single and official command to start AI Lens in Google Gemini API mode is:
 
+**Windows:**
 ```powershell
 .\ai-lens.bat start with Gemini
+# or: start with Gemini
 ```
-*(Or in an active virtual environment: `start with Gemini`)*
+
+**macOS / Linux:**
+```bash
+./ai-lens.sh start with Gemini
+# or: ./ai-lens start with Gemini
+# or run './setup-mac.sh' once, then simply: start with Gemini
+```
 
 #### Subscription Tier Gate (Paid vs. Free Quota)
 When starting Gemini API mode, AI Lens first asks whether you have a paid Google Cloud / AI Studio subscription with billing enabled:
@@ -286,10 +294,13 @@ After choosing your model, AI Lens prompts for your Gemini API key in the termin
 ---
 
 ### 2. Launch Local VLM with Language & Thinking Depth (`Low` / `Medium` / `High`)
-On Windows, you can launch AI Lens directly from PowerShell or Command Prompt using **`.\ai-lens.bat`** (or `.\ai-lens` in PowerShell, or `python -m ai_lens`). It works automatically whether you use a virtual environment or system Python.
+Launch AI Lens directly from your terminal:
+- **Windows:** Use `.\ai-lens.bat` (or `ai-lens` in an active venv).
+- **macOS / Linux:** Use `./ai-lens.sh` or `./ai-lens` (or run `./setup-mac.sh` once, then simply use `ai-lens`).
 
 Pass an optional language shortcut (`cs`, `en`, `de`, `sk`, etc.) and/or thinking tier (`Low`, `Medium`, `High`) in any order:
 
+**Windows (PowerShell / CMD):**
 ```powershell
 # Launch in English with High thinking depth on GPU (default):
 .\ai-lens.bat en High
@@ -300,50 +311,64 @@ Pass an optional language shortcut (`cs`, `en`, `de`, `sk`, etc.) and/or thinkin
 # Switch execution to CPU on demand (add 'CPU' or '@\'):
 .\ai-lens.bat cs High CPU
 .\ai-lens.bat cs Low CPU
-.\ai-lens.bat en Medium CPU
-# Alternatively using the '@\' symbol:
 .\ai-lens.bat cs High @\
-.\ai-lens.bat cs High "@\"
+```
 
-# Launch in Czech with Medium thinking depth (default balanced mode on GPU):
-.\ai-lens.bat cs Medium
+**macOS / Linux (Terminal / zsh / bash):**
+```bash
+# Launch on macOS / Linux (GPU / Apple Silicon default):
+./ai-lens.sh en High
+./ai-lens.sh cs High
 
-# Launch in English with Low thinking depth (fastest everyday GPU mode):
-.\ai-lens.bat en Low
+# Switch execution to CPU on demand:
+./ai-lens.sh cs High CPU
+./ai-lens.sh cs Low CPU
 
-# Change only the thinking depth (keeps your current language):
-.\ai-lens.bat High
-.\ai-lens.bat Low
-
-# (Optional) If you have an active virtual environment or installed package to PATH,
-# you can also type 'ai-lens' directly:
-# ai-lens en High
+# Quick aliases (after running ./setup-mac.sh once):
+ai-lens cs High
+ai-lens cs High CPU
 ```
 
 > [!TIP]
 > **GPU vs. CPU Execution (`CPU` or `@\` Switch):**
-> - **GPU is default:** AI Lens automatically runs with GPU acceleration enabled (`num_gpu: -1`).
-> - **CPU Switch (`CPU` / `@\`):** Simply append **`CPU`** (e.g. `.\ai-lens.bat cs High CPU`) or **`@\`** (in PowerShell with quotes `.\ai-lens.bat cs High "@\"`) to run on pure CPU (`num_gpu: 0`).
+> - **GPU is default:** AI Lens automatically runs with GPU / Metal acceleration enabled (`num_gpu: -1`).
+> - **CPU Switch (`CPU` / `@\`):** Simply append **`CPU`** (e.g. `.\ai-lens.bat cs High CPU` or `./ai-lens.sh cs High CPU`) to run on pure CPU (`num_gpu: 0`).
 > - When running on CPU, the lightweight CPU profile is automatically activated, keeping responses lightning-fast (1.5–15 s).
 
 - A discrete **14px green status dot** appears in the top-right corner of your screen indicating that AI Lens is active in standby.
   - **1-Click Clean Exit:** Hovering turns the dot red (`#EF4444`); clicking it immediately shuts down AI Lens and clears memory.
-- Press **`Alt + F8`** (or **`F8`** / **`Ctrl + Alt + Shift + G`**) and draw a tight selection around any region with your left mouse button.
-- Press **`Ctrl + Alt + Shift + Q`** to activate **Secret Quick-Answer Mode**: drag a rectangular text highlight and get a concise direct answer streaming directly on the top bar.
+- **Keyboard Shortcuts:**
+  - **Windows:** Press **`Alt + F8`** (or **`F8`** / **`Ctrl + Alt + Shift + G`**).
+  - **macOS:** Press **`Option + F8`** (or **`Cmd + Shift + G`** / **`F8`** / **`Alt + F8`**).
+- **Secret Quick-Answer Mode:**
+  - **Windows:** Press **`Ctrl + Alt + Shift + Q`** (or run `.\ai-lens.bat secret`).
+  - **macOS:** Press **`Cmd + Option + Shift + Q`** (or `Ctrl + Alt + Shift + Q`, or run `./ai-lens.sh secret`).
+  - Drag a rectangular text highlight and get a concise direct answer streaming directly on the top bar.
 - Click anywhere outside the result card, press **`Esc`**, or right-click to return to standby and instantly wipe RAM.
 
-### 2. Immediate One-Shot Trigger & Secret Mode
+### 3. Immediate One-Shot Trigger & Secret Mode
 Trigger the overlay immediately from the command line:
+
+**Windows:**
 ```powershell
 # Standard lasso capture:
 .\ai-lens.bat trigger
 .\ai-lens.bat trigger en High
-.\ai-lens.bat trigger cs Low
 
-# Secret Quick-Answer Mode (concise direct answer, top bar):
+# Secret Quick-Answer Mode:
 .\ai-lens.bat secret
-.\ai-lens.bat secret en Low
 .\ai-lens.bat trigger --secret
+```
+
+**macOS / Linux:**
+```bash
+# Standard lasso capture:
+./ai-lens.sh trigger
+./ai-lens.sh trigger en High
+
+# Secret Quick-Answer Mode:
+./ai-lens.sh secret
+./ai-lens.sh trigger --secret
 ```
 
 ---
