@@ -46,6 +46,11 @@ AI Lens běží jako plně lokální desktopová aplikace rozdělená do dvou od
        - **Placené předplatné (Paid / Billing enabled):** `gemini-2.5-flash`, `gemini-3.1-pro`, `gemini-3.5-flash`, `gemini-3.8-flash` *(Currently Out of Working — v nabídce zobrazen, ale nelze vybrat)*, `gemini-3.5-flash-lite` (+ vlastní model).
        - **Bezplatná kvóta (Free tier):** `gemini-2.5-flash`, `gemini-3.5-flash-lite` (+ vlastní model).
      - **Rozšířené myšlení pro modely v placené / Pro verzi:** Modely z nabídky placeného předplatného, které nejsou ve Free kvótě (zejména `gemini-3.1-pro`, `gemini-3.5-flash` a další Pro modely), mají aktivní hluboké uvažování (`thinkingLevel: "high"` / rozšířený budget) a systém jim přidává o 0.5–1.0 s delší čas na myšlení pro maximální pochopení všech detailů, kontextu a zadání otázky před doručením odpovědi.
+     - **Automatická ochrana proti volbě nepodporovaného placeného modelu (Billing Guard):**
+       - Pokud uživatel zvolí, že má placený účet, a vybere model vyžadující fakturaci (např. gemini-3.1-pro nebo gemini-3.5-flash), ale jeho API klíč patří k bezplatnému projektu bez aktivního Google Cloud Billing:
+         - Systém hned při zadání klíče provede rychlý test oprávnění k danému modelu.
+         - Zjistí-li absenci fakturace (403 PERMISSION_DENIED / 404 NOT_FOUND), nevypíše surový JSON ani nespadne, ale zobrazí přívětivé upozornění v terminálu a **automaticky přepne relaci na plně funkční bezplatný model gemini-2.5-flash**.
+         - Pokud by k zamítnutí placeného modelu došlo během inference v overlayi, systém automaticky přepne na gemini-2.5-flash za běhu a v případě trvalé chyby nabídne srozumitelné české/anglické vysvětlení s doporučením bezplatného modelu namísto technických kódů.
      - **Značení možností u otázek (✓ a ✗):** Kdykoliv je na obrazovce otázka či test s možnostmi (A/B/C/D, True/False apod.), model vždy označí správnou možnost malou fajfkou (`✓`) a chybné možnosti křížkem (`✗`).
      - **Striktní zrychlení 3.8 Flash (Low Thinking Lock):** Gemini 3.8 Flash je záměrně uzamčen na `thinkingLevel: "low"`, což eliminuje nekonečné smyčky interního uvažování a garantuje bleskové doručení odpovědi do ~1.5–2.5 s (stejně rychle jako 2.5 Flash).
      - **Ochrana API klíče v RAM:** Klíč se zadává v příkazové řádce při startu, je uložen **výhradně v krátkodobé paměti (RAM)** a **nikdy se nezapisuje na disk** do `config.json` ani logů.
@@ -106,8 +111,8 @@ Pojem **„kontext“** v režimech **`Low`**, **`Medium`** a **`High`** zahrnuj
 | **Faktický kontext (např. zvíře / rostlina / věc)** | **Bohatý vyvážený kontext (1–2 odstavce):** přesně určí druh/kategorii, popíše znaky na snímku, výskyt, potravu/funkci a klíčovou zajímavost. | **Velmi hluboký kontext (2–3 odstavce):** detailní taxonomie, původ/biotop, anatomické znaky, potrava, chování, rozlišení od příbuzných. | **Kompletní encyklopedický profil:** vyčerpávající biologický profil (taxonomie, poddruhy, srovnání záměn, anatomické detaily, biotop, etologie, historie). |
 | **Faktický kontext u textu, kódu a otázek** | Jasné vysvětlení významu, kontextu a zdůvodnění odpovědi. | Detailní rozbor významu, kontrola souvislostí a postupné řešení. | Kompletní rozbor včetně kontroly textu před i za prázdným místem (`_`), odhalení chytáků a exaktní důkaz. |
 | **Interní přemýšlení (`think`)** | **`False`** *(bleskový start streamu za 1–2 s)* | **`True`** *(zapnuto, důkladné ověření)* | **`True`** *(hluboká víceúrovňová verifikace)* |
-| **Velikost kontextu (`num_ctx`)** | **4 096 tokenů** | **8 192 tokenů** | **10 240 tokenů** |
-| **Max. počet tokenů (`num_predict`)** | **2 560 tokenů** | **4 096 tokenů** | **5 120 tokenů** |
+| **Velikost kontextu (`num_ctx`)** | **5 120 tokenů** | **10 240 tokenů** | **12 800 tokenů** |
+| **Max. počet tokenů (`num_predict`)** | **3 200 tokenů** | **5 120 tokenů** | **6 400 tokenů** *(+25 % textu)* |
 | **Max. rozlišení výřezu (`max_side`)** | **1 024 px** | **1 280 px** | **1 280 px** *(ostrost detailů bez zahlcení paměti)* |
 | **Teplota (`temperature`)** | `0.15` | `0.12` | `0.08` *(maximální determinismus a přesnost)* |
 | **Top-P / Repeat Penalty** | `0.90` / `1.07` | `0.88` / `1.09` | `0.85` / `1.10` |
@@ -124,8 +129,8 @@ Pojem **„kontext“** v režimech **`Low`**, **`Medium`** a **`High`** zahrnuj
 | **Přesnost odpovědí** | **Základní rychlá:** okamžité řešení bez zdlouhavého přemýšlení | **Dobrá vyvážená:** rychlé ověření znaků, textu i doplňovaček | **Vysoká přesnost:** důkladná verifikace s optimalizovanou délkou textu |
 | **Faktický kontext (zvíře / předmět / text)** | **Stručný přímý kontext (1–2 věty):** okamžité určení druhu/řešení a nejdůležitější fakt | **Vyvážený stručný kontext (1 odstavec):** druh/předmět, popis znaků a klíčová vlastnost | **Informativní hloubkový kontext (1–2 odstavce):** přesný druh, znaky, výskyt/funkce a zdůvodnění |
 | **Interní přemýšlení (`think`)** | **`False`** *(okamžitá generace bez overheadu)* | **`True`** *(rychlé interní ověření)* | **`True`** *(pečlivá verifikace)* |
-| **Velikost kontextu (`num_ctx`)** | **1 536 tokenů** | **2 560 tokenů** | **4 096 tokenů** |
-| **Max. počet tokenů (`num_predict`)** | **384 tokenů** | **768 tokenů** | **1 280 tokenů** |
+| **Velikost kontextu (`num_ctx`)** | **1 920 tokenů** | **3 200 tokenů** | **5 120 tokenů** |
+| **Max. počet tokenů (`num_predict`)** | **480 tokenů** | **960 tokenů** | **1 600 tokenů** *(+25 % textu)* |
 | **Max. rozlišení výřezu (`max_side`)** | **640 px** | **768 px** | **896 px** |
 | **Teplota (`temperature`)** | `0.20` | `0.15` | `0.10` |
 | **Top-P / Repeat Penalty** | `0.90` / `1.05` | `0.88` / `1.07` | `0.85` / `1.10` |
@@ -209,19 +214,18 @@ Veškeré specifikace, aktuální vytížení systémové RAM/CPU, přehled pře
 ```bash
 # 1. Jednorázové nastavení práv a aliasů (volitelné):
 chmod +x *.sh ai-lens start
-./setup-mac.sh                   # Automaticky přidá aliasy do ~/.zshrc a ~/.bash_profile
+./setup-mac.sh                   # Automaticky nastaví aliasy v ~/.zshrc a ~/.bash_profile
 
 # 2. Spuštění v režimu Google Gemini API:
 ./ai-lens.sh start with Gemini
 # nebo zkráceně přímo:
-./start-with-gemini.sh
-./Gemini.sh
 ./start with Gemini
+./scripts/mac/Gemini.sh
 
 # 3. Spuštění lokálního modelu:
 ./ai-lens.sh cs High             # GPU akcelerace
-./CPU.sh                         # Rychlý spouštěč pro CPU
-./GPU.sh                         # Rychlý spouštěč pro GPU
+./scripts/mac/CPU.sh             # Rychlý spouštěč pro CPU
+./scripts/mac/GPU.sh             # Rychlý spouštěč pro GPU
 
 # 4. Diagnostika a stav systému:
 ./ai-lens.sh diag

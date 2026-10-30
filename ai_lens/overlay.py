@@ -599,7 +599,7 @@ class OverlayWindow(QWidget):
         )
         worker.tokenReceived.connect(self.secret_top_bar.append_token)
         worker.thinkingProgress.connect(self.secret_top_bar.on_thinking_progress)
-        worker.errorOccurred.connect(lambda err: self.secret_top_bar.set_content(f"Error: {err}"))
+        worker.errorOccurred.connect(lambda err: self.secret_top_bar.set_content(err))
         self._worker = worker
         worker.start()
 

@@ -582,6 +582,39 @@ def validate_gemini_api_key_live(api_key: str) -> tuple[bool, str, list[str]]:
         return True, f"EXCEPTION_WARNING: {exc}", []
 
 
+def check_model_supported_by_gemini_key(api_key: str, model_name: str) -> tuple[bool, int, str]:
+    """
+    Sends a minimal probe request to verify whether `api_key` has permissions and Google Cloud Billing
+    enabled to query `model_name`.
+    Returns (is_supported, status_code, message).
+    """
+    m = model_name.replace("models/", "").strip()
+    url = f"{GEMINI_API_BASE_URL}/models/{m}:generateContent?key={api_key}"
+    headers = {
+        "Content-Type": "application/json",
+        "x-goog-api-key": api_key,
+    }
+    probe_payload = {
+        "contents": [{"role": "user", "parts": [{"text": "ping"}]}],
+        "generationConfig": {"maxOutputTokens": 1},
+    }
+    try:
+        with httpx.Client(timeout=6.0, trust_env=False) as client:
+            resp = client.post(url, headers=headers, json=probe_payload)
+            if resp.status_code == 200:
+                return True, 200, "OK"
+            status = resp.status_code
+            try:
+                err_data = resp.json()
+                msg = str((err_data.get("error") or {}).get("message") or resp.text)
+            except Exception:
+                msg = resp.text
+            return False, status, msg
+    except Exception as exc:
+        # If network error or timeout during probe, don't block startup
+        return True, 200, str(exc)
+
+
 def prompt_for_gemini_api_key(
     lang: Optional[str] = "en",
     chosen_model: Optional[str] = None,
@@ -593,8 +626,52 @@ def prompt_for_gemini_api_key(
     active_m = chosen_model or get_volatile_gemini_model()
     is_cs = (lang or "").lower().startswith("cs") or (lang or "").lower().startswith("sk")
 
+    def _verify_and_fallback_if_unsupported(key_to_test: str, current_model: str) -> str:
+        """Helper to test model compatibility and cleanly switch to free tier if billing is not enabled."""
+        if not is_paid_exclusive_gemini_model(current_model):
+            return current_model
+        print(f"[AI Lens] Checking model '{current_model}' compatibility with your API key…", flush=True)
+        m_supported, m_status, m_err = check_model_supported_by_gemini_key(key_to_test, current_model)
+        is_billing_issue = not m_supported and (
+            m_status in (400, 403, 404, 429)
+            or any(k in m_err.lower() for k in ("billing", "permission", "not enabled", "not found", "not supported", "quota"))
+        )
+        if is_billing_issue:
+            fallback_m = "gemini-2.5-flash"
+            if is_cs:
+                print(
+                    f"\n[AI Lens] ! Upozornění na fakturaci: Vybraný model '{current_model}' vyžaduje placený účet (Google Cloud Billing),",
+                    flush=True,
+                )
+                print(
+                    f"               který váš API klíč nepodporuje (Google hlásí {m_status}: {m_err[:120]}).",
+                    flush=True,
+                )
+                print(
+                    f"[AI Lens] ✓ Automaticky přepnuto na plně podporovaný bezplatný model: '{fallback_m}'.\n",
+                    flush=True,
+                )
+            else:
+                print(
+                    f"\n[AI Lens] ! Billing Notice: Selected model '{current_model}' requires Google Cloud Billing (paid subscription),",
+                    flush=True,
+                )
+                print(
+                    f"               which is not enabled for this API key (Google returned {m_status}: {m_err[:120]}).",
+                    flush=True,
+                )
+                print(
+                    f"[AI Lens] ✓ Automatically switched to supported free-tier model: '{fallback_m}'.\n",
+                    flush=True,
+                )
+            set_volatile_gemini_model(fallback_m)
+            set_volatile_gemini_paid_tier(False)
+            return fallback_m
+        return current_model
+
     # Reuse key if already stored in volatile RAM
     if has_volatile_gemini_api_key():
+        active_m = _verify_and_fallback_if_unsupported(get_volatile_gemini_api_key() or "", active_m)
         print(f"[AI Lens] ✓ Using active Gemini API key from volatile memory (Model: {active_m}).\n", flush=True)
         return "ok"
 
@@ -605,6 +682,7 @@ def prompt_for_gemini_api_key(
         is_ok, err_msg, _ = validate_gemini_api_key_live(env_key)
         if is_ok:
             set_volatile_gemini_api_key(env_key)
+            active_m = _verify_and_fallback_if_unsupported(env_key, active_m)
             print(f"[AI Lens] ✓ Gemini API key verified from environment (Model: {active_m}).\n", flush=True)
             return "ok"
 
@@ -634,13 +712,15 @@ def prompt_for_gemini_api_key(
 
         if is_ok and err_msg == "OK":
             set_volatile_gemini_api_key(cleaned_key)
+            print(f"[AI Lens] ✓ Gemini API key successfully verified with Google API!", flush=True)
+            active_m = _verify_and_fallback_if_unsupported(cleaned_key, active_m)
             cleaned_key = ""
             raw_key = ""
-            print(f"[AI Lens] ✓ Gemini API key successfully verified with Google API!", flush=True)
             print(f"[AI Lens] ✓ Active model: {active_m} (loaded into volatile RAM).\n", flush=True)
             return "ok"
         elif is_ok:
             set_volatile_gemini_api_key(cleaned_key)
+            active_m = _verify_and_fallback_if_unsupported(cleaned_key, active_m)
             cleaned_key = ""
             raw_key = ""
             print(f"[AI Lens] ! Warning: Could not verify key online ({err_msg}). Key stored in RAM.\n", flush=True)
@@ -727,50 +807,50 @@ THINKING_LEVELS_GPU: dict[str, dict[str, Any]] = {
     "low": {
         "label": "Low",
         "think": False,
-        "num_ctx": 4096,
-        "num_predict": 2560,
+        "num_ctx": 5120,
+        "num_predict": 3200,
         "max_image_side": 1024,
         "temperature": 0.15,
         "top_p": 0.9,
         "repeat_penalty": 1.07,
         "accuracy_cs": "Vysoká (rychlé ověření vizuálních znaků, textu i otázek krok za krokem — dříve Medium)",
         "accuracy_en": "High (quick step-by-step verification of visual features, text, and questions — formerly Medium)",
-        "context_info_cs": "Vyvážený, bohatý kontext (1–2 odstavce: u zvířete/rostliny/věci uvede druh/plemeno, výskyt, potravu/funkci a zajímavost; bleskový start bez čekání)",
-        "context_info_en": "Balanced, rich context (1–2 paragraphs: for animals/objects covers species/breed, habitat, diet/function & key facts; instant start without waiting)",
-        "desc_cs": "Bleskový vyvážený režim na GPU (2560 tokenů, kontext 4096, okamžitý start streamování do 1–2 s)",
-        "desc_en": "Instant balanced mode on GPU (2560 tokens, 4096 context, streams in 1–2 s)",
+        "context_info_cs": "Vyvážený, bohatý kontext (+25 % textu: 1–3 odstavce u zvířete/rostliny/věci s druhem, výskytem a zajímavostmi)",
+        "context_info_en": "Balanced, rich context (+25% text: 1–3 paragraphs covering species, traits, habitat and facts)",
+        "desc_cs": "Bleskový vyvážený režim na GPU (3200 tokenů, kontext 5120, okamžitý start streamování do 1–2 s)",
+        "desc_en": "Instant balanced mode on GPU (3200 tokens, 5120 context, streams in 1–2 s)",
     },
     "medium": {
         "label": "Medium",
         "think": True,
-        "num_ctx": 8192,
-        "num_predict": 4096,
+        "num_ctx": 10240,
+        "num_predict": 5120,
         "max_image_side": 1280,
         "temperature": 0.12,
         "top_p": 0.88,
         "repeat_penalty": 1.09,
-        "accuracy_cs": "Velmi vysoká (hloubková kontrola detailů, rozlišení podobných druhů/plemen a řešení chytáků — vyšší než dřívější High)",
-        "accuracy_en": "Very High (deep detail verification, distinguishing look-alike species/breeds & solving tricky questions — above former High)",
-        "context_info_cs": "Rozšířený hloubkový kontext (2–3 detailní odstavce: přesný druh/plemeno, diagnostické znaky, biotop/výskyt, potrava/chování či princip fungování a souvislosti)",
-        "context_info_en": "Extended deep context (2–3 detailed paragraphs: exact species/breed, diagnostic traits, habitat, diet/behavior or mechanism & background)",
-        "desc_cs": "Rozšířený režim na GPU (vyšší než dřívější High: 4096 tokenů, kontext 8192, výřez 1280px, hloubkový rozbor)",
-        "desc_en": "Extended mode on GPU (higher than former High: 4096 tokens, 8192 context, 1280px crop, deep analysis)",
+        "accuracy_cs": "Velmi vysoká (hloubková kontrola detailů, rozlišení podobných druhů/plemen a řešení chytáků)",
+        "accuracy_en": "Very High (deep detail verification, distinguishing look-alike species/breeds & solving tricky questions)",
+        "context_info_cs": "Rozšířený hloubkový kontext (+25 % textu: 3–4 detailní odstavce s přesným druhem, znaky, biotopem a principy)",
+        "context_info_en": "Extended deep context (+25% text: 3–4 detailed paragraphs covering species, traits, habitat & mechanism)",
+        "desc_cs": "Rozšířený režim na GPU (+25 % textu: 5120 tokenů, kontext 10240, výřez 1280px, hloubkový rozbor)",
+        "desc_en": "Extended mode on GPU (+25% text: 5120 tokens, 10240 context, 1280px crop, deep analysis)",
     },
     "high": {
         "label": "High",
         "think": True,
-        "num_ctx": 10240,
-        "num_predict": 5120,
+        "num_ctx": 12800,
+        "num_predict": 6400,
         "max_image_side": 1280,
         "temperature": 0.08,
         "top_p": 0.85,
         "repeat_penalty": 1.1,
         "accuracy_cs": "Maximální encyklopedická (víceúrovňová verifikace jemných detailů, šupin, zorniček, srsti i diakritiky)",
         "accuracy_en": "Maximum Encyclopedic (multi-pass verification of fine details, scales, pupils, coat patterns & diacritics)",
-        "context_info_cs": "Vyčerpávající encyklopedický profil (kompletní taxonomie, anatomické znaky ze snímku, výskyt, ekologie, jedovatost/záměny, historie a vědecké zajímavosti)",
-        "context_info_en": "Exhaustive encyclopedic profile (full taxonomy, anatomical traits from image, habitat, ecology, venom/look-alikes, history & scientific facts)",
-        "desc_cs": "Maximální režim na GPU (5120 tokenů, kontext 10240, výřez 1280px – encyklopedický profil s bleskovou GPU akcelerací)",
-        "desc_en": "Maximum mode on GPU (5120 tokens, 10240 context, 1280px crop – encyclopedic profile with fast GPU acceleration)",
+        "context_info_cs": "Vyčerpávající encyklopedický profil (+25 % textu: kompletní taxonomie, anatomie, ekologie a fakta)",
+        "context_info_en": "Exhaustive encyclopedic profile (+25% text: full taxonomy, anatomical traits, ecology & facts)",
+        "desc_cs": "Maximální režim na GPU (+25 % textu: 6400 tokenů, kontext 12800, výřez 1280px – encyklopedický profil)",
+        "desc_en": "Maximum mode on GPU (+25% text: 6400 tokens, 12800 context, 1280px crop – encyclopedic profile)",
     },
 }
 
@@ -778,50 +858,50 @@ THINKING_LEVELS_CPU: dict[str, dict[str, Any]] = {
     "low": {
         "label": "Low",
         "think": False,
-        "num_ctx": 1536,
-        "num_predict": 384,
+        "num_ctx": 1920,
+        "num_predict": 480,
         "max_image_side": 640,
         "temperature": 0.20,
         "top_p": 0.9,
         "repeat_penalty": 1.05,
         "accuracy_cs": "Základní rychlá (blesková přímá odpověď bez zdlouhavého přemýšlení pro CPU)",
         "accuracy_en": "Basic fast (instant direct answer without lengthy thinking for CPU)",
-        "context_info_cs": "Stručný přímý kontext (1–2 věty: okamžitá odpověď a klíčový fakt, minimální zátěž procesoru)",
-        "context_info_en": "Brief direct context (1–2 sentences: instant answer and key fact, minimal CPU overhead)",
-        "desc_cs": "Odlehčený bleskový režim pro CPU (384 tokenů, kontext 1536, výřez 640px, think=False, ~1.5–3 s)",
-        "desc_en": "Lightweight instant CPU mode (384 tokens, 1536 context, 640px crop, think=False, ~1.5–3 s)",
+        "context_info_cs": "Stručný přímý kontext (+25 % textu: 2–3 věty s odpovědí a klíčovými fakty)",
+        "context_info_en": "Brief direct context (+25% text: 2–3 sentences with answer and key facts)",
+        "desc_cs": "Odlehčený bleskový režim pro CPU (480 tokenů, kontext 1920, výřez 640px, think=False, ~1.5–3 s)",
+        "desc_en": "Lightweight instant CPU mode (480 tokens, 1920 context, 640px crop, think=False, ~1.5–3 s)",
     },
     "medium": {
         "label": "Medium",
         "think": True,
-        "num_ctx": 2560,
-        "num_predict": 768,
+        "num_ctx": 3200,
+        "num_predict": 960,
         "max_image_side": 768,
         "temperature": 0.15,
         "top_p": 0.88,
         "repeat_penalty": 1.07,
         "accuracy_cs": "Dobrá vyvážená (rychlé ověření znaků, textu i doplňovaček přizpůsobené pro CPU)",
         "accuracy_en": "Good balanced (fast verification of traits, text & fill-ins tailored for CPU)",
-        "context_info_cs": "Vyvážený stručný kontext (1 odstavec: druh/předmět, popis a hlavní vlastnosti)",
-        "context_info_en": "Balanced concise context (1 paragraph: species/object, description & main traits)",
-        "desc_cs": "Vyvážený režim pro CPU (768 tokenů, kontext 2560, výřez 768px, think=True, ~4–8 s)",
-        "desc_en": "Balanced mode for CPU (768 tokens, 2560 context, 768px crop, think=True, ~4–8 s)",
+        "context_info_cs": "Vyvážený strukturovaný kontext (+25 % textu: 1–2 odstavce s popisem a hlavními vlastnostmi)",
+        "context_info_en": "Balanced structured context (+25% text: 1–2 paragraphs with traits and explanation)",
+        "desc_cs": "Vyvážený režim pro CPU (+25 % textu: 960 tokenů, kontext 3200, výřez 768px, think=True, ~4–8 s)",
+        "desc_en": "Balanced mode for CPU (+25% text: 960 tokens, 3200 context, 768px crop, think=True, ~4–8 s)",
     },
     "high": {
         "label": "High",
         "think": True,
-        "num_ctx": 4096,
-        "num_predict": 1280,
+        "num_ctx": 5120,
+        "num_predict": 1600,
         "max_image_side": 896,
         "temperature": 0.10,
         "top_p": 0.85,
         "repeat_penalty": 1.1,
         "accuracy_cs": "Vysoká přesnost pro CPU (detailní verifikace znaků a otázek s optimalizovanou délkou textu)",
         "accuracy_en": "High accuracy for CPU (thorough verification of traits & questions with optimized text length)",
-        "context_info_cs": "Informativní hloubkový kontext (1–2 odstavce: přesný druh, znaky, výskyt/funkce a zdůvodnění)",
-        "context_info_en": "Informative deep context (1–2 paragraphs: species, traits, habitat/function & reasoning)",
-        "desc_cs": "Hloubkový režim pro CPU (1280 tokenů, kontext 4096, výřez 896px, think=True, ~8–15 s)",
-        "desc_en": "Deep mode for CPU (1280 tokens, 4096 context, 896px crop, think=True, ~8–15 s)",
+        "context_info_cs": "Informativní hloubkový kontext (+25 % textu: 2–3 odstavce s přesným druhem, znaky a zdůvodněním)",
+        "context_info_en": "Informative deep context (+25% text: 2–3 paragraphs with species, traits and reasoning)",
+        "desc_cs": "Hloubkový režim pro CPU (+25 % textu: 1600 tokenů, kontext 5120, výřez 896px, think=True, ~8–15 s)",
+        "desc_en": "Deep mode for CPU (+25% text: 1600 tokens, 5120 context, 896px crop, think=True, ~8–15 s)",
     },
 }
 
@@ -1389,53 +1469,53 @@ def build_system_prompt(
     if is_cpu:
         if level == "low":
             thinking_instruction = (
-                "Fast Direct CPU Mode (1536 context / 384 tokens):\n"
-                "  - Output the direct answer and essential 1-2 facts immediately without lengthy internal thoughts."
+                "Fast Direct CPU Mode (1920 context / 480 tokens):\n"
+                "  - Output the direct answer and essential 2-3 facts immediately without lengthy internal thoughts."
             )
             context_depth_instruction = (
-                "FACTUAL CONTEXT & ACCURACY LEVEL (LOW CPU — CONCISE & DIRECT):\n"
-                "- Be concise and direct (1-2 sentences):\n"
-                "  - Identify the subject or answer clearly and state the key fact.\n"
-                "  - Keep output brief so generation completes in 1-3 seconds on CPU."
+                "FACTUAL CONTEXT & ACCURACY LEVEL (LOW CPU — CONCISE & DIRECT, +25% MORE DETAIL):\n"
+                "- Provide a well-rounded, informative direct answer in 2-3 structured sentences (~25% more detailed than bare minimal answers):\n"
+                "  - Identify the subject or answer clearly and state key factual context.\n"
+                "  - Keep output snappy so generation completes in 1-3 seconds on CPU."
             )
         elif level == "high":
             thinking_instruction = (
-                "Thorough CPU Mode (4096 context / 1280 tokens):\n"
+                "Thorough CPU Mode (5120 context / 1600 tokens):\n"
                 "  - Verify visual details, text, and context carefully step by step without generating excessive verbose tokens."
             )
             context_depth_instruction = (
-                "FACTUAL CONTEXT & ACCURACY LEVEL (HIGH CPU — THOROUGH & OPTIMIZED):\n"
-                "- Provide a thorough, informative profile in 1-2 structured paragraphs:\n"
-                "  - Focus on exact species/traits, key habitat/function, and verified answers without long conversational filler."
+                "FACTUAL CONTEXT & ACCURACY LEVEL (HIGH CPU — THOROUGH & ENRICHED, +25% MORE DETAIL):\n"
+                "- Provide a thorough, informative profile in 2-3 structured paragraphs (~25% more detailed and elaborate):\n"
+                "  - Focus on exact species/traits, key habitat/function, and verified answers with complete reasoning."
             )
         else:  # medium CPU
             thinking_instruction = (
-                "Balanced CPU Mode (2560 context / 768 tokens):\n"
+                "Balanced CPU Mode (3200 context / 960 tokens):\n"
                 "  - Verify visual features and context step by step with focused reasoning."
             )
             context_depth_instruction = (
-                "FACTUAL CONTEXT & ACCURACY LEVEL (MEDIUM CPU — BALANCED & CONCISE):\n"
-                "- Provide accurate, focused context in 1 concise paragraph (avoid verbose filler so generation stays snappy on CPU)."
+                "FACTUAL CONTEXT & ACCURACY LEVEL (MEDIUM CPU — BALANCED & RICH, +25% MORE DETAIL):\n"
+                "- Provide accurate, rich context in 1-2 structured paragraphs (~25% more detailed than basic summaries)."
             )
     else:  # GPU
         if level == "low":
             thinking_instruction = (
-                "Think carefully step by step before answering (4096 context / 2560 tokens):\n"
+                "Think carefully step by step before answering (5120 context / 3200 tokens):\n"
                 "  - Read every character, diacritic, number, math sign, and visual detail accurately.\n"
                 "  - Whenever solving a question, sequence, math problem, or fill-in-the-blank, inspect the full context both BEFORE and AFTER any missing part '_' "
                 "so you avoid careless mistakes.\n"
                 "  - Double-check your conclusion before writing the final response."
             )
             context_depth_instruction = (
-                "FACTUAL CONTEXT & ACCURACY LEVEL (LOW GPU — BALANCED & INFORMATIVE, FORMERLY MEDIUM):\n"
-                "- Provide high accuracy along with well-structured, informative context (1-2 paragraphs):\n"
+                "FACTUAL CONTEXT & ACCURACY LEVEL (LOW GPU — BALANCED & INFORMATIVE, +25% MORE DETAIL):\n"
+                "- Provide high accuracy along with well-structured, rich and comprehensive context (2-3 paragraphs, ~25% more detailed and elaborate):\n"
                 "  - If an animal, plant, or object is circled, accurately identify its species/breed/category, describe what is visible, "
                 "and share useful factual information about it (habitat or function, diet/traits, and key characteristics).\n"
                 "  - If text, code, or a concept is circled, explain its meaning and relevant context clearly."
             )
         elif level == "high":
             thinking_instruction = (
-                "THINK DEEPLY, CRITICALLY, AND EXHAUSTIVELY STEP BY STEP before producing your answer (16384 context / 8192 tokens):\n"
+                "THINK DEEPLY, CRITICALLY, AND EXHAUSTIVELY STEP BY STEP before producing your answer (12800 context / 6400 tokens):\n"
                 "  a) Ultra-High Visual & OCR Precision: Carefully inspect every visual detail (body shape, markings, scale/coat patterns, eye pupils, "
                 "anatomy of animals/plants, object structure, diagrams, symbols, numbers, math operators +, -, ×, ÷, =, <, >, and fine diacritical marks). "
                 "Distinguish look-alike species, breeds, objects, or terms rigorously—never guess from a superficial glance.\n"
@@ -1446,16 +1526,16 @@ def build_system_prompt(
                 "  d) Final Self-Check: Verify there is zero contradiction between the visual evidence and your conclusion."
             )
             context_depth_instruction = (
-                "FACTUAL CONTEXT & ACCURACY LEVEL (HIGH GPU — MAXIMUM ENCYCLOPEDIC PROFILE):\n"
-                "- Deliver maximum factual accuracy and an exhaustive, encyclopedic background profile:\n"
+                "FACTUAL CONTEXT & ACCURACY LEVEL (HIGH GPU — MAXIMUM ENCYCLOPEDIC PROFILE, +25% MORE DETAIL):\n"
+                "- Deliver maximum factual accuracy and an exhaustive, deeply detailed encyclopedic background profile (~25% more comprehensive and richly elaborated):\n"
                 "  - When an animal, reptile, bird, plant, or natural subject is circled: identify the exact species/subspecies/breed (including Latin name), "
                 "describe its visible anatomical/diagnostic features, compare it with possible look-alike species/breeds, and provide rich encyclopedic context "
                 "(habitat & distribution, diet, behavior/ecology, venomous/safety status, and notable scientific facts).\n"
                 "  - When an object, device, landmark, person, or artwork is circled: identify it precisely and explain its purpose, mechanism, "
                 "origin/history, technical characteristics, and significance.\n"
-                "  - When text, a term, code, or a question is circled: explain the full meaning, background context, and complete step-by-step reasoning."
+                "  - When text, a term, code, or a question is circled: explain the full meaning, background context, and complete step-by-step reasoning in depth."
             )
-        else:  # medium GPU (boosted above former High: 10240 context / 5120 tokens)
+        else:  # medium GPU (boosted: 10240 context / 5120 tokens)
             thinking_instruction = (
                 "THINK DEEPLY AND METHODICALLY STEP BY STEP before producing your answer (10240 context / 5120 tokens):\n"
                 "  a) Visual & OCR Precision: Carefully inspect all visual details (markings, anatomy of animals/plants, object structure, "
@@ -1465,8 +1545,8 @@ def build_system_prompt(
                 "  c) Self-Verification: Verify math, logic, and quiz options carefully before writing the final response."
             )
             context_depth_instruction = (
-                "FACTUAL CONTEXT & ACCURACY LEVEL (MEDIUM GPU — EXTENDED DEEP CONTEXT, ABOVE FORMER HIGH):\n"
-                "- Provide very high accuracy and an extended, detailed profile (2-3 rich paragraphs):\n"
+                "FACTUAL CONTEXT & ACCURACY LEVEL (MEDIUM GPU — EXTENDED DEEP CONTEXT, +25% MORE DETAIL):\n"
+                "- Provide very high accuracy and an extended, richly detailed profile (3-4 rich paragraphs, ~25% more detailed and elaborate):\n"
                 "  - When an animal, plant, or natural subject is circled: identify the species/breed, describe visible diagnostic traits, "
                 "mention possible look-alikes if not 100% certain, and cover habitat, diet, behavior, and interesting facts.\n"
                 "  - When an object, device, or landmark is circled: explain what it is, how it works, its origin, and key facts.\n"
@@ -1491,6 +1571,10 @@ def build_system_prompt(
         f"(Also remember that text on screen may be in {en_name} or another language; e.g. in Czech 'had' means snake, not the English verb 'had'.)\n\n"
         f"{context_depth_instruction}\n\n"
         f"{extended_thinking_block}"
+        f"OUTPUT ELABORATION & DEPTH DIRECTIVE (+25% EXPANDED DETAIL FOR STANDARD MODE):\n"
+        f"- When answering in standard mode (triggered via Ctrl+Alt+Shift+G / Alt+F8), produce approximately 25% more depth, detail, and explanation than minimal responses.\n"
+        f"- Fully develop each section: explain the background context, diagnostic traits, step-by-step logic, practical implications, and reasons why alternatives fail.\n"
+        f"- Never leave an answer abrupt or under-explained; provide a rich, informative, and deeply satisfying response.\n\n"
         f"LANGUAGE RULE:\n"
         f"- Always write your entire visible response in natural, fluent, grammatically correct {en_name} ({native_name}) "
         f"using standard everyday vocabulary (never invent nonexistent words or awkward literal translations).\n\n"
@@ -1506,7 +1590,8 @@ def build_system_prompt(
         f"   - For birds, plants, mushrooms, cars: specify the exact species or make/model.\n"
         f"   - Cite visible diagnostic features (head shape, eye pupils, scale/fur/feather patterns, body proportions) AND mention if another similar species/breed could look similar.\n"
         f"3. Standard Questions / Quizzes / Tests / Logic & Math Problems: If the circled region contains a question, test item, multiple-choice quiz, or problem, "
-        f"describe what is shown, ALWAYS provide the direct, verified answer to the question, and clearly explain WHY that answer is correct.\n"
+        f"describe what is shown, ALWAYS provide the direct, verified answer to the question, and clearly explain WHY that answer is correct, "
+        f"providing ~25% more thorough explanation of the underlying concepts, context, and why the other options fail.\n"
         f"   - CRITICAL OPTION MARKING RULE (CHECKMARK & CROSS): Whenever answering any question, test, quiz, or problem with choices/options (multiple-choice A/B/C/D, 1/2/3/4, True/False, or candidate answers): "
         f"ALWAYS put a small checkmark '✓' right next to the correct answer/option (e.g. '✓ B) ...'), and put a cross '✗' next to the wrong/incorrect options (e.g. '✗ A) ...', '✗ C) ...', '✗ D) ...'). Never omit the checkmark on the correct option or the cross on incorrect options!\n"
         f"   - CRITICAL MATH & CALCULATION FORMATTING RULE (NO RAW LATEX): NEVER output raw LaTeX / KaTeX code, formatting macros, or dollar delimiters (NEVER write \\text{{...}}, \\times, \\cdot, \\div, {{,}}, \\frac{{...}}{{...}}, $$, or $). "
@@ -2022,13 +2107,16 @@ class VisionInferenceWorker(QThread):
                         client, url, headers, payload, is_paid_exclusive=is_paid_exclusive
                     )
 
-                # Fallback 3: If still failing or quota exhausted (429/403/404), switch to high-quota alternative models
-                if not ok and status_code in (403, 404, 429):
-                    orig_err_code = status_code
-                    for fallback_model in ("gemini-3.5-flash-lite", "gemini-2.5-flash", "gemini-1.5-flash"):
+                # Fallback 3: If still failing or quota exhausted (429/403/404/400), switch to high-quota alternative models
+                if not ok and status_code in (400, 403, 404, 429):
+                    orig_err_code = status_code if status_code != 200 else 400
+                    is_billing_reason = status_code in (403, 404) or any(
+                        k in err_body.lower() for k in ("billing", "permission", "not enabled", "not found", "not supported", "quota")
+                    )
+                    for fallback_model in ("gemini-2.5-flash", "gemini-3.5-flash-lite", "gemini-1.5-flash"):
                         if gemini_model == fallback_model:
                             continue
-                        time.sleep(0.8)
+                        time.sleep(0.6)
                         fallback_url = f"{GEMINI_API_BASE_URL}/models/{fallback_model}:streamGenerateContent?key={api_key}&alt=sse"
                         payload["generationConfig"].pop("thinkingConfig", None)
                         is_fb_paid = is_paid_exclusive_gemini_model(fallback_model)
@@ -2036,11 +2124,19 @@ class VisionInferenceWorker(QThread):
                             client, fallback_url, headers, payload, is_paid_exclusive=is_fb_paid
                         )
                         if ok:
-                            print(
-                                f"[AI Lens] Model '{gemini_model}' was rate-limited or unavailable ({orig_err_code}), automatically fell back to '{fallback_model}'.",
-                                flush=True,
-                            )
+                            if is_billing_reason:
+                                print(
+                                    f"[AI Lens] Notice: Model '{gemini_model}' requires Google Cloud Billing not enabled on this API key ({orig_err_code}), automatically switched to '{fallback_model}'.",
+                                    flush=True,
+                                )
+                            else:
+                                print(
+                                    f"[AI Lens] Model '{gemini_model}' was rate-limited or unavailable ({orig_err_code}), automatically fell back to '{fallback_model}'.",
+                                    flush=True,
+                                )
                             gemini_model = fallback_model
+                            set_volatile_gemini_model(fallback_model)
+                            set_volatile_gemini_paid_tier(False)
                             break
 
                 # Fallback 4: Standard non-streaming generateContent if streaming had any issue
@@ -2070,11 +2166,42 @@ class VisionInferenceWorker(QThread):
                         err_body = str(ex)
 
                 if not ok:
-                    if status_code == 429:
+                    is_billing_or_perm = (
+                        status_code in (403, 404)
+                        or any(
+                            k in err_body.lower()
+                            for k in (
+                                "billing",
+                                "permission",
+                                "not enabled",
+                                "not found",
+                                "not supported",
+                                "billing must be enabled",
+                                "quota exceeded",
+                            )
+                        )
+                    )
+                    if is_billing_or_perm:
+                        user_friendly_err = (
+                            f"Model '{gemini_model}' vyžaduje aktivní fakturaci (Google Cloud Billing / placený účet), "
+                            f"kterou váš API klíč nepodporuje. Pro bezplatný účet použijte model 'gemini-2.5-flash' nebo 'gemini-3.5-flash-lite'. (Kód {status_code})"
+                            if self.language in ("cs", "sk")
+                            else f"Model '{gemini_model}' requires Google Cloud Billing (paid subscription), "
+                                 f"which is not enabled for your API key. For free accounts, please use 'gemini-2.5-flash' or 'gemini-3.5-flash-lite'. (Code {status_code})"
+                        )
+                    elif status_code == 429:
                         user_friendly_err = (
                             "Překročen limit dotazů Google Gemini API (429). Počkej 2–3 sekundy a zkus to znovu."
                             if self.language in ("cs", "sk")
                             else "Google Gemini API rate limit exceeded (429). Please wait 2–3 seconds and try again."
+                        )
+                    elif status_code == 400 and any(
+                        k in err_body.lower() for k in ("api_key_invalid", "api key not valid", "invalid api key")
+                    ):
+                        user_friendly_err = (
+                            "Zadaný Google Gemini API klíč je neplatný. Zkontrolujte prosím svůj klíč na aistudio.google.com."
+                            if self.language in ("cs", "sk")
+                            else "The provided Google Gemini API key is invalid. Please check your key at aistudio.google.com."
                         )
                     else:
                         err_prefix = (

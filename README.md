@@ -78,9 +78,9 @@ flowchart TD
   - Switch to pure **CPU** execution anytime simply by appending **`CPU`** or **`@\`** to your command (e.g. `.\ai-lens.bat cs High CPU` or `.\ai-lens.bat cs Low CPU`).
   - **Dynamic Dual-Profile Tuning:** When running on CPU, AI Lens automatically applies a lightweight, responsive profile (shorter tokens, optimized crop, direct concise answers) to ensure fast completion in seconds instead of minutes.
 - **3 Powerfully Boosted Thinking Depth & Factual Context Tiers (`Low`, `Medium`, `High`):**
-  - **`Low`** on GPU is boosted to the power of former Medium (`2560` tokens / `4096` context window / `1024px` image / `think=False` for instant ~1.5–3 s streaming). On CPU, it delivers instant direct answers in ~1.5–3 s (`384` tokens / `think=False`).
-  - **`Medium`** on GPU is expanded above former High (`4096` tokens / `8192` context window / `1280px` image / `think=True`). On CPU, it provides a balanced 1-paragraph summary in ~4–8 s (`768` tokens / `2560` context).
-  - **`High`** on GPU is maximized for encyclopedic depth (`5120` tokens / `10240` context window / `1280px` image / `think=True`). On CPU, it provides thorough verification in ~8–15 s (`1280` tokens / `4096` context).
+  - **`Low`** on GPU is boosted with +25% detail (`3200` tokens / `5120` context window / `1024px` image / `think=False` for instant ~1.5–3 s streaming). On CPU, it delivers direct answers in ~1.5–3 s (`480` tokens / `think=False`).
+  - **`Medium`** on GPU is expanded with +25% detail (`5120` tokens / `10240` context window / `1280px` image / `think=True`). On CPU, it provides a balanced 1–2 paragraph summary in ~4–8 s (`960` tokens / `3200` context).
+  - **`High`** on GPU is maximized for encyclopedic depth with +25% detail (`6400` tokens / `12800` context window / `1280px` image / `think=True`). On CPU, it provides thorough verification in ~8–15 s (`1600` tokens / `5120` context).
 - **Calibrated Biological Recognition & Skeptical Animal Confidence Scores (`XX %`):**
   - **Strictly Calibrated for Animals & Domestic Breeds:** Distinguishing domestic cat breeds, mixed-breed dogs, or reptiles without close-up head scale/pupil details is challenging. AI Lens uses a skeptical, realistic probability range (**38–65%** for ambiguous look-alikes or partial views; **25–45%** if distant/blurry) and reserves high confidence (**85–95%**) exclusively for textbook unmistakable specimens with zero look-alikes (e.g., an adult male lion with full mane, giraffe, zebra).
   - Every probability estimate is followed by a **1-sentence rationale** explaining which visual traits confirmed the identification or which alternative look-alike species could not be ruled out.
@@ -138,13 +138,13 @@ When running on GPU (default hardware acceleration offloading all layers directl
 
 | Tier | CLI Command Example | Answer Accuracy & Factual Context (e.g. Circling an Animal, Object, or Text) | Tokens (`num_predict`) / Window (`num_ctx`) | Max Image Detail (`max_side`) | Typical Generation Time & Trade-Off |
 |---|---|---|---|---|---|
-| **`Low`** *(Boosted & Bleskový)* | `.\ai-lens.bat en Low`<br>`.\ai-lens.bat cs Low` | **High Accuracy & Balanced Context (1–2 paragraphs):** Boosted to former Medium tokens! Direct instant answers without lengthy hidden thought pause (`think=False`). | `2560` / `4096` tokens | `1024 px` | **Bleskový (~1.5–3 s on GPU), minimal RAM overhead (~350–500 MB).** Great everyday balance. |
-| **`Medium`** *(Expanded above former High)* | `.\ai-lens.bat en Medium`<br>`.\ai-lens.bat cs Medium` | **Very High Accuracy & Deep Context (2–3 paragraphs):** Exceeds the former High tier. Thorough visual verification, taxonomy/origin, comprehensive diet/mechanics, and step-by-step reasoning (`think=True`). | `4096` / `8192` tokens | `1280 px` | **High detail (~4–8 s on GPU), moderate KV-cache (~600–800 MB).** Recommended for most analytical tasks. |
-| **`High`** *(Maximally Boosted Encyclopedic Depth)* | `.\ai-lens.bat en High`<br>`.\ai-lens.bat cs High` | **Maximum Accuracy & Encyclopedic Profile:** Distinguishes look-alikes and tricky variants, provides exhaustive biological profiles (species, subspecies, look-alike comparisons, anatomical details, behavior, history) with deep reasoning (`think=True`). | `5120` / `10240` tokens | `1280 px` *(fine details & diacritics without memory bloat)* | **Deepest reasoning (~6–14 s on GPU).** Bounded memory footprint (~800–1100 MB KV cache) prevents RAM starvation. |
+| **`Low`** *(Boosted & Bleskový)* | `.\ai-lens.bat en Low`<br>`.\ai-lens.bat cs Low` | **High Accuracy & Balanced Context (+25% text, 1–3 paragraphs):** Rich context with instant start without lengthy hidden thought pause (`think=False`). | `3200` / `5120` tokens | `1024 px` | **Bleskový (~1.5–3 s on GPU), minimal RAM overhead (~350–500 MB).** Great everyday balance. |
+| **`Medium`** *(Expanded +25% Text)* | `.\ai-lens.bat en Medium`<br>`.\ai-lens.bat cs Medium` | **Very High Accuracy & Deep Context (+25% text, 3–4 paragraphs):** Thorough visual verification, taxonomy/origin, comprehensive diet/mechanics, and step-by-step reasoning (`think=True`). | `5120` / `10240` tokens | `1280 px` | **High detail (~4–8 s on GPU), moderate KV-cache (~600–800 MB).** Recommended for most analytical tasks. |
+| **`High`** *(Maximally Boosted Encyclopedic Depth)* | `.\ai-lens.bat en High`<br>`.\ai-lens.bat cs High` | **Maximum Accuracy & Encyclopedic Profile (+25% text):** Distinguishes look-alikes and tricky variants, provides exhaustive biological profiles (species, subspecies, look-alike comparisons, anatomical details, behavior, history) with deep reasoning (`think=True`). | `6400` / `12800` tokens | `1280 px` *(fine details & diacritics without memory bloat)* | **Deepest reasoning (~6–14 s on GPU).** Bounded memory footprint (~800–1100 MB KV cache) prevents RAM starvation. |
 
 > [!NOTE]
 > **RAM Safety on Weak PCs:**
-> Even in `High` mode with 10,240 context tokens, AI Lens explicitly bounds Ollama's context allocation (`num_ctx: 10240`), preventing Ollama from defaulting to a 65,536-token context (~10 GB overhead). This ensures smooth local execution without freezing system memory.
+> Even in `High` mode with 12,800 context tokens, AI Lens explicitly bounds Ollama's context allocation (`num_ctx: 12800`), preventing Ollama from defaulting to a 65,536-token context (~10 GB overhead). This ensures smooth local execution without freezing system memory.
 
 ---
 
@@ -154,9 +154,9 @@ When running on CPU (append **`CPU`** or **`@\`** to your command, e.g. `.\ai-le
 
 | Tier | CLI Command Example | Answer Accuracy & Factual Context on CPU | Tokens (`num_predict`) / Window (`num_ctx`) | Max Image Detail (`max_side`) | Typical Generation Time on CPU |
 |---|---|---|---|---|---|
-| **`Low`** *(Bleskový / Instant)* | `.\ai-lens.bat en Low CPU`<br>`.\ai-lens.bat cs Low CPU` | **Basic Fast & Direct (1–2 sentences):** Direct answer without lengthy internal thinking (`think=False`). Best when you just need the solution, missing word, or translation instantly. | `384` / `1536` tokens | `640 px` | **Ultra-fast (~1.5–3 s on CPU).** Minimal CPU load, instant response. |
-| **`Medium`** *(Vyvážený / Balanced)* | `.\ai-lens.bat en Medium CPU`<br>`.\ai-lens.bat cs Medium CPU` | **Good Balanced Summary (1 paragraph):** Concise identification, key visual traits, function, and verified answer with fast internal reasoning (`think=True`). | `768` / `2560` tokens | `768 px` | **Svižný (~4–8 s on CPU).** Great balance between speed and factual depth. |
-| **`High`** *(Hloubkový / Detailed)* | `.\ai-lens.bat en High CPU`<br>`.\ai-lens.bat cs High CPU` | **High Accuracy with Concise Context (1–2 paragraphs):** Thorough verification of tricky details and fill-ins, explaining the exact rationale while keeping text length optimized for CPU execution (`think=True`). | `1280` / `4096` tokens | `896 px` | **Důkladný (~8–15 s on CPU).** High accuracy without stalling the processor. |
+| **`Low`** *(Bleskový / Instant)* | `.\ai-lens.bat en Low CPU`<br>`.\ai-lens.bat cs Low CPU` | **Basic Fast & Direct (+25% text, 2–3 sentences):** Direct answer without lengthy internal thinking (`think=False`). Best when you just need the solution, missing word, or translation instantly. | `480` / `1920` tokens | `640 px` | **Ultra-fast (~1.5–3 s on CPU).** Minimal CPU load, instant response. |
+| **`Medium`** *(Vyvážený / Balanced)* | `.\ai-lens.bat en Medium CPU`<br>`.\ai-lens.bat cs Medium CPU` | **Good Balanced Summary (+25% text, 1–2 paragraphs):** Concise identification, key visual traits, function, and verified answer with fast internal reasoning (`think=True`). | `960` / `3200` tokens | `768 px` | **Svižný (~4–8 s on CPU).** Great balance between speed and factual depth. |
+| **`High`** *(Hloubkový / Detailed)* | `.\ai-lens.bat en High CPU`<br>`.\ai-lens.bat cs High CPU` | **High Accuracy with Rich Context (+25% text, 2–3 paragraphs):** Thorough verification of tricky details and fill-ins, explaining the exact rationale with +25% more detail while keeping execution snappy on CPU (`think=True`). | `1600` / `5120` tokens | `896 px` | **Důkladný (~8–15 s on CPU).** High accuracy without stalling the processor. |
 
 ---
 
@@ -451,19 +451,26 @@ For full technical documentation—including exact **RAM / VRAM / CPU consumptio
 
 ```text
 ai-lens/
-├── ai_lens/
+├── ai_lens/                 # Pure Python application package
 │   ├── __init__.py          # Package metadata
 │   ├── __main__.py          # Direct python -m ai_lens execution entry point
-│   ├── cli.py               # Typer CLI with direct <lang> and <Low|Medium|High> shortcuts
-│   ├── daemon.py            # Win32 background loop, triple hotkey engine, localized floating dock
+│   ├── cli.py               # Typer CLI with cross-platform commands and shortcuts
+│   ├── daemon.py            # Win32/POSIX background daemon, hotkeys, status dock
 │   ├── capture.py           # Sub-15ms screen capture & high-DPI bounding box crop
-│   ├── overlay.py           # PyQt6 frameless fullscreen overlay with localized HUD & zero-retention RAM wipe
-│   ├── popover.py           # Floating result card, styled HTML renderer (16px bold & serif quotes)
-│   └── vision_engine.py     # Local Ollama QThread worker, loopback security guard, Low/Medium/High tiers
-├── ai-lens.bat              # Universal Windows launcher (works with or without .venv)
-├── config.json              # Persistent configuration (hotkey, model, language, thinking_level)
+│   ├── overlay.py           # PyQt6 frameless fullscreen overlay with zero-retention wipe
+│   ├── popover.py           # Floating result card & SecretTopBar (HTML renderer)
+│   └── vision_engine.py     # Local Ollama & Google Gemini API workers, Low/Medium/High tiers
+├── scripts/                 # Platform-specific auxiliary & shortcut scripts
+│   ├── windows/             # Windows helpers (CPU.bat, GPU.bat, Gemini.bat, enable-cpu-syntax.ps1...)
+│   └── mac/                 # macOS/Linux helpers (setup-mac.sh, CPU.sh, GPU.sh, Gemini.sh...)
+├── ai-lens.bat              # Primary Windows launcher (runs from CMD or PowerShell)
+├── ai-lens.sh / ai-lens     # Primary macOS / Linux launcher (executable shell wrapper)
+├── start.bat / start.sh     # Quick start launchers (e.g. start with Gemini)
+├── setup-mac.sh             # Quick 1-click macOS setup wrapper
+├── enable-cpu-syntax.ps1    # PowerShell syntax and profile integration bridge
+├── config.json              # Persistent user configuration
 ├── pyproject.toml           # Project dependencies and CLI entry point
-├── SPECIFICATIONS.md        # Technical specs, RAM/CPU usage, Low/Medium/High context & security audit
+├── SPECIFICATIONS.md        # Technical specs, RAM/CPU usage, context & security audit
 ├── .gitignore               # Clean git exclusions
 └── README.md                # Documentation
 ```

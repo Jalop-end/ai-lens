@@ -1,5 +1,2 @@
-@echo off
-setlocal
-call "%~dp0..\Gemini.bat" %*
-endlocal
+@call "%~dp0..\scripts\windows\Gemini.bat" %*
 

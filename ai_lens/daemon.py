@@ -597,17 +597,22 @@ def run_daemon(
 
             alt_f8 = alt_down and f8_down
             just_f8 = f8_down
+            ctrl_alt_shift_g = ctrl_down and alt_down and shift_down and g_down
             ctrl_shift_g = ctrl_down and shift_down and g_down
             ctrl_alt_shift_q = ctrl_down and alt_down and shift_down and q_down
             custom_combo = all(_is_down(k) for k in vk_list)
 
-            triggered = alt_f8 or just_f8 or ctrl_shift_g or ctrl_alt_shift_q or custom_combo
+            triggered = alt_f8 or just_f8 or ctrl_alt_shift_g or ctrl_shift_g or ctrl_alt_shift_q or custom_combo
             if triggered and not combo_was_down:
                 combo_was_down = True
                 if ctrl_alt_shift_q:
                     bridge.triggerRequested.emit("secret:GetAsyncKeyState(Ctrl+Alt+Shift+Q)")
                 else:
-                    label = "Alt+F8" if alt_f8 else ("F8" if just_f8 else "Ctrl+Shift+G")
+                    label = (
+                        "Alt+F8"
+                        if alt_f8
+                        else ("F8" if just_f8 else ("Ctrl+Alt+Shift+G" if ctrl_alt_shift_g else "Ctrl+Shift+G"))
+                    )
                     bridge.triggerRequested.emit(f"GetAsyncKeyState({label})")
             elif not triggered:
                 combo_was_down = False
@@ -645,6 +650,8 @@ def run_daemon(
             "<alt>+<f8>": lambda: _fire_trigger("pynput(Alt+F8)"),
             "<ctrl>+<shift>+g": lambda: _fire_trigger("pynput(Ctrl+Shift+G)"),
             "<cmd>+<shift>+g": lambda: _fire_trigger("pynput(Cmd+Shift+G)"),
+            "<ctrl>+<alt>+<shift>+g": lambda: _fire_trigger("pynput(Ctrl+Alt+Shift+G)"),
+            "<cmd>+<alt>+<shift>+g": lambda: _fire_trigger("pynput(Cmd+Alt+Shift+G)"),
             "<ctrl>+<alt>+<shift>+q": lambda: _fire_secret("pynput(Ctrl+Alt+Shift+Q)"),
             "<cmd>+<alt>+<shift>+q": lambda: _fire_secret("pynput(Cmd+Alt+Shift+Q)"),
         }
