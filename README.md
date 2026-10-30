@@ -210,7 +210,7 @@ Pass any language code as a launch argument (e.g. `.\ai-lens.bat de High` or `.\
 | `.\ai-lens.bat [lang] [level] CPU` | `./ai-lens.sh [lang] [level] CPU` | Starts local VLM daemon with lightweight CPU profile. |
 | `.\ai-lens.bat secret` | `./ai-lens.sh secret` | Triggers **Secret Quick-Answer Mode** immediately. |
 | `.\ai-lens.bat trigger` | `./ai-lens.sh trigger` | Triggers standard lasso overlay immediately. |
-| `.\ai-lens.bat diag` | `./ai-lens.sh diag` | Prints real-time system diagnostics (RAM, CPU, active model, security audit). |
+| `.\ai-lens.bat diag [lang]` | `./ai-lens.sh diag [lang]` | Prints real-time system diagnostics in chosen language (e.g. `diag en`, `diag cs`, or `en diag`). |
 | `.\ai-lens.bat levels` | `./ai-lens.sh levels` | Displays detailed parameters for `Low`, `Medium`, and `High` tiers. |
 | `.\ai-lens.bat languages` | `./ai-lens.sh languages` | Lists all 15 supported languages and shows the currently active language. |
 | `.\ai-lens.bat status` | `./ai-lens.sh status` | Checks if background daemon is running. |

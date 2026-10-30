@@ -560,34 +560,62 @@ class PopoverCard(QFrame):
         return pos
 
 
-def clean_chat_math_and_thoughts(text: str) -> str:
+def clean_chat_math_and_thoughts(text: str, max_words: Optional[int] = None) -> str:
     """
-    Cleans internal thoughts and transforms raw LaTeX / KaTeX math expressions
-    into natural human-friendly chat representations (e.g. 'x - 5', '11 % × 0,81 = 8,91 %').
+    Cleans internal thoughts, reasoning blocks, analysis monologues, and transforms
+    raw LaTeX / KaTeX math expressions into natural human-friendly chat representations.
+    If `max_words` is specified, strictly caps output to that number of words (e.g. max 25 words).
     """
     if not text:
         return ""
 
-    # 1. Strip internal thoughts blocks: <thought>...</thought>, <think>...</think>, and unclosed tags
-    text = re.sub(r'(?is)<\s*(?:thought|think)[^>]*>.*?<\s*/\s*(?:thought|think)\s*>', '', text)
-    text = re.sub(r'(?is)<\s*(?:thought|think)[^>]*>.*', '', text)
+    # 1. Strip internal thoughts blocks: <thought>...</thought>, <think>...</think>, <reasoning>...</reasoning>, and unclosed tags
+    text = re.sub(r'(?is)<\s*(?:thought|think|reasoning|reflection)[^>]*>.*?<\s*/\s*(?:thought|think|reasoning|reflection)\s*>', '', text)
+    text = re.sub(r'(?is)<\s*(?:thought|think|reasoning|reflection)[^>]*>.*', '', text)
+
+    # 2. Extract from explicit answer marker if preceded by thinking / monologue
+    # E.g. "Analyzing options... Option A is wrong. Správná odpověď: ✓ B) Paříž"
+    marker_m = re.search(
+        r'(?im)(?:^|\n)\s*(?:(?:\*\*)?(?:správná odpověď|odpověď|výsledek|konečná odpověď|řešení|answer|solution|result):\s*(?:\*\*)?|[✓✔])',
+        text,
+    )
+    if marker_m:
+        prefix = text[:marker_m.start()].strip()
+        if prefix:
+            text = text[marker_m.start():].strip()
+            text = re.sub(
+                r'(?im)^(?:\*\*)?(?:správná odpověď|odpověď|výsledek|konečná odpověď|řešení|answer|solution|result):\s*(?:\*\*)?',
+                '',
+                text,
+            ).strip()
+
+    # 3. Strip thought/reasoning section headers and their lines
+    thought_header_pat = (
+        r'(?im)^\s*(?:\*\*)?(?:thoughts?|thinking(?:\s+process)?|internal reasoning|reasoning|'
+        r'myšlenkový postup|úvaha|analýza(?:\s+otázky|\s+zadání|\s+textu|\s+úlohy)?|'
+        r'rozbor(?:\s+zadání|\s+úlohy)?|vysvětlení|zdůvodnění|postup(?:\s+řešení)?|kroky(?:\s+řešení)?):\s*(?:\*\*)?.*?(?:\n|$)'
+    )
+    text = re.sub(thought_header_pat, '', text)
+
+    # 4. Strip lead-in monologue lines
     text = re.sub(
-        r'(?im)^\s*(?:\*\*)?(?:thoughts?|internal reasoning|myšlenkový postup|úvaha):\s*(?:\*\*)?\s*.*?(?=\n\n|\Z)',
+        r'(?im)^\s*(?:let\'s think step by step|here is my reasoning|nejprve se podíváme na|'
+        r'na obrázku vidíme|zadání požaduje|otázka vyžaduje|prozkoumáme možnosti|musíme určit|podle obrázku).*?\n',
         '',
         text,
     )
 
-    # 2. Convert LaTeX text wrappers: \text{...}, \mathrm{...}, \mathbf{...}, \mathit{...}
+    # 5. Convert LaTeX text wrappers: \text{...}, \mathrm{...}, \mathbf{...}, \mathit{...}
     text = re.sub(r'\\(?:text|mathrm|mathbf|mathit)\s*\{([^}]*)\}', r'\1', text)
 
-    # 3. Handle LaTeX math escapes and spacing
+    # 6. Handle LaTeX math escapes and spacing
     text = text.replace(r'\%', '%')
     text = text.replace(r'\{,\}', ',')
     text = text.replace('{,}', ',')
     text = re.sub(r'(\d+)\{,\}(\d+)', r'\1,\2', text)
     text = text.replace(r'\,', ' ').replace(r'\;', ' ').replace(r'\:', ' ').replace(r'\ ', ' ')
 
-    # 4. Math symbols to clean human chat style
+    # 7. Math symbols to clean human chat style
     text = re.sub(r'\\times\b', '×', text)
     text = re.sub(r'\\cdot\b', '·', text)
     text = re.sub(r'\\div\b', '/', text)
@@ -603,28 +631,35 @@ def clean_chat_math_and_thoughts(text: str) -> str:
     text = re.sub(r'\\left\[', '[', text)
     text = re.sub(r'\\right\]', ']', text)
 
-    # 5. Fractions: \frac{a}{b} -> a / b
+    # 8. Fractions: \frac{a}{b} -> a / b
     for _ in range(3):
         text = re.sub(r'\\frac\{([^{}]+)\}\{([^{}]+)\}', r'\1 / \2', text)
 
-    # 6. Square roots: \sqrt{x} -> √(x)
+    # 9. Square roots: \sqrt{x} -> √(x)
     text = re.sub(r'\\sqrt\{([^{}]+)\}', r'√(\1)', text)
 
-    # 7. Strip single and double dollar signs surrounding inline / block math
+    # 10. Strip single and double dollar signs surrounding inline / block math
     text = re.sub(r'\$\$([^\$]+)\$\$', r'\1', text)
     text = re.sub(r'\$([^\$]+)\$', r'\1', text)
     text = text.replace('$$', '').replace('$', '')
 
-    # 8. Clean redundant whitespace
+    # 11. Clean redundant whitespace
     text = re.sub(r'[ \t]+', ' ', text)
+
+    # 12. Strict word count clamp (if requested, e.g. max 25 words in secret mode)
+    if max_words is not None and max_words > 0:
+        words = text.split()
+        if len(words) > max_words:
+            text = ' '.join(words[:max_words])
+
     return text.strip()
 
 
 def _format_secret_display(text: str) -> str:
-    """Escapes HTML, strips thoughts, cleans math to chat style, and highlights checkmarks and crosses for SecretTopBar."""
+    """Escapes HTML, strips thoughts, cleans math to chat style, strictly caps to 25 words, and highlights checkmarks and crosses for SecretTopBar."""
     if not text:
         return ""
-    cleaned = clean_chat_math_and_thoughts(text)
+    cleaned = clean_chat_math_and_thoughts(text, max_words=25)
     if not cleaned:
         return ""
     escaped = html.escape(cleaned, quote=False)
@@ -763,7 +798,7 @@ class SecretTopBar(QFrame):
         from PyQt6.QtWidgets import QApplication
         cb = QApplication.clipboard()
         if cb is not None:
-            cleaned = clean_chat_math_and_thoughts(self._raw_text)
+            cleaned = clean_chat_math_and_thoughts(self._raw_text, max_words=25)
             cb.setText(cleaned)
             copied_text = "Zkopírováno" if self._language in ("cs", "sk") else "Copied"
             reset_text = "Kopírovat" if self._language in ("cs", "sk") else "Copy"

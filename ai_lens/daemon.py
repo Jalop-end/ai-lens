@@ -15,13 +15,16 @@ from pathlib import Path
 from typing import Optional
 
 from PyQt6.QtCore import QObject, QPoint, QRectF, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor, QGuiApplication, QMouseEvent, QPainter, QPen
+from PyQt6.QtGui import QColor, QGuiApplication, QKeyEvent, QMouseEvent, QPainter, QPen
 from PyQt6.QtWidgets import (
     QApplication,
+    QDialog,
     QFrame,
     QHBoxLayout,
+    QLabel,
     QMenu,
     QPushButton,
+    QVBoxLayout,
     QWidget,
 )
 
@@ -255,8 +258,137 @@ class FloatingTriggerBar(QFrame):
             self.quitClicked.emit()
 
 
+class ExitConfirmDialog(QDialog):
+    """
+    Sleek dark-mode confirmation dialog displayed when requesting to quit AI Lens.
+    Ensures that selecting 'No' (or pressing 'n' / Esc) cleanly aborts quitting and returns to standby.
+    """
+
+    def __init__(self, parent: Optional[QWidget] = None, language: str = "cs") -> None:
+        super().__init__(parent)
+        self.setObjectName("ExitConfirmDialog")
+        self.setWindowTitle("AI Lens — Ukončení / Exit")
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowStaysOnTopHint
+            | Qt.WindowType.Dialog
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+        self.lang_code = normalize_language_code(language)
+        self.is_cs = self.lang_code in ("cs", "sk")
+
+        self.setFixedSize(380, 160)
+
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(10, 10, 10, 10)
+
+        card = QFrame(self)
+        card.setObjectName("Card")
+        card.setStyleSheet("""
+            QFrame#Card {
+                background-color: #0F172A;
+                border: 1px solid rgba(255, 255, 255, 0.18);
+                border-radius: 12px;
+            }
+            QLabel#Title {
+                color: #FFFFFF;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                font-size: 15px;
+                font-weight: 700;
+            }
+            QLabel#Subtitle {
+                color: #94A3B8;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                font-size: 12px;
+            }
+            QPushButton {
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                font-size: 13px;
+                font-weight: 600;
+                border-radius: 8px;
+                padding: 7px 18px;
+            }
+            QPushButton#BtnNo {
+                background-color: #22C55E;
+                color: #0F172A;
+                border: none;
+            }
+            QPushButton#BtnNo:hover {
+                background-color: #16A34A;
+            }
+            QPushButton#BtnYes {
+                background-color: rgba(239, 68, 68, 0.15);
+                color: #EF4444;
+                border: 1px solid rgba(239, 68, 68, 0.40);
+            }
+            QPushButton#BtnYes:hover {
+                background-color: #EF4444;
+                color: #FFFFFF;
+            }
+        """)
+
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(18, 16, 18, 16)
+        card_layout.setSpacing(10)
+
+        title = QLabel(
+            "Opravdu chcete ukončit AI Lens?" if self.is_cs else "Do you really want to exit AI Lens?",
+            card,
+        )
+        title.setObjectName("Title")
+        card_layout.addWidget(title)
+
+        subtitle = QLabel(
+            "Výběrem 'Ne' (nebo stiskem klávesy N) se vrátíte zpět do pohotovostního režimu."
+            if self.is_cs
+            else "Selecting 'No' (or pressing 'N') will return you back to standby.",
+            card,
+        )
+        subtitle.setObjectName("Subtitle")
+        card_layout.addWidget(subtitle)
+
+        btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(10)
+        btn_layout.addStretch()
+
+        self.btn_no = QPushButton("Ne (vrátit se)" if self.is_cs else "No (return)", card)
+        self.btn_no.setObjectName("BtnNo")
+        self.btn_no.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_no.clicked.connect(self.reject)
+        self.btn_no.setDefault(True)
+        self.btn_no.setFocus()
+        btn_layout.addWidget(self.btn_no)
+
+        self.btn_yes = QPushButton("Ano, ukončit" if self.is_cs else "Yes, exit", card)
+        self.btn_yes.setObjectName("BtnYes")
+        self.btn_yes.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_yes.clicked.connect(self.accept)
+        btn_layout.addWidget(self.btn_yes)
+
+        card_layout.addLayout(btn_layout)
+        main_layout.addWidget(card)
+
+        # Center on primary screen
+        screen = QGuiApplication.primaryScreen()
+        if screen is not None:
+            sgeom = screen.geometry()
+            self.move(
+                int(sgeom.x() + (sgeom.width() - self.width()) / 2),
+                int(sgeom.y() + (sgeom.height() - self.height()) / 2),
+            )
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:  # noqa: N802
+        if event.key() in (Qt.Key.Key_N, Qt.Key.Key_Escape):
+            self.reject()
+        elif event.key() in (Qt.Key.Key_Y, Qt.Key.Key_A):
+            self.accept()
+        else:
+            super().keyPressEvent(event)
+
+
 def _is_pid_alive(pid: int) -> bool:
-    """Checks if a Windows process with `pid` is currently alive without any network socket."""
+    """Checks if a process with `pid` is currently alive without any network socket."""
     if pid <= 0:
         return False
     if sys.platform == "win32":
@@ -271,9 +403,24 @@ def _is_pid_alive(pid: int) -> bool:
         return bool(ok and exit_code.value == STILL_ACTIVE)
     try:
         os.kill(pid, 0)
-        return True
     except OSError:
         return False
+
+    # Security (POSIX PID Reuse Guard): verify process belongs to python/ai_lens before signaling
+    try:
+        proc_cmd = Path(f"/proc/{pid}/cmdline")
+        if proc_cmd.exists():
+            cmd = proc_cmd.read_text(encoding="utf-8", errors="replace").lower()
+            return "ai_lens" in cmd or "python" in cmd
+        import subprocess
+        out = subprocess.check_output(
+            ["ps", "-p", str(pid), "-o", "command="],
+            timeout=1.0,
+            stderr=subprocess.DEVNULL,
+        ).decode("utf-8", errors="replace").lower()
+        return "ai_lens" in out or "python" in out
+    except Exception:
+        return True
 
 
 def _read_daemon_state() -> Optional[dict[str, Any]]:
@@ -496,8 +643,17 @@ def run_daemon(
         overlay.close()
         app.quit()
 
+    def _on_dock_quit_clicked() -> None:
+        dlg = ExitConfirmDialog(language=lang_code)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            bridge.stopRequested.emit()
+        else:
+            floating_bar.show()
+            floating_bar.raise_()
+            _log_debug("[AI Lens] Ukončení zrušeno — návrat do pohotovostního režimu.")
+
     floating_bar.triggerClicked.connect(lambda: bridge.triggerRequested.emit("Mini-Dock kliknutí"))
-    floating_bar.quitClicked.connect(bridge.stopRequested.emit)
+    floating_bar.quitClicked.connect(_on_dock_quit_clicked)
 
     bridge.triggerRequested.connect(_on_trigger, Qt.ConnectionType.QueuedConnection)
     bridge.stopRequested.connect(_on_stop, Qt.ConnectionType.QueuedConnection)
@@ -674,8 +830,11 @@ def run_daemon(
         except Exception:
             pass
 
-    # Allow Ctrl+C in terminal to cleanly exit Qt event loop
-    signal.signal(signal.SIGINT, lambda *_: bridge.stopRequested.emit())
+    # Clean Ctrl+C handler: cleanly stops the daemon so Python and batch script terminate simultaneously
+    def _handle_console_interrupt(*_):
+        bridge.stopRequested.emit()
+
+    signal.signal(signal.SIGINT, _handle_console_interrupt)
     sigint_timer = QTimer()
     sigint_timer.start(250)
     sigint_timer.timeout.connect(lambda: None)

@@ -350,6 +350,7 @@ Výsledky bezpečnostního auditu a implementované obranné mechanismy:
 | **5. Visual Prompt Injection (skryté instrukce na obrazovce)** | **ZABEZPEČENO** | Systémový prompt obsahuje striktní bezpečnostní klauzuli. Model navíc **nemá žádný přístup k terminálu ani k souborům**. |
 | **6. Binary Hijacking / Spouštění podprocesů** | **ZABEZPEČENO** | Funkce `_try_start_ollama_service()` spouští binárku bez shellu (`shell=False`) s fixními argumenty a odpojenými streamy. |
 | **7. Únik API klíče na disk** | **ZABEZPEČENO** | Gemini API klíč je držen **pouze v RAM**. Ukládání do `config.json` je v kódu explicitně zablokováno a zakázáno. |
+| **8. Ochrana přenosu a zadávání API klíče** | **ZABEZPEČENO** | Klíč se zadává skrytě (`getpass`), odesílá se pouze v šifrované HTTPS hlavičce `x-goog-api-key` (nikoliv v URL) a je automaticky maskován (`redact_secrets`) ze všech chybových hlášení. |
 
 ---
 
@@ -370,8 +371,10 @@ Výsledky bezpečnostního auditu a implementované obranné mechanismy:
 # 4. Secret Quick-Answer Mód (okamžitá stručná odpověď na horní liště):
 .\ai-lens.bat secret
 
-# 5. Živá diagnostika a výpis stavu:
-.\ai-lens.bat diag               # Kompletní report RAM/CPU, parametrů a bezpečnosti
+# 5. Živá diagnostika a výpis stavu (podpora volby jazyka výstupu):
+.\ai-lens.bat diag               # Kompletní report v nastaveném jazyce (výchozí)
+.\ai-lens.bat diag en            # Kompletní report v angličtině (nebo zkráceně 'en diag')
+.\ai-lens.bat diag cs            # Kompletní report v češtině (nebo zkráceně 'cs diag')
 .\ai-lens.bat status             # Stav procesu na pozadí
 
 # 6. Zastavení procesu a vyčištění RAM:
@@ -392,9 +395,11 @@ Výsledky bezpečnostního auditu a implementované obranné mechanismy:
 ./ai-lens.sh cs High             # GPU / Apple Silicon Metal
 ./ai-lens.sh cs Low CPU          # Odlehčené CPU
 
-# 4. Secret Quick-Answer Mód a diagnostika:
+# 4. Secret Quick-Answer Mód a diagnostika (podpora jazyků):
 ./ai-lens.sh secret
-./ai-lens.sh diag
+./ai-lens.sh diag                # Diagnostika v nastaveném jazyce
+./ai-lens.sh diag en             # Diagnostika v angličtině (nebo './ai-lens.sh en diag')
+./ai-lens.sh diag cs             # Diagnostika v češtině
 
 # 5. Zastavení procesu:
 ./ai-lens.sh stop

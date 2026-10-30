@@ -1,2 +1,2 @@
-@call "%~dp0..\..\ai-lens.bat" %*
+@"%~dp0..\..\ai-lens.bat" %*
 

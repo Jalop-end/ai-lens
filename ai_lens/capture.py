@@ -128,15 +128,21 @@ def crop_from_capture(capture: ScreenCaptureResult, logical_bbox: QRect) -> Imag
     """
     Crops only the selected Bounding Box from the clean original screenshot in RAM
     (accounting for High-DPI devicePixelRatio) and converts just that sub-rectangle to PIL.Image.
+    Safely clamps all coordinates to valid image dimensions to prevent any buffer underflow/overflow.
     """
     dpr = capture.device_pixel_ratio if capture.device_pixel_ratio > 0 else 1.0
     img_w = capture.qpixmap.width()
     img_h = capture.qpixmap.height()
 
-    px_min = max(0, int(round(logical_bbox.left() * dpr)))
-    py_min = max(0, int(round(logical_bbox.top() * dpr)))
-    px_max = min(img_w, int(round((logical_bbox.left() + logical_bbox.width()) * dpr)))
-    py_max = min(img_h, int(round((logical_bbox.top() + logical_bbox.height()) * dpr)))
+    if img_w <= 0 or img_h <= 0 or logical_bbox.isNull() or not logical_bbox.isValid():
+        return Image.new("RGB", (1, 1), (0, 0, 0))
+
+    px_min = max(0, min(img_w - 1, int(round(logical_bbox.left() * dpr))))
+    py_min = max(0, min(img_h - 1, int(round(logical_bbox.top() * dpr))))
+    raw_max_x = int(round((logical_bbox.left() + logical_bbox.width()) * dpr))
+    raw_max_y = int(round((logical_bbox.top() + logical_bbox.height()) * dpr))
+    px_max = max(px_min + 1, min(img_w, raw_max_x))
+    py_max = max(py_min + 1, min(img_h, raw_max_y))
 
     crop_w = max(1, px_max - px_min)
     crop_h = max(1, py_max - py_min)
@@ -146,6 +152,9 @@ def crop_from_capture(capture: ScreenCaptureResult, logical_bbox: QRect) -> Imag
         .copy(px_min, py_min, crop_w, crop_h)
         .convertToFormat(QImage.Format.Format_RGBA8888)
     )
+    if cropped_qimage.isNull() or cropped_qimage.width() <= 0 or cropped_qimage.height() <= 0:
+        return Image.new("RGB", (1, 1), (0, 0, 0))
+
     w, h = cropped_qimage.width(), cropped_qimage.height()
     ptr = cropped_qimage.constBits()
     ptr.setsize(h * cropped_qimage.bytesPerLine())

@@ -174,6 +174,8 @@ def set_compute_device_in_config(device: str, config_path: Path = DEFAULT_CONFIG
     if norm == "gemini":
         return "gemini"
     cfg["compute_device"] = norm
+    cfg.pop("gemini_api_key", None)
+    cfg.pop("api_key", None)
     try:
         with open(config_path, "w", encoding="utf-8") as f:
             json.dump(cfg, f, indent=2, ensure_ascii=False)
@@ -559,28 +561,26 @@ class OverlayWindow(QWidget):
 
         secret_sys_prompt = build_secret_system_prompt(
             lang=lang_code,
-            thinking_level=thinking_level,
+            thinking_level="low",
             compute_device=compute_device,
             model=display_model,
         )
         secret_user_prompt = (
-            "Pečlivě zkontroluj každý znak a kontext okolo mezer. "
-            "Vyřeš / odpověz přímo na otázku, cvičení či úlohu v označeném textu stejně spolehlivě a s plným pochopením jako v klasickém módu, ale uveď pouze stručnou přímou odpověď (s minimem textu bez zbytečné omáčky). "
-            "Myšlenkový postup (thoughts) nech výhradně na pozadí a nevypisuj ho. "
-            "Výpočty a vzorce piš lidsky a přirozeně jako v chatu (např. x - 5 nebo 11 % × 0,81 = 8,91 % (0,0891)), absolutně žádný LaTeX kód jako \\text, \\times, {,} nebo $. "
-            "Pokud obsahuje možnosti (test A/B/C/D apod.), VŽDY dej malou fajfku '✓' u správné odpovědi a křížek '✗' u špatných možností. "
-            "U jazykových cvičení (doplňování slov do cizího textu, gramatika, spojování definic) nepřekládej a doplň slovo v původním jazyce cvičení. "
-            "Překládej pouze tehdy, když to zadání výslovně požaduje. "
-            "U obecných vědomostních otázek odpověz v češtině."
+            "PŘÍSNÝ LIMIT: MAXIMÁLNĚ 25 SLOV. "
+            "Uveď POUZE konečnou správnou odpověď bez jakéhokoliv myšlenkového postupu, úvah, rozborů, vysvětlování či omáčky. "
+            "Myšlenkový postup (thoughts) nevypisuj. "
+            "U testů s možnostmi označ správnou možnost '✓' a špatné možnosti '✗' (bez vysvětlování proč). "
+            "Výpočty a vzorce piš lidsky jako v chatu (např. 11 % × 0,81 = 8,91 % nebo x - 5), bez LaTeXu. "
+            "U jazykových cvičení doplň chybějící slovo v původním jazyce. "
+            "Odpověz přímo a bleskově do 25 slov."
             if lang_code in ("cs", "sk")
-            else "Carefully inspect every character and context around blanks. "
-            "Solve / answer directly to the question, exercise, or problem in the selected text with the same high reliability and deep comprehension as classic mode, but provide only a concise direct answer with minimal text (no conversational filler). "
-            "Keep internal reasoning (thoughts) strictly in the background; do not output any thought process. "
-            "Write math and calculations naturally as in chat (e.g. x - 5 or 11 % × 0.81 = 8.91 % (0.0891)), never use raw LaTeX syntax like \\text, \\times, {,}, or $. "
-            "If it contains choices/options (multiple choice A/B/C/D etc.), ALWAYS put a small checkmark '✓' at the correct option and a cross '✗' at wrong options. "
-            "For foreign language exercises (fill-in-the-blank, grammar, matching definitions), do not translate; supply the answer in the exercise's language. "
-            "Only translate if explicitly asked by the instruction. "
-            f"For general knowledge questions, answer in {lang_code}."
+            else "STRICT LIMIT: MAXIMUM 25 WORDS. "
+            "Provide ONLY the final direct answer with zero thinking, internal reasoning, analysis, explanation, or filler. "
+            "Do NOT output any thought process. "
+            "For multiple-choice questions, mark the correct option with '✓' and wrong options with '✗' (no explanation why). "
+            "Write math naturally as in chat (e.g. 11 % × 0.81 = 8.91 % or x - 5), no raw LaTeX. "
+            "For language exercises, provide the word in the original language. "
+            f"Answer directly in at most 25 words in {lang_code}."
         )
 
         worker = VisionInferenceWorker(
@@ -589,12 +589,13 @@ class OverlayWindow(QWidget):
             ollama_host=ollama_host,
             model=display_model,
             language=lang_code,
-            thinking_level=thinking_level,
+            thinking_level="low",
             compute_device=compute_device,
             system_prompt=secret_sys_prompt,
-            think=bool(tier_cfg["think"]),
-            temperature=float(tier_cfg["temperature"]),
+            think=False,
+            temperature=0.1,
             history=None,
+            is_secret_mode=True,
             parent=self,
         )
         worker.tokenReceived.connect(self.secret_top_bar.append_token)
