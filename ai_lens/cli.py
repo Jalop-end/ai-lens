@@ -480,12 +480,13 @@ def status() -> None:
         dev_disp = get_compute_device_display(dev_code, lang_code)
         tier_cfg = get_thinking_level_config(level_code, dev_code)
         level_disp = get_thinking_level_display(level_code, lang_code, dev_code)
+        cmd_pfx = get_cli_command_prefix()
         typer.echo(
             f"[AI Lens] Proces momentálně neběží (jazyk: {lang_disp}, myšlení: {level_disp} [{tier_cfg['num_predict']} tokenů], výpočet: {dev_disp}).\n"
             "Spusť jej např. příkazem:\n"
-            "  .\\ai-lens.bat start with Gemini  (Google Gemini API — výběr modelu a RAM klíč)\n"
-            "  .\\ai-lens.bat cs High            (GPU lokální model)\n"
-            "  .\\ai-lens.bat cs High CPU        (CPU lokální model)"
+            f"  {cmd_pfx} start with Gemini  (Google Gemini API — výběr modelu a RAM klíč)\n"
+            f"  {cmd_pfx} cs High            (GPU lokální model)\n"
+            f"  {cmd_pfx} cs High CPU        (CPU lokální model)"
         )
 
 
@@ -504,8 +505,9 @@ def languages_cmd() -> None:
     """Vypíše seznam podporovaných zkratek jazyků pro spuštění z terminálu."""
     cfg = load_config()
     current = normalize_language_code(str(cfg.get("language", "cs")))
+    cmd_pfx = get_cli_command_prefix()
     typer.echo(
-        "Podporované zkratky jazyků (použití: `.\\ai-lens.bat <jazyk> [Low|Medium|High]`, např. `.\\ai-lens.bat cs High` nebo `.\\ai-lens.bat en Medium`):"
+        f"Podporované zkratky jazyků (použití: `{cmd_pfx} <jazyk> [Low|Medium|High]`, např. `{cmd_pfx} cs High` nebo `{cmd_pfx} en Medium`):"
     )
     for code, (en_name, native_name) in SUPPORTED_LANGUAGES.items():
         marker = "* " if code == current else "  "
@@ -548,13 +550,19 @@ def levels_cmd() -> None:
         typer.echo(f"              └─ Profil a rychlost : {info['desc_cs']}")
         typer.echo("              " + "-" * 98)
 
-    typer.echo("\nSpuštění: .\\ai-lens.bat <jazyk> <Low|Medium|High> (GPU) nebo .\\ai-lens.bat <jazyk> <Low|Medium|High> CPU (CPU)")
+    cmd_pfx = get_cli_command_prefix()
+    typer.echo(f"\nSpuštění: {cmd_pfx} <jazyk> <Low|Medium|High> (GPU) nebo {cmd_pfx} <jazyk> <Low|Medium|High> CPU (CPU)")
+
+
+def get_cli_command_prefix() -> str:
+    """Returns platform-specific command prefix: '.\\ai-lens.bat' on Windows, './ai-lens.sh' on macOS/Linux."""
+    return ".\\ai-lens.bat" if sys.platform == "win32" else "./ai-lens.sh"
 
 
 def _get_system_memory_info() -> tuple[float, float, float, int]:
     """
-    Returns (total_gb, used_gb, free_gb, percent_used) using Windows GlobalMemoryStatusEx
-    without requiring external dependencies.
+    Returns (total_gb, used_gb, free_gb, percent_used) cross-platform
+    (Windows, macOS, Linux) without requiring external dependencies.
     """
     if sys.platform == "win32":
         try:
@@ -578,6 +586,37 @@ def _get_system_memory_info() -> tuple[float, float, float, int]:
                 free_gb = stat.ullAvailPhys / (1024**3)
                 used_gb = max(0.0, total_gb - free_gb)
                 return total_gb, used_gb, free_gb, int(stat.dwMemoryLoad)
+        except Exception:
+            pass
+    elif sys.platform == "darwin":
+        try:
+            pages = os.sysconf("SC_PHYS_PAGES")
+            page_size = os.sysconf("SC_PAGE_SIZE")
+            total_bytes = pages * page_size
+            total_gb = total_bytes / (1024**3)
+            free_gb = total_gb * 0.4
+            vm = subprocess.check_output(["vm_stat"], timeout=2.0).decode("utf-8", errors="replace")
+            m_free = re.search(r"Pages free:\s+(\d+)", vm)
+            m_spec = re.search(r"Pages speculative:\s+(\d+)", vm)
+            free_p = (int(m_free.group(1)) if m_free else 0) + (int(m_spec.group(1)) if m_spec else 0)
+            if free_p > 0:
+                free_gb = (free_p * page_size) / (1024**3)
+            used_gb = max(0.0, total_gb - free_gb)
+            pct = int((used_gb / total_gb) * 100) if total_gb > 0 else 0
+            return total_gb, used_gb, free_gb, pct
+        except Exception:
+            pass
+    else:  # Linux
+        try:
+            meminfo = Path("/proc/meminfo").read_text(encoding="utf-8")
+            t_m = re.search(r"MemTotal:\s+(\d+)", meminfo)
+            a_m = re.search(r"MemAvailable:\s+(\d+)", meminfo)
+            if t_m and a_m:
+                total_gb = int(t_m.group(1)) / (1024**2)
+                avail_gb = int(a_m.group(1)) / (1024**2)
+                used_gb = max(0.0, total_gb - avail_gb)
+                pct = int((used_gb / total_gb) * 100) if total_gb > 0 else 0
+                return total_gb, used_gb, avail_gb, pct
         except Exception:
             pass
     return 0.0, 0.0, 0.0, 0
@@ -640,9 +679,10 @@ def diag_cmd() -> None:
     typer.echo("=" * 108)
 
     # 1. Stav běhu a AI modelu
+    cmd_pfx = get_cli_command_prefix()
     typer.echo("\n[1/5] STAV APLIKACE & AI MODELU (RUNTIME)")
     typer.echo(
-        f"  • Stav procesu na pozadí : {'BĚŽÍ (připraven na ' + hotkey + ' / F8)' if daemon_running else 'NEBĚŽÍ (spusť: .\\ai-lens.bat cs High nebo .\\ai-lens.bat cs High CPU)'}"
+        f"  • Stav procesu na pozadí : {'BĚŽÍ (připraven na ' + hotkey + ' / F8)' if daemon_running else f'NEBĚŽÍ (spusť: {cmd_pfx} cs High nebo {cmd_pfx} cs High CPU)'}"
     )
     typer.echo(
         f"  • Lokální Ollama engine  : {'ONLINE a model připraven (' + ollama_url + ')' if ollama_online else 'OFFLINE nebo model není stažen (' + ollama_url + ')'}"
@@ -706,8 +746,9 @@ def diag_cmd() -> None:
     typer.echo(
         "  2. [OK] Anti-Proxy izolace (trust_env=False): HTTP klient ignoruje podvržené systémové proměnné HTTP_PROXY / HTTPS_PROXY."
     )
+    ipc_desc = "Win32 WM_HOTKEY" if sys.platform == "win32" else "POSIX signály (SIGUSR1/SIGUSR2/SIGTERM)"
     typer.echo(
-        "  3. [OK] Nulové otevřené síťové porty        : Daemon neotevírá žádný TCP/UDP port; komunikace probíhá přes Windows Named Mutex/Event."
+        f"  3. [OK] Nulové otevřené síťové porty        : Daemon neotevírá žádný TCP/UDP port; komunikace probíhá lokálně přes {ipc_desc}."
     )
     typer.echo(
         "  4. [OK] Ochrana proti XSS / HTML Injection  : Výstup modelu prochází html.escape(..., quote=True) + zákaz klikání na odkazy (DontOpenLinks)."

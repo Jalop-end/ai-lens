@@ -338,6 +338,21 @@ def send_daemon_command(command: str) -> Optional[str]:
         if cmd == "STOP" and tid:
             ok = bool(user32.PostThreadMessageW(tid, WM_HOTKEY, HOTKEY_ID_STOP, 0))
             return "OK:STOPPING" if ok else None
+    else:
+        pid = int(state.get("pid", 0))
+        if pid and _is_pid_alive(pid):
+            try:
+                if cmd == "TRIGGER":
+                    os.kill(pid, signal.SIGUSR1)
+                    return "OK:TRIGGERED"
+                if cmd == "SECRET":
+                    os.kill(pid, signal.SIGUSR2)
+                    return "OK:SECRET"
+                if cmd == "STOP":
+                    os.kill(pid, signal.SIGTERM)
+                    return "OK:STOPPING"
+            except OSError:
+                pass
 
     return None
 
@@ -601,23 +616,56 @@ def run_daemon(
         poll_timer.setInterval(15)
         poll_timer.timeout.connect(_poll_hardware_keys)
         poll_timer.start()
+    else:
+        # Non-Windows (macOS, Linux): register PID state and POSIX signal handlers
+        _write_daemon_state(os.getpid(), 0, dev_code)
+        try:
+            signal.signal(signal.SIGUSR1, lambda *_: bridge.triggerRequested.emit("signal:SIGUSR1"))
+            signal.signal(signal.SIGUSR2, lambda *_: bridge.triggerRequested.emit("secret:signal:SIGUSR2"))
+            signal.signal(signal.SIGTERM, lambda *_: bridge.stopRequested.emit())
+        except Exception:
+            pass
+        ready_event.set()
 
-    # Engine 3: pynput low-level keyboard listener fallback
+    # Engine 3: pynput cross-platform global keyboard listener (Windows, macOS, Linux)
     pynput_listener = None
     try:
         from pynput import keyboard
 
-        def _on_pynput_press(key) -> None:
-            if overlay.isVisible():
-                return
-            if key == keyboard.Key.f8:
-                bridge.triggerRequested.emit("pynput(F8)")
+        def _fire_trigger(src: str) -> None:
+            if not overlay.isVisible():
+                bridge.triggerRequested.emit(src)
 
-        pynput_listener = keyboard.Listener(on_press=_on_pynput_press)
+        def _fire_secret(src: str) -> None:
+            if not overlay.isVisible():
+                bridge.triggerRequested.emit(f"secret:{src}")
+
+        hotkey_bindings = {
+            "<f8>": lambda: _fire_trigger("pynput(F8)"),
+            "<alt>+<f8>": lambda: _fire_trigger("pynput(Alt+F8)"),
+            "<ctrl>+<shift>+g": lambda: _fire_trigger("pynput(Ctrl+Shift+G)"),
+            "<cmd>+<shift>+g": lambda: _fire_trigger("pynput(Cmd+Shift+G)"),
+            "<ctrl>+<alt>+<shift>+q": lambda: _fire_secret("pynput(Ctrl+Alt+Shift+Q)"),
+            "<cmd>+<alt>+<shift>+q": lambda: _fire_secret("pynput(Cmd+Alt+Shift+Q)"),
+        }
+        pynput_listener = keyboard.GlobalHotKeys(hotkey_bindings)
         pynput_listener.daemon = True
         pynput_listener.start()
     except Exception:
-        pass
+        try:
+            from pynput import keyboard
+
+            def _on_pynput_press(key) -> None:
+                if overlay.isVisible():
+                    return
+                if key == keyboard.Key.f8:
+                    bridge.triggerRequested.emit("pynput(F8)")
+
+            pynput_listener = keyboard.Listener(on_press=_on_pynput_press)
+            pynput_listener.daemon = True
+            pynput_listener.start()
+        except Exception:
+            pass
 
     # Allow Ctrl+C in terminal to cleanly exit Qt event loop
     signal.signal(signal.SIGINT, lambda *_: bridge.stopRequested.emit())
@@ -644,6 +692,17 @@ def run_daemon(
 
     level_disp = get_thinking_level_display(level_code, "en", dev_code)
     dev_disp = get_compute_device_display(dev_code, "en")
+    is_mac = sys.platform == "darwin"
+    shortcuts_str = (
+        " [Option + F8]  |  [F8]  |  [Cmd + Shift + G]"
+        if is_mac
+        else " [Alt + F8]  |  [F8]  |  [Ctrl + Alt + Shift + G]"
+    )
+    secret_str = (
+        " [Cmd + Option + Shift + Q] (text drag, concise direct answer)"
+        if is_mac
+        else " [Ctrl + Alt + Shift + Q] (text drag, concise direct answer)"
+    )
     print("=" * 74, flush=True)
     if dev_code == "gemini":
         print(" AI Lens RUNNING IN STANDBY (Google Gemini API — RAM-only key)", flush=True)
@@ -655,8 +714,8 @@ def run_daemon(
         )
         print(f" Compute / Provider   : {dev_disp}", flush=True)
         print(" Key Security         : 100% RAM-only (key is not stored on disk, cleared on exit)", flush=True)
-        print(" Shortcuts            : [Alt + F8]  |  [F8]  |  [Ctrl + Alt + Shift + G]", flush=True)
-        print(" Secret Mode (Fast)   : [Ctrl + Alt + Shift + Q] (text drag, concise direct answer)", flush=True)
+        print(f" Shortcuts            :{shortcuts_str}", flush=True)
+        print(f" Secret Mode (Fast)   :{secret_str}", flush=True)
         print(" Green Status Dot     : Mini dot at top-right corner (click to exit AI Lens immediately)", flush=True)
         print(" Close Overlay        : [Esc] key, click outside card, or right mouse button", flush=True)
         print(" Privacy Protection   : 100% RAM-only (selection and chat cleared from RAM upon closing)", flush=True)
@@ -669,8 +728,8 @@ def run_daemon(
             flush=True,
         )
         print(f" Compute / Device     : {dev_disp}", flush=True)
-        print(" Shortcuts            : [Alt + F8]  |  [F8]  |  [Ctrl + Alt + Shift + G]", flush=True)
-        print(" Secret Mode (Fast)   : [Ctrl + Alt + Shift + Q] (text drag, concise direct answer)", flush=True)
+        print(f" Shortcuts            :{shortcuts_str}", flush=True)
+        print(f" Secret Mode (Fast)   :{secret_str}", flush=True)
         print(" Green Status Dot     : Mini dot at top-right corner (click to exit AI Lens immediately)", flush=True)
         print(" Close Overlay        : [Esc] key, click outside card, or right mouse button", flush=True)
         print(" Privacy Protection   : 100% RAM-only (selection and chat cleared from RAM upon closing)", flush=True)
