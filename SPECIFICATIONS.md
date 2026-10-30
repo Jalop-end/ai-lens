@@ -1,250 +1,290 @@
-# Technické specifikace, spotřeba zdrojů a bezpečnostní diagnostika (AI Lens)
+# Technické specifikace, spotřeba zdrojů a bezpečnostní audit (AI Lens)
 
-Tento dokument obsahuje kompletní technickou specifikaci aplikace **AI Lens**, přehled podporovaných lokálních modelů, přesné nároky na **RAM / VRAM / CPU**, parametry režimů myšlení (**`Low` / `Medium` / `High`**), životní cyklus dat v paměti (**Zero-Retention RAM Policy**) a výsledky **bezpečnostního auditu (ochrana proti napadnutelnosti systému)**.
-
----
-
-## 1. Jak aplikace běží (Architektura a Běhový cyklus)
-
-AI Lens běží jako plně lokální desktopová aplikace rozdělená do dvou oddělených vrstev, které spolu komunikují výhradně přes lokální loopback rozhraní (`127.0.0.1`):
-
-1. **Klientská GUI & Capture vrstva (Python + PyQt6 + Win32 / POSIX):**
-   - Po spuštění (`.\ai-lens.bat en High`, `./ai-lens.sh cs High` nebo `start with Gemini`) běží v lehkém pohotovostním režimu (**Standby Daemon**).
-   - **Plná podpora pro macOS, Linux i Windows:**
-     - Na **Windows** využívá Win32 `RegisterHotKey`, 15ms `GetAsyncKeyState` a meziprocesovou komunikaci přes `PostThreadMessageW` (`WM_HOTKEY`).
-     - Na **macOS a Linuxu** využívá nativní POSIX signály (`SIGUSR1` pro trigger lasa, `SIGUSR2` pro secret textový mód, `SIGTERM` pro bezpečné ukončení) a cross-platform globální zachytávání kláves přes `pynput.keyboard.GlobalHotKeys`.
-   - **Ultra-mini zelená tečka v pravém rohu:** V pravém horním rohu obrazovky je zobrazeno ultra-mini zelené kolečko (7×7 px, `#22C55E`). Přejetím myši zčervená (`#EF4444`) a kliknutím na něj se AI Lens okamžitě a bezpečně kompletně vypne.
-   - **Neotevírá žádný naslouchající TCP/UDP port** – komunikace mezi CLI příkazy (`trigger`, `secret`, `status`, `stop`) a běžícím procesem probíhá zcela offline a lokálně (Win32 zprávy na Windows, POSIX signály na macOS/Linuxu).
-   - Detekce zkratek:
-     - **Windows zkratky:**
-       - Standardní režim lasa: `Alt + F8`, `F8`, `Ctrl + Alt + Shift + G`.
-       - Secret Quick-Answer Mode: `Ctrl + Alt + Shift + Q` (nebo `Ctrl + Shift + Alt + Q`).
-     - **macOS zkratky:**
-       - Standardní režim lasa: `Option + F8`, `F8`, `Cmd + Shift + G`.
-       - Secret Quick-Answer Mode: `Cmd + Option + Shift + Q` (nebo `Cmd + Shift + Option + Q`).
-   - **Těsný Bounding Box (4px padding):** Z kódu bylo odstraněno dřívější 12% nafukování okrajů; rámeček výběru nyní těsně kopíruje nakreslené laso s přesným 4px odsazením.
-   - **Inteligentní odkliknutí (Click-Away Dismissal):** Pokud je zobrazen výsledek (karta `PopoverCard` nebo horní lišta `SecretTopBar`), kliknutí kamkoliv mimo tuto kartu overlay ihned bezpečně zavře a vyčistí RAM, čímž se zamezí nechtěnému spuštění nového výběru.
-   - **Secret Mode (`Ctrl+Alt+Shift+Q`):**
-     - Funguje jako čisté označení textu tažením myší (poloprůhledné zvýraznění jako při kopírování textu bez vytváření ohraničujícího rámečku/pole) a vezme přesně to, co je v něm.
-     - **Okamžité zmizení zvýraznění po puštění myši:** Jakmile uživatel pustí levé tlačítko myši, modré zvýraznění textu okamžitě zmizí a obrazovka zůstává 100% čistá, přirozená a neoznačená během inference i čtení.
-     - **Vysoce čitelná horní lišta (`SecretTopBar`):** Zobrazuje odpověď přímo v horní liště zarovnané k hornímu okraji obrazovky v poloprůhledném glassmorphic stylu (`rgba(12, 20, 36, 135)` s jemným stínovým efektem a 15px tučným písmem). Text je skvěle viditelný i na světlém podkladu webu či dokumentu a dynamicky se přizpůsobuje počtu řádků textu. Obsahuje čisté tlačítko kopírování a zavření (`✕`), zcela bez emotikonů.
-     - **Inteligentní vyhodnocení jazyka (Smart Language Evaluation):**
-       - Pokud je označen cizojazyčný test nebo cvičení (např. doplňování chybějícího slova do anglické věty, gramatický tvar, spojování anglických definic nebo výběr možností), model **odpověď nepřekládá do češtiny**, ale doplní přímo správné anglické slovo (např. `"went"`, nikoliv `"šla"`).
-       - Pokud zadání výslovně žádá překlad (*"Přeložte:"*, *"Translate into..."*), poskytne přeložený výraz v cílovém jazyce.
-       - Pokud jde o běžnou faktickou či popisnou otázku (např. *"What is the capital of France?"*), odpovídá přirozeně ve zvoleném jazyce aplikace (např. česky *"Paříž."*).
-     - **Identické hluboké porozumění a spolehlivost jako v klasickém módu:**
-       - Secret mód provádí stejnou důkladnou analýzu, OCR ověření znaků, kontrolu kontextu před i za mezerami (`_`) a negací (`NENÍ`, `NOT`) jako klasický mód s aktivním interním myšlením (thinking).
-       - **Stručný výstup s minimem textu:** Odpovídá přímo, bez zbytečné omáčky, úvodních frází a dlouhých esejistických vysvětlení — doručí exaktní řešení bez zahlcení obrazovky.
-       - **Myšlenkový postup přísně na pozadí (Zero Thoughts v UI):** Vnitřní uvažování modelu (thoughts / thinking proces) zůstává výhradně na pozadí a nikdy se nevypisuje do lišty SecretTopBar ani do chatu. Během analýzy lišta zobrazuje pouze elegantní indikátor *"Přemýšlím..."* a po dokončení ihned doručí čistou odpověď.
-       - **Lidský zápis výpočtů v chatu (Human-Friendly Chat Math):** Všechny matematické výpočty, rovnice a vzorce se automaticky převádějí ze surového LaTeXu (`\text{...}`, `\times`, `{,}`, `\frac`, `$`) do přirozeného lidského zápisu jako v běžném chatu (např. `11 % × 0,81 = 8,91 % (0,0891)` nebo `x - 5`, `10 / 2 = 5`).
-       - **Značení možností u otázek (✓ a ✗):** U testů a otázek s možnostmi (A/B/C/D apod.) model vždy označí správnou možnost malou fajfkou (`✓`) a chybné možnosti křížkem (`✗`).
-     - **Anglický formát pohotovostního banneru a hlášení:** Úvodní informační tabulka v konzoli, veškeré notifikace o zmrazení obrazovky, čištění RAM i výmazu API klíče se vypisují do konzole anglicky; při přetížení kvóty (HTTP 429) probíhá automatický fallback na `gemini-3.5-flash-lite` se správným kódem chyby.
-2. **Inference vrstva: Duální podpora (Lokální VLM vs. Google Gemini API):**
-   - **Lokální režim (Výchozí):** Ollama na `127.0.0.1:11434` (akcelerace GPU nebo CPU přes `@\`). 100% offline.
-   - **Režim Google Gemini API (`start with Gemini`):**
-     - Umožňuje spuštění přes Google Gemini API s výběrem modelů rozdělených podle předplatného Google:
-       - **Placené předplatné (Paid / Billing enabled):** `gemini-2.5-flash`, `gemini-3.1-pro`, `gemini-3.5-flash`, `gemini-3.8-flash` *(Currently Out of Working — v nabídce zobrazen, ale nelze vybrat)*, `gemini-3.5-flash-lite` (+ vlastní model).
-       - **Bezplatná kvóta (Free tier):** `gemini-2.5-flash`, `gemini-3.5-flash-lite` (+ vlastní model).
-     - **Rozšířené myšlení pro modely v placené / Pro verzi:** Modely z nabídky placeného předplatného, které nejsou ve Free kvótě (zejména `gemini-3.1-pro`, `gemini-3.5-flash` a další Pro modely), mají aktivní hluboké uvažování (`thinkingLevel: "high"` / rozšířený budget) a systém jim přidává o 0.5–1.0 s delší čas na myšlení pro maximální pochopení všech detailů, kontextu a zadání otázky před doručením odpovědi.
-     - **Automatická ochrana proti volbě nepodporovaného placeného modelu (Billing Guard):**
-       - Pokud uživatel zvolí, že má placený účet, a vybere model vyžadující fakturaci (např. gemini-3.1-pro nebo gemini-3.5-flash), ale jeho API klíč patří k bezplatnému projektu bez aktivního Google Cloud Billing:
-         - Systém hned při zadání klíče provede rychlý test oprávnění k danému modelu.
-         - Zjistí-li absenci fakturace (403 PERMISSION_DENIED / 404 NOT_FOUND), nevypíše surový JSON ani nespadne, ale zobrazí přívětivé upozornění v terminálu a **automaticky přepne relaci na plně funkční bezplatný model gemini-2.5-flash**.
-         - Pokud by k zamítnutí placeného modelu došlo během inference v overlayi, systém automaticky přepne na gemini-2.5-flash za běhu a v případě trvalé chyby nabídne srozumitelné české/anglické vysvětlení s doporučením bezplatného modelu namísto technických kódů.
-     - **Značení možností u otázek (✓ a ✗):** Kdykoliv je na obrazovce otázka či test s možnostmi (A/B/C/D, True/False apod.), model vždy označí správnou možnost malou fajfkou (`✓`) a chybné možnosti křížkem (`✗`).
-     - **Striktní zrychlení 3.8 Flash (Low Thinking Lock):** Gemini 3.8 Flash je záměrně uzamčen na `thinkingLevel: "low"`, což eliminuje nekonečné smyčky interního uvažování a garantuje bleskové doručení odpovědi do ~1.5–2.5 s (stejně rychle jako 2.5 Flash).
-     - **Ochrana API klíče v RAM:** Klíč se zadává v příkazové řádce při startu, je uložen **výhradně v krátkodobé paměti (RAM)** a **nikdy se nezapisuje na disk** do `config.json` ani logů.
-     - **Automatický výmaz:** Při jakémkoliv zavření programu ([Esc], pravé tlačítko myši, klik na zelenou tečku, Ctrl+C nebo stop) je API klíč z RAM okamžitě smazán a paměť uvolněna.
-   - Při označení oblasti myší se z originálního snímku v RAM vyřízne pouze ohraničený obdélník (**Bounding Box** s těsným 4px paddingem).
-   - Výřez se přímo v paměti RAM převede na optimalizovaný JPEG base64 řetězec a streamuje se token po tokenu do plovoucího okna (`PopoverCard` nebo `SecretTopBar`).
+Komplexní technická dokumentace desktopové aplikace **AI Lens**, přehled podporovaných modelů (lokální Ollama i Google Gemini API), hardwarové nároky na **RAM / VRAM / CPU**, parametry režimů myšlení (**`Low` / `Medium` / `High`**), životní cyklus dat v paměti (**Zero-Retention RAM Policy**) a výsledky **bezpečnostního auditu systému**.
 
 ---
 
-## 2. Specifikace AI modelů (VLM)
+## 📑 Obsah
 
-Aplikace ve výchozím stavu využívá multimodální model **`gemma4:latest`**, ale v [`config.json`](config.json) (nebo příkazem `.\ai-lens.bat config --model <název>`) lze přepnout na libovolný lokální VLM model v Ollamě:
+- [⚡ Rychlý přehled klíčových parametrů](#-rychlý-přehled-klíčových-parametrů)
+- [1. Architektura a běhový cyklus](#1-architektura-a-běhový-cyklus)
+  - [Srovnání režimů: Standardní mód vs. Secret mód](#srovnání-režimů-standardní-mód-vs-secret-mód)
+  - [Běh na pozadí, signály a zelená mini-tečka](#běh-na-pozadí-signály-a-zelená-mini-tečka)
+- [2. Specifikace AI modelů](#2-specifikace-ai-modelů)
+  - [Lokální VLM modely v Ollamě](#lokální-vlm-modely-v-ollamě)
+  - [Google Gemini API modely a Billing Guard](#google-gemini-api-modely-a-billing-guard)
+- [3. Spotřeba systémových prostředků (RAM, VRAM, CPU)](#3-spotřeba-systémových-prostředků-ram-vram-cpu)
+  - [A. Klientská aplikace AI Lens (Python proces)](#a-klientská-aplikace-ai-lens-python-proces)
+  - [B. Výpočetní engine (GPU akcelerace vs. odlehčené CPU)](#b-výpočetní-engine-gpu-akcelerace-vs-odlehčené-cpu)
+- [4. Úrovně myšlení, přesnost a kontext (Low / Medium / High)](#4-úrovně-myšlení-přesnost-a-kontext-low--medium--high)
+  - [GPU Profil (Maximální encyklopedický výkon)](#gpu-profil-výchozí-akcelerace--maximální-encyklopedický-výkon)
+  - [CPU Profil (Odlehčený režim pro rychlou odezvu)](#cpu-profil-odlehčený-režim-pro-rychlou-odezvu)
+  - [Kalibrovaná pravděpodobnost a skepse u plemen (XX %)](#kalibrovaná-pravděpodobnost-a-skepse-u-plemen-xx-)
+- [5. Nulové uchovávání dat (Zero-Retention RAM Policy)](#5-nulové-uchovávání-dat-zero-retention-ram-policy)
+- [6. Bezpečnostní audit a ochrana proti napadnutelnosti](#6-bezpečnostní-audit-a-ochrana-proti-napadnutelnosti)
+- [7. Příkazový řádek a diagnostika (Windows & macOS / Linux)](#7-příkazový-řádek-a-diagnostika-windows--macos--linux)
+- [8. Právní doložka, licence a autorská práva](#8-právní-doložka-licence-a-autorská-práva)
 
-| Model v Ollamě | Role / Určení | Velikost na disku | Spotřeba RAM / VRAM (Model) | Minimální RAM PC |
+---
+
+## ⚡ Rychlý přehled klíčových parametrů
+
+| Parametr | Specifikace | Poznámka |
+|---|---|---|
+| **Doba zmrazení obrazovky** | **< 15 ms** | Bleskový celoobrazovkový snímek přímo do RAM (podpora až 4K+ high-DPI). |
+| **Běžná spotřeba RAM (Standby)** | **45 – 65 MB** | V paměti běží pouze lehký Win32/POSIX listener a zelená mini-tečka. |
+| **Podporované platformy** | **Windows 10/11, macOS, Linux** | Nativní Win32 zprávy i POSIX signály (`SIGUSR1`, `SIGUSR2`, `SIGTERM`). |
+| **Lokální inference (Výchozí)** | **Ollama (`127.0.0.1:11434`)** | 100% offline, GPU akcelerace nebo odlehčené CPU profily. |
+| **Cloudová inference (Volitelná)**| **Google Gemini API** | Modely 2.5 Flash, 3.1 Pro, 3.5 Flash s ochranou Billing Guard. |
+| **Ukládání dat na disk** | **0 bajtů (Zero Disk Retention)** | Snímky, výřezy ani API klíče se **nikdy nezapisují na disk**. |
+| **Zabezpečení Gemini API klíče** | **100% Volatile RAM** | Zadáno v terminálu, žije pouze v RAM, okamžitý výmaz při ukončení. |
+
+---
+
+## 1. Architektura a běhový cyklus
+
+Aplikace běží jako plně lokální desktopová aplikace rozdělená do dvou oddělených vrstev komunikujících přes lokální rozhraní:
+
+1. **Klientská GUI & Capture vrstva (`ai_lens/` v Pythonu + PyQt6):**
+   - Zajišťuje zachytávání globálních klávesových zkratek, bleskové zmrazení obrazovky, kreslení lasa či textového zvýraznění a vykreslování streamovaných odpovědí.
+2. **Inference vrstva:**
+   - **Lokální Ollama (`127.0.0.1:11434`):** Výchozí režim bez internetu.
+   - **Google Gemini API:** Přímé šifrované HTTPS spojení na oficiální endpointy Google s klíčem uloženým výhradně v RAM.
+
+---
+
+### Srovnání režimů: Standardní mód vs. Secret mód
+
+| Vlastnost | Standardní režim (Laso) | Secret Quick-Answer Mód |
+|---|---|---|
+| **Klávesová zkratka (Windows)** | **`Alt + F8`** / **`Ctrl + Alt + Shift + G`** / **`F8`** | **`Ctrl + Alt + Shift + Q`** (nebo `Ctrl + Shift + Alt + Q`) |
+| **Klávesová zkratka (macOS)** | **`Option + F8`** / **`Cmd + Shift + G`** / **`F8`** | **`Cmd + Option + Shift + Q`** (nebo `Cmd + Shift + Option + Q`) |
+| **Způsob označení** | Volné kreslení myší (**Laso**) kolem libovolného objektu | Tažení myší jako při běžném kopírování textu (**Text Highlight**) |
+| **Vizuální chování výběru** | Zobrazuje kreslené laso a těsný rámeček (4px padding) | **Zvýraznění okamžitě zmizí při puštění myši** (obrazovka zůstává 100% čistá) |
+| **Uživatelské rozhraní** | Plovoucí karta **`PopoverCard`** vedle výběru | Poloprůhledná glassmorphic lišta **`SecretTopBar`** u horního okraje |
+| **Styl výstupu a hloubka** | **Detailní encyklopedický rozbor (+25 % textu):** vysvětlení, citace, follow-up chat | **Přímá a stručná odpověď:** minimum textu, okamžité řešení bez omáčky |
+| **Zobrazení myšlenek (Thoughts)** | Zobrazeno v rozbalovacím bloku (pokud je model v režimu thinking) | **Přísně na pozadí (Zero Thoughts):** v liště se myšlenky nikdy nevypisují |
+| **Formátování matematiky** | Bohatý LaTeX / KaTeX zápis | **Přirozený lidský zápis (Chat Math):** (např. `11 % × 0,81 = 8,91 %` nebo `x - 5`) |
+| **Značení možností u testů** | Textový rozbor jednotlivých voleb | **Označení fajfkou a křížkem:** správná možnost `✓`, chybné možnosti `✗` |
+| **Jazyková inteligence** | Odpovídá v nastaveném jazyce aplikace | Cizojazyčná cvičení doplňuje v originálním jazyce (např. anglicky `"went"`, nikoliv `"šla"`) |
+| **Ukončení a uvolnění paměti** | Kliknutí mimo kartu, klávesa `Esc` nebo pravé tlačítko | Tlačítko `✕`, tlačítko kopírování nebo kliknutí mimo lištu |
+
+---
+
+### Běh na pozadí, signály a zelená mini-tečka
+
+- **Pohotovostní démon (Standby Daemon):** Po spuštění běží na pozadí s minimální režií (~45–65 MB RAM, 0.0 % CPU).
+- **Meziprocesová komunikace:**
+  - Na **Windows** využívá Win32 zprávy `RegisterHotKey`, `GetAsyncKeyState` a `PostThreadMessageW`.
+  - Na **macOS a Linuxu** využívá nativní POSIX signály (`SIGUSR1` pro standardní laso, `SIGUSR2` pro secret mód, `SIGTERM` pro ukončení) a cross-platform knihovnu `pynput`.
+- **Ultra-mini zelená tečka v pravém horním rohu:**
+  - Miniaturní indikátor (7×7 px, `#22C55E`) potvrzuje aktivní běh na pozadí.
+  - Přejetím myši zčervená (`#EF4444`) a **kliknutím na něj se AI Lens okamžitě kompletně ukončí a vyčistí paměť**.
+- **Click-Away Dismissal:** Pokud je zobrazena odpověď, kliknutí kamkoliv mimo kartu či lištu overlay ihned zavře a provede `gc.collect()`.
+
+---
+
+## 2. Specifikace AI modelů
+
+### Lokální VLM modely v Ollamě
+
+Aplikace komunikuje s lokální instancí Ollama na adrese `http://127.0.0.1:11434`:
+
+| Model v Ollamě | Zaměření a silné stránky | Velikost disku | Běžná VRAM/RAM modelu | Doporučená RAM PC |
 |---|---|---|---|---|
-| **`gemma4:latest`** *(Výchozí)* | Univerzální vizuální model s podporou interního přemýšlení (`<thought>`), vhodný na popis obrazu, čtení textu, otázky, logické úlohy i kód | ~5.0 – 5.5 GB | **~5.2 – 6.2 GB** | 8 GB RAM (ideálně 16 GB) |
-| **`qwen2.5vl:3b`** | Ultralehký model pro starší / slabší notebooky a integrované grafiky | ~2.5 GB | **~2.8 – 3.4 GB** | 8 GB RAM |
-| **`minicpm-v:latest`** | Alternativní model zaměřený na husté OCR a dokumenty | ~5.5 GB | **~5.5 – 6.4 GB** | 8 – 16 GB RAM |
+| **`gemma4:latest`** *(Výchozí)* | Univerzální multimodální model nové generace s interním myšlením (`<thought>`), vynikající na text, otázky i logiku | ~5.2 GB | **~5.5 – 6.2 GB** | 8 – 16 GB |
+| **`qwen2.5vl:3b`** | Ultralehký model pro starší notebooky a integrované grafiky | ~2.5 GB | **~2.8 – 3.4 GB** | 8 GB |
+| **`minicpm-v:latest`** | Model specializovaný na hustý text, tabulky a dokumentové OCR | ~5.5 GB | **~5.5 – 6.4 GB** | 8 – 16 GB |
 
 ---
 
-## 3. Spotřeba RAM, VRAM a CPU
+### Google Gemini API modely a Billing Guard
 
-Spotřeba systémových prostředků se dělí na samotnou aplikaci **AI Lens (Python/PyQt6)** a na běh **lokálního AI modelu (Ollama)**:
+Spuštěním přes `.\ai-lens.bat start with Gemini` (nebo `./ai-lens.sh start with Gemini`) získá uživatel přístup ke cloudovým modelům:
 
-### A. Samotná aplikace AI Lens (`python` proces)
-
-| Stav aplikace | Spotřeba RAM (AI Lens) | Využití CPU (AI Lens) | Poznámka |
+| Model ID | Předplatné Google | Specializace a role | Režim uvažování |
 |---|---|---|---|
-| **Pohotovostní režim (Standby / Mini-Dock)** | **~45 – 65 MB RAM** | **0.0 % – 0.2 % CPU** | V RAM je pouze prázdné Qt okno a plovoucí tlačítko; žádný snímek obrazovky není v paměti. |
-| **Aktivní zamrznutí obrazovky (Overlay + Laso)** | **~85 – 140 MB RAM** *(1080p–4K)* | **1 % – 4 % CPU** *(vykreslování lasa 60 FPS)* | V RAM drží 1 nekomprimovaný snímek obrazovky (`QPixmap`) po dobu výběru. |
-| **Streamování odpovědi v Popover okně** | **~90 – 150 MB RAM** | **1 % – 3 % CPU** | Asynchronní čtení JSON streamu a vykreslování HTML v `QTextBrowser`. |
-| **Po uzavření chatu (`Esc` / `✕` / Pravý klik)** | **Zpět na ~45 – 65 MB RAM** | **0.0 % – 0.2 % CPU** | Okamžité vymazání výřezu, historie i obrazovky z RAM + `gc.collect()`. |
+| **`gemini-2.5-flash`** *(Doporučeno)* | **Free i Paid** | Špičkový multimodální model s bleskovou odezvou a podporou reasoning. | Dynamický thinking budget |
+| **`gemini-3.5-flash-lite`** | **Free i Paid** | Nejrychlejší a nejlehčí model s nejvyšší propustností dotazů. | Přímá rychlá inference |
+| **`gemini-3.1-pro`** | **Pouze Paid (Billing)** | Vlajkový model pro náročný kód, hlubokou logiku, matematiku a vědu. | Rozšířené myšlení (+0.5–1.0s) |
+| **`gemini-3.5-flash`** | **Pouze Paid (Billing)** | Pokročilá inteligence a multimodální syntéza s vysokou rychlostí. | Rozšířené myšlení (+0.5–1.0s) |
+| **`gemini-3.8-flash`** | *(V nabídce uzamčen)* | *Zobrazen pro referenci, dočasně vyřazen pro API preview latence.* | Zamčen na low-thinking |
+| **`custom`** | **Free i Paid** | Zadání libovolného model ID z nabídky Google AI Studio. | Dle specifikace modelu |
 
-### B. Lokální AI Engine (`ollama` proces během dotazu)
+> [!IMPORTANT]
+> **Billing Guard (Ochrana proti pádu při bezplatném API klíči):**
+> Pokud uživatel v úvodním dotazu zvolí, že má placený účet, a vybere Pro model (`gemini-3.1-pro` nebo `gemini-3.5-flash`), ale jeho API klíč patří k bezplatnému účtu bez aktivní fakturace:
+> 1. Systém při ověření klíče zachytí kód 403/404 z Google API.
+> 2. Namísto chybového pádu nebo zmateného JSON výpisu zobrazí v terminálu srozumitelné upozornění.
+> 3. **Automaticky a plynule přepne relaci na plně funkční model `gemini-2.5-flash`**.
 
-* **Výchozí běh na GPU (GPU by default):** Aplikace ve výchozím stavu odesílá do Ollamy `num_gpu: -1`, což přesouvá všechny vrstvy modelu i KV-cache přímo do **VRAM grafické karty (NVIDIA / AMD / Apple Silicon)**. Generování je bleskové díky masivní propustnosti VRAM paměti (300–1000 GB/s) a tisícům maticových jader (CUDA / Tensor Cores). Vytížení procesoru je minimální (**3 % – 10 % CPU**).
-* **Přepnutí na čisté CPU (`CPU` nebo `@\`):** Pokud uživatel při spuštění zadá `CPU` nebo `@\` (např. `.\ai-lens.bat cs High CPU` nebo `.\ai-lens.bat cs Low CPU`), AI Lens nastaví `num_gpu: 0`. Model běží kompletně v systémové **RAM** a počítá se na procesoru.
-  - **Proč je CPU pomalejší (Hardware Bottleneck):** Autoregresivní generování tokenů vyžaduje načtení celé váhové matice modelu (~3.5–5.5 GB) pro **každý jeden vygenerovaný token**. Běžná operační paměť PC (DDR4 / DDR5) má propustnost pouhých **25–60 GB/s** (cca 10× až 20× pomalejší než VRAM grafické karty). Procesor navíc disponuje pouze 8–16 jádry. Rychlost generování na CPU je proto přirozeně omezena na ~**4–8 tokenů/s** (oproti 40–80 tokenů/s na GPU).
-  - **Řešení v AI Lens (Odlehčený CPU profil):** Aby uživatel na CPU nečekal minuty, AI Lens při detekci CPU automaticky aktivuje **odlehčený profil** (384–1280 tokenů, vypnuté interní myšlení u `Low`, optimalizovaný výřez a stručné přímé odpovědi). Díky tomu generování na CPU proběhne za **1.5 až 15 sekund**.
-
----
-
-## 4. Specifikace úrovní myšlení, přesnosti odpovědí a šíře kontextu (Duální GPU / CPU architektura)
-
-Pojem **„kontext“** v režimech **`Low`**, **`Medium`** a **`High`** zahrnuje dvě věci:
-1. **Přesnost odpovědi a bohatost faktických informací o zakroužkovaném objektu/textu** (např. když zakroužkuješ zvíře, rostlinu, předmět, budovu nebo odborný pojem, kolik souvisejících informací a jak hluboký popis o něm dostaneš).
-2. **Technickou kapacitu modelu** (velikost kontextového okna `num_ctx`, maximální počet generovaných tokenů `num_predict`, rozlišení výřezu a hloubku interního ověřování).
+- **Rozšířené myšlení pro placené Pro modely:** Modelům v Pro verzi (`gemini-3.1-pro`, `gemini-3.5-flash`) systém přidává o 0.5–1.0 s delší čas na uvažování, což zajišťuje maximální spolehlivost u komplexních logických úloh.
+- **Zabezpečení API klíče:** Klíč žije pouze ve volatilní proměnné v RAM procesu. **Nikdy se neukládá na disk** do `config.json` ani do logů a je automaticky vymazán při jakémkoliv zavření programu.
 
 ---
 
-#### 4.A GPU Profil (Výchozí akcelerace — plný encyklopedický výkon)
+## 3. Spotřeba systémových prostředků (RAM, VRAM, CPU)
 
-| Parametr | `Low` (Bleskový vyvážený režim) | `Medium` (Zvýšeno nad dřívější High) | `High` (Maximálně posílená encyklopedická hloubka) |
+### A. Klientská aplikace AI Lens (Python proces)
+
+| Stav aplikace | Spotřeba RAM (AI Lens) | Využití CPU (AI Lens) | Běhové chování |
 |---|---|---|---|
-| **Spuštění z terminálu (Windows)** | `.\ai-lens.bat en Low`<br>`.\ai-lens.bat cs Low` | `.\ai-lens.bat en Medium`<br>`.\ai-lens.bat cs Medium` | `.\ai-lens.bat en High`<br>`.\ai-lens.bat cs High` |
-| **Přesnost odpovědí** | **Vysoká & Blesková** (přímá odpověď a ověření znaků bez čekání na `<thought>`) | **Velmi vysoká** (hloubkové rozlišení podobných variant a jemných detailů) | **Maximální** (kompletní verifikace, nulová tolerance chyb, hluboký rozbor) |
-| **Faktický kontext (např. zvíře / rostlina / věc)** | **Bohatý vyvážený kontext (1–2 odstavce):** přesně určí druh/kategorii, popíše znaky na snímku, výskyt, potravu/funkci a klíčovou zajímavost. | **Velmi hluboký kontext (2–3 odstavce):** detailní taxonomie, původ/biotop, anatomické znaky, potrava, chování, rozlišení od příbuzných. | **Kompletní encyklopedický profil:** vyčerpávající biologický profil (taxonomie, poddruhy, srovnání záměn, anatomické detaily, biotop, etologie, historie). |
-| **Faktický kontext u textu, kódu a otázek** | Jasné vysvětlení významu, kontextu a zdůvodnění odpovědi. | Detailní rozbor významu, kontrola souvislostí a postupné řešení. | Kompletní rozbor včetně kontroly textu před i za prázdným místem (`_`), odhalení chytáků a exaktní důkaz. |
-| **Interní přemýšlení (`think`)** | **`False`** *(bleskový start streamu za 1–2 s)* | **`True`** *(zapnuto, důkladné ověření)* | **`True`** *(hluboká víceúrovňová verifikace)* |
-| **Velikost kontextu (`num_ctx`)** | **5 120 tokenů** | **10 240 tokenů** | **12 800 tokenů** |
+| **Pohotovostní režim (Standby)** | **~45 – 65 MB RAM** | **0.0 % – 0.2 % CPU** | Pouze globální listener a zelená mini-tečka v rohu; v RAM není žádný snímek. |
+| **Aktivní výběr (Overlay + Laso)** | **~85 – 140 MB RAM** | **1 % – 4 % CPU** | V paměti je držen 1 snímek obrazovky po dobu kreslení (při 60 FPS). |
+| **Streamování odpovědi (Popover / Secret)** | **~90 – 150 MB RAM** | **1 % – 3 % CPU** | Asynchronní příjem JSON streamu a vykreslování v Qt okně. |
+| **Po zavření chatu / výběru (`Esc` / `✕`)** | **Zpět na ~45 – 65 MB RAM** | **0.0 % – 0.2 % CPU** | Okamžité uvolnění výřezu z paměti a spuštění `gc.collect()`. |
+
+---
+
+### B. Výpočetní engine (GPU akcelerace vs. odlehčené CPU)
+
+- **GPU akcelerace (Výchozí):** Ollama odesílá vrstvy modelu i KV-cache přímo do **VRAM grafické karty (NVIDIA / AMD / Apple Silicon Metal)**. Díky propustnosti VRAM (300–1000 GB/s) probíhá generování rychlostí 40–80 tokenů/s při minimálním vytížení hlavního procesoru (**3 % – 10 % CPU**).
+- **Odlehčený režim na CPU (`CPU` nebo `@\`):**
+  - Při spuštění s přepínačem `CPU` běží model kompletně v systémové operační paměti RAM.
+  - Vzhledem k propustnosti běžné systémové RAM (25–60 GB/s) generuje CPU ~4–8 tokenů/s.
+  - **Optimalizace v AI Lens:** Aby uživatel na CPU nečekal minuty, systém automaticky zkracuje délku odpovědi a kontextové okno. Odpověď je tak na CPU doručena za **1.5 až 15 sekund**.
+
+---
+
+## 4. Úrovně myšlení, přesnost a kontext (Low / Medium / High)
+
+Pojem **kontext** v AI Lens definuje hloubku faktického popisu a technické limity generování:
+
+### GPU Profil (Výchozí akcelerace — Maximální encyklopedický výkon)
+
+Všechny GPU profily obsahují **+25 % navýšení textových tokenů** oproti základní verzi:
+
+| Parametr | `Low` (Bleskový režim) | `Medium` (Vyvážený hloubkový) | `High` (Maximální encyklopedický) |
+|---|---|---|---|
+| **Příkaz (Windows)** | `.\ai-lens.bat cs Low` | `.\ai-lens.bat cs Medium` | `.\ai-lens.bat cs High` |
+| **Přesnost odpovědí** | **Vysoká & blesková** (přímé řešení bez čekání na thinking) | **Velmi vysoká** (hloubkové rozlišení jemných detailů) | **Maximální** (kompletní verifikace, nulová tolerance chyb) |
+| **Rozsah faktického popisu** | **1–3 odstavce:** přesné určení druhu, znaky, funkce a klíčová zajímavost. | **3–4 odstavce:** taxonomie, biotop/původ, detailní anatomie, chování a rozbor. | **Kompletní encyklopedický profil:** taxonomie, poddruhy, srovnání záměn, anatomie, historie. |
+| **Interní myšlení (`think`)** | **`False`** *(bleskový start za ~1.5–3 s)* | **`True`** *(zapnuto, důkladná kontrola)* | **`True`** *(hluboká víceúrovňová verifikace)* |
+| **Velikost kontextu (`num_ctx`)** | **5 120 tokenů** | **10 240 tokenů** | **12 800 tokenů** *(bezpečně limitováno)* |
 | **Max. počet tokenů (`num_predict`)** | **3 200 tokenů** | **5 120 tokenů** | **6 400 tokenů** *(+25 % textu)* |
-| **Max. rozlišení výřezu (`max_side`)** | **1 024 px** | **1 280 px** | **1 280 px** *(ostrost detailů bez zahlcení paměti)* |
-| **Teplota (`temperature`)** | `0.15` | `0.12` | `0.08` *(maximální determinismus a přesnost)* |
-| **Top-P / Repeat Penalty** | `0.90` / `1.07` | `0.88` / `1.09` | `0.85` / `1.10` |
-| **Extra spotřeba RAM / VRAM (KV-cache)** | **+ ~350 – 500 MB** | **+ ~600 – 800 MB** | **+ ~800 – 1 100 MB** *(bezpečný strop)* |
-| **Typická doba generování (GPU)** | **~1.5 – 3 s** | **~4 – 8 s** | **~6 – 14 s** *(dle GPU)* |
+| **Rozlišení výřezu (`max_side`)** | **1 024 px** | **1 280 px** | **1 280 px** |
+| **Režijní VRAM (KV-cache)** | **+ ~350 – 500 MB** | **+ ~600 – 800 MB** | **+ ~800 – 1 100 MB** |
+| **Typická doba generování** | **~1.5 – 3 s** | **~4 – 8 s** | **~6 – 14 s** |
 
 ---
 
-### 4.B CPU Profil (Odlehčený režim — snížené tokeny a rychlá odezva bez zasekávání)
+### CPU Profil (Odlehčený režim pro rychlou odezvu)
 
-| Parametr | `Low` (Bleskový režim) | `Medium` (Vyvážený režim) | `High` (Hloubkový režim pro CPU) |
+Aktivuje se přidáním `CPU` nebo `@\` (např. `.\ai-lens.bat cs Low CPU`):
+
+| Parametr | `Low` (Bleskový na CPU) | `Medium` (Vyvážený na CPU) | `High` (Hloubkový na CPU) |
 |---|---|---|---|
-| **Spuštění z terminálu (Windows)** | `.\ai-lens.bat cs Low CPU`<br>`.\ai-lens.bat en Low CPU` | `.\ai-lens.bat cs Medium CPU`<br>`.\ai-lens.bat en Medium CPU` | `.\ai-lens.bat cs High CPU`<br>`.\ai-lens.bat en High CPU` |
-| **Přesnost odpovědí** | **Základní rychlá:** okamžité řešení bez zdlouhavého přemýšlení | **Dobrá vyvážená:** rychlé ověření znaků, textu i doplňovaček | **Vysoká přesnost:** důkladná verifikace s optimalizovanou délkou textu |
-| **Faktický kontext (zvíře / předmět / text)** | **Stručný přímý kontext (1–2 věty):** okamžité určení druhu/řešení a nejdůležitější fakt | **Vyvážený stručný kontext (1 odstavec):** druh/předmět, popis znaků a klíčová vlastnost | **Informativní hloubkový kontext (1–2 odstavce):** přesný druh, znaky, výskyt/funkce a zdůvodnění |
-| **Interní přemýšlení (`think`)** | **`False`** *(okamžitá generace bez overheadu)* | **`True`** *(rychlé interní ověření)* | **`True`** *(pečlivá verifikace)* |
+| **Příkaz (Windows)** | `.\ai-lens.bat cs Low CPU` | `.\ai-lens.bat cs Medium CPU` | `.\ai-lens.bat cs High CPU` |
+| **Přesnost odpovědí** | **Přímá rychlá:** okamžité řešení bez interního zdržení | **Vyvážená:** ověření textu i doplňovaček | **Vysoká přesnost:** důkladná verifikace s optimalizovanou délkou |
+| **Rozsah faktického popisu** | **2–3 věty:** okamžité určení druhu či řešení | **1–2 odstavce:** popis znaků, funkce a ověření | **2–3 odstavce:** přesné zdůvodnění a rozbor |
+| **Interní myšlení (`think`)** | **`False`** *(okamžitý start)* | **`True`** *(rychlé interní ověření)* | **`True`** *(pečlivá verifikace)* |
 | **Velikost kontextu (`num_ctx`)** | **1 920 tokenů** | **3 200 tokenů** | **5 120 tokenů** |
 | **Max. počet tokenů (`num_predict`)** | **480 tokenů** | **960 tokenů** | **1 600 tokenů** *(+25 % textu)* |
-| **Max. rozlišení výřezu (`max_side`)** | **640 px** | **768 px** | **896 px** |
-| **Teplota (`temperature`)** | `0.20` | `0.15` | `0.10` |
-| **Top-P / Repeat Penalty** | `0.90` / `1.05` | `0.88` / `1.07` | `0.85` / `1.10` |
-| **Extra spotřeba RAM (KV-cache)** | **+ ~150 – 250 MB** | **+ ~250 – 400 MB** | **+ ~400 – 600 MB** |
-| **Typická doba generování (CPU)** | **~1.5 – 3 s** *(blesková odezva)* | **~4 – 8 s** | **~8 – 15 s** |
-
-### 4.1 Kalibrované rozpoznávání druhů zvířat, plemen a realistická skepse u pravděpodobnosti (`XX %`)
-
-Model byl instrukcemi striktně kalibrován tak, aby **nepřestřeloval jistotu u zvířat a obtížně rozlišitelných plemen**:
-- **Přísná skepse u koček, psů a divoké zvěře:**
-  - Domácí plemena koček (např. *Britská krátkosrstá*, *Evropská krátkosrstá*, *Ruská modrá*) nebo kříženci mají často velmi podobné zbarvení. Pokud není vidět rodokmen či naprosto specifický tělesný znak, model **záměrně snižuje pravděpodobnost do realistického rozmezí 38–65 %** (nebo **25–45 %**, pokud je zvíře z dálky, rozmazané či částečně zakryté).
-  - Hadi a plazi bez křišťálově ostrého detailu šupin na hlavě a zorniček rovněž dostávají sníženou jistotu s výčtem možných záměn.
-  - **Vysoká jistota 85–95 %** (nikdy slepých 99 %) je vyhrazena **výhradně nezaměnitelným exemplářům bez jakýchkoliv dvojníků** (např. dospělý lev s hřívou, zebra, žirafa, slon).
-- **Povinné zdůvodnění (Rationale):**
-  - Za každým procentem následuje **1 věta vysvětlující**, jaké znaky byly potvrzeny a které alternativní druhy či křížence nelze ze snímku stoprocentně vyloučit.
-- **Zobrazení v UI:**
-  - Hodnota je dynamicky extrahována a v hlavičce `PopoverCard` vykreslena jako čistý barevný odznak bez emotikonů:
-    - 🟢 **≥ 85 %:** Zelený odznak (např. `92 %`) – učebnicový, nezaměnitelný druh.
-    - 🔵 **70 – 84 %:** Modrý odznak (např. `78 %`) – dobrá shoda hlavních znaků.
-    - 🟡 **< 70 %:** Žlutý odznak (např. `54 %` nebo `42 %`) – realistická skepse u kříženců, plemen či chybějících mikro-detailů.
+| **Rozlišení výřezu (`max_side`)** | **640 px** | **768 px** | **896 px** |
+| **Typická doba generování (CPU)** | **~1.5 – 3 s** | **~4 – 8 s** | **~8 – 15 s** |
 
 ---
 
-## 5. Okamžité mazání dat po uzavření chatu (Zero-Retention RAM Policy)
+### Kalibrovaná pravděpodobnost a skepse u plemen (`XX %`)
 
-Aplikace uplatňuje přísnou politiku **nulového uchovávání dat (Zero-Retention)**:
+Model je instruován tak, aby u zvířat a plemen neuváděl nerealisticky vysokou jistotu:
+- **Realistická skepse u plemen a kříženců:** U koček, psů a divokých zvířat bez viditelného rodokmenu či detailu očí/šupin model uvádí pravděpodobnost v realistickém rozmezí **38–65 %** (nebo **25–45 %**, pokud je snímek z dálky či rozmazaný).
+- **Vysoká jistota 85–95 %:** Je vyhrazena výhradně učebnicovým exemplářům bez jakýchkoliv dvojníků (lev s hřívou, slon, žirafa, zebra).
+- **Barevný odznak v záhlaví:**
+  - 🟢 **≥ 85 %:** Zelený odznak (učebnicový druh).
+  - 🔵 **70 – 84 %:** Modrý odznak (velmi dobrá shoda hlavních znaků).
+  - 🟡 **< 70 %:** Žlutý odznak (realistická opatrnost u kříženců a plemen).
+
+---
+
+## 5. Nulové uchovávání dat (Zero-Retention RAM Policy)
+
+AI Lens uplatňuje striktní politiku ochrany soukromí:
 
 1. **Nulový zápis na disk (Zero Disk Persistence):**
-   - Snímky obrazovky (`capture_screen`), zakroužkované výřezy (`crop_from_capture`) ani texty konverzací se **nikdy neukládají na pevný disk** (ani do dočasných složek `%TEMP%`).
-   - Při startu aplikace funkce `_purge_legacy_disk_traces()` automaticky vyčistí případné staré testovací soubory z dřívějších verzí.
-   - Diagnostické výpisy v `daemon.py` se vypisují pouze do živé konzole (`stdout`), nikoli do souboru na disku.
-2. **Okamžité vymazání z RAM při zavření chatu / výběru:**
-   - Jakmile uživatel zavře chat křížkem `✕`, stiskne `Esc`, klikne pravým tlačítkem myši nebo začne kreslit nové laso:
-     - **Ve vlákně `VisionInferenceWorker` (`vision_engine.py`):** V bloku `finally:` (i při okamžitém zrušení přes `clear_memory()`) se uzavře kopie obrázku (`self.image.close()`, `self.image = None`), vymaže se base64 řetězec `b64_img = ""`, vyprázdní se pole `messages.clear()` a `self.history.clear()`.
-     - **V okně `PopoverCard` (`popover.py`):** Metoda `clear_sensitive_data()` okamžitě vymaže Markdown buffer (`self._raw_markdown = ""`), vyčistí HTML dokument (`self.response_browser.clear()`, `setHtml("")`) i vstupní pole (`self.prompt_input.clear()`).
-     - **V okně `OverlayWindow` (`overlay.py`):** Metody `reset_selection()` a `dismiss_overlay()` uzavřou `self._last_cropped_image.close()`, vymažou všechny slovníky v `self._chat_history`, zruší referenci na celoobrazovkový snímek `self.capture_result = None` a okamžitě zavolají **`gc.collect()`**, čímž Python uvolní paměťové stránky v RAM.
+   - Snímky obrazovky, vyříznuté obdélníky ani texty odpovědí se **nikdy nezapisují na pevný disk** (ani do dočasných složek `%TEMP%`).
+   - Veškeré diagnostické výpisy směřují pouze do živé konzole (`stdout`).
+2. **Okamžité vymazání z RAM po zavření:**
+   - Jakmile uživatel zavře odpověď (`Esc`, `✕`, pravé tlačítko nebo nový výběr):
+     - Uzavřou se obrazové objekty (`image.close()`).
+     - Vymažou se base64 buffery i historie chatu v paměti (`clear()`).
+     - Vyčistí se HTML dokument v Qt okně.
+     - Zavolá se **`gc.collect()`**, čímž operační systém ihned získá zpět uvolněné paměťové stránky.
+3. **Izolace Gemini API klíče:**
+   - Klíč je držen výhradně ve volatilní proměnné v paměti procesu a po ukončení aplikace je okamžitě vymazán.
 
 ---
 
-## 6. Bezpečnostní diagnostika a ochrana proti napadnutelnosti systému
+## 6. Bezpečnostní audit a ochrana proti napadnutelnosti
 
-V rámci bezpečnostního auditu zdrojového kódu byly prověřeny všechny potenciální vektory útoku a implementovány vícevrstvé pojistky:
+Výsledky bezpečnostního auditu a implementované obranné mechanismy:
 
-| Oblast / Hrozba | Stav | Implementovaná ochrana v kódu |
+| Vektor útoku / Hrozba | Stav | Implementovaná ochrana v kódu |
 |---|---|---|
-| **1. Odeslání snímku mimo PC (SSRF / Exfiltrace dat přes `config.json`)** | **CHRÁNĚNO** | Funkce `validate_local_ollama_host()` v [`ai_lens/vision_engine.py`](ai_lens/vision_engine.py) parsuje URL a **povoluje výhradně lokální loopback** (`127.0.0.1`, `localhost`, `::1`). Pokud by útočník nebo škodlivý skript změnil `ollama_host` v `config.json` na externí IP/doménu, aplikace ji zablokuje a vynutí `http://127.0.0.1:11434`. |
-| **2. Odposlech přes systémovou Proxy (`HTTP_PROXY` / MitM)** | **CHRÁNĚNO** | Všechna spojení `httpx.Client` mají pevně nastaveno `trust_env=False`. Aplikace kompletně ignoruje podvržené systémové proměnné `HTTP_PROXY` / `HTTPS_PROXY`. |
-| **3. Otevřené síťové porty (Remote Exploit / Firewall)** | **CHRÁNĚNO** | AI Lens **neotevírá žádný naslouchající TCP ani UDP socket**. Proces tedy nelze kontaktovat ani napadnout po lokální síti (LAN/Wi-Fi). |
-| **4. HTML / XSS / Link Injection v okně odpovědi (`QTextBrowser`)** | **CHRÁNĚNO** | Všechen text z modelu prochází přes `html.escape()` v [`ai_lens/popover.py`](ai_lens/popover.py), takže žádné HTML značky (`<script>`, `<img>`, `<iframe>`) ze snímku obrazovky se nemohou vykonat. Navíc má `QTextBrowser` nastaveno `setOpenExternalLinks(False)` i `setOpenLinks(False)`. |
-| **5. Visual Prompt Injection (škodlivé instrukce v textu na obrazovce)** | **CHRÁNĚNO** | Systémový prompt obsahuje explicitní `SECURITY & PROMPT-INJECTION GUARD` (veškerý text na snímku je brán jako nedůvěryhodná data, nikoli příkazy). Navíc model **nemá přístup k žádným systémovým nástrojům, souborům ani příkazové řádce** – generuje pouze čistý text. |
-| **6. Spouštění podprocesů (Command Injection / Binary Hijacking)** | **CHRÁNĚNO** | Funkce `_try_start_ollama_service()` nepoužívá shell (`shell=False`), ověřuje binárku přes `shutil.which("ollama")` a předává pevné pole argumentů `[ollama_bin, "serve"]` s odpojeným `stdin`/`stdout`/`stderr`. |
-| **7. Podvržení hodnot v `config.json` (Buffer / UI DoS)** | **CHRÁNĚNO** | Funkce `load_config()` v [`ai_lens/overlay.py`](ai_lens/overlay.py) omezuje (clampuje) všechny číselné hodnoty do bezpečných mezí (`padding` 0–200 px, `border_width` 1–20 px, `temperature` 0.0–2.0). |
-| **8. Ochrana Gemini API klíče (Únik citlivých dat na disk)** | **CHRÁNĚNO** | **100% RAM-only storage.** Funkce `load_config()` i ukládací funkce explicitně zakazují zápis `gemini_api_key` do `config.json`. Klíč žije pouze v proměnné `_VOLATILE_GEMINI_API_KEY` a je automaticky vymazán z RAM přes `clear_volatile_gemini_api_key()` a `atexit` při každém zavření aplikace. |
+| **1. SSRF / Únik snímku mimo PC přes `config.json`** | **ZABEZPEČENO** | Funkce `validate_local_ollama_host()` povoluje výhradně lokální loopback (`127.0.0.1`, `localhost`, `::1`). Pokus o externí IP je zablokován. |
+| **2. Odposlech přes systémovou proxy (`HTTP_PROXY`)** | **ZABEZPEČENO** | Všechna `httpx` spojení mají pevně nastaveno `trust_env=False`, systémové proxy proměnné jsou kompletně ignorovány. |
+| **3. Vzdálený síťový útok (Otevřené TCP/UDP porty)** | **ZABEZPEČENO** | Aplikace **neotevírá žádný naslouchající síťový socket**. Nelze ji zvenčí kontaktovat po LAN ani Wi-Fi síti. |
+| **4. XSS / Škodlivý HTML kód v okně (`QTextBrowser`)** | **ZABEZPEČENO** | Veškerý text z modelu je před zobrazením escapován přes `html.escape()`. Otevírání externích odkazů v prohlížeči je v Qt okně zakázáno. |
+| **5. Visual Prompt Injection (skryté instrukce na obrazovce)** | **ZABEZPEČENO** | Systémový prompt obsahuje striktní bezpečnostní klauzuli. Model navíc **nemá žádný přístup k terminálu ani k souborům**. |
+| **6. Binary Hijacking / Spouštění podprocesů** | **ZABEZPEČENO** | Funkce `_try_start_ollama_service()` spouští binárku bez shellu (`shell=False`) s fixními argumenty a odpojenými streamy. |
+| **7. Únik API klíče na disk** | **ZABEZPEČENO** | Gemini API klíč je držen **pouze v RAM**. Ukládání do `config.json` je v kódu explicitně zablokováno a zakázáno. |
 
 ---
 
-## 7. Živá diagnostika a spouštění přímo v příkazové řádce (Windows & macOS / Linux)
+## 7. Příkazový řádek a diagnostika (Windows & macOS / Linux)
 
-Veškeré specifikace, aktuální vytížení systémové RAM/CPU, přehled přesnosti a kontextu (`Low` / `Medium` / `High`), kontrolu nulového zápisu na disk i 7-bodový bezpečnostní audit si můžeš kdykoliv vypsat přímo do terminálu.
-
-### A. Windows (CMD / PowerShell)
+### Windows (CMD / PowerShell)
 ```powershell
-# Spuštění kompletní živé diagnostiky v příkazové řádce:
-.\ai-lens.bat diag
-
-# Spuštění v režimu Google Gemini API (výběr modelu z tabulky + zadání RAM klíče):
+# 1. Spuštění v režimu Google Gemini API:
 .\ai-lens.bat start with Gemini
 
-# Spuštění lokálního modelu s GPU (výchozí) vs. s vynuceným CPU:
-.\ai-lens.bat cs High            # GPU
-.\ai-lens.bat cs High @\         # CPU (nebo v PowerShellu ".\ai-lens.bat cs High `"@\`"")
+# 2. Spuštění lokálního modelu na GPU (výchozí):
+.\ai-lens.bat cs High            # Čeština, vysoká hloubka
+.\ai-lens.bat en Medium          # Angličtina, vyvážený režim
 
-# Secret Mode (stručná přímá odpověď s plným pochopením na horní liště):
+# 3. Spuštění lokálního modelu na CPU:
+.\ai-lens.bat cs Low CPU         # Odlehčený bleskový režim
+
+# 4. Secret Quick-Answer Mód (okamžitá stručná odpověď na horní liště):
 .\ai-lens.bat secret
 
-# Zastavení a vyčištění paměti:
+# 5. Živá diagnostika a výpis stavu:
+.\ai-lens.bat diag               # Kompletní report RAM/CPU, parametrů a bezpečnosti
+.\ai-lens.bat status             # Stav procesu na pozadí
+
+# 6. Zastavení procesu a vyčištění RAM:
 .\ai-lens.bat stop
 ```
 
-### B. macOS & Linux (Terminal / zsh / bash)
+### macOS & Linux (Terminal / zsh / bash)
 ```bash
-# 1. Jednorázové nastavení práv a aliasů (volitelné):
-chmod +x *.sh ai-lens start
-./setup-mac.sh                   # Automaticky nastaví aliasy v ~/.zshrc a ~/.bash_profile
+# 1. Jednorázová aktivace aliasů:
+./setup-mac.sh
 
 # 2. Spuštění v režimu Google Gemini API:
 ./ai-lens.sh start with Gemini
-# nebo zkráceně přímo:
+# nebo zkráceně:
 ./start with Gemini
-./scripts/mac/Gemini.sh
 
 # 3. Spuštění lokálního modelu:
-./ai-lens.sh cs High             # GPU akcelerace
-./scripts/mac/CPU.sh             # Rychlý spouštěč pro CPU
-./scripts/mac/GPU.sh             # Rychlý spouštěč pro GPU
+./ai-lens.sh cs High             # GPU / Apple Silicon Metal
+./ai-lens.sh cs Low CPU          # Odlehčené CPU
 
-# 4. Diagnostika a stav systému:
-./ai-lens.sh diag
-./ai-lens.sh status
-
-# 5. Secret Mode a ukončení:
+# 4. Secret Quick-Answer Mód a diagnostika:
 ./ai-lens.sh secret
+./ai-lens.sh diag
+
+# 5. Zastavení procesu:
 ./ai-lens.sh stop
 ```
 
 ---
 
-## 8. Právní doložka, licence a ochrana autorských práv (Legal & Compliance)
+## 8. Právní doložka, licence a autorská práva
 
-Zdrojový kód aplikace **AI Lens** je licencován pod otevřenou licencí [**MIT License**](LICENSE) (Copyright © 2026 Jan Šubrta).
+Zdrojový kód aplikace **AI Lens** je licencován pod otevřenou licencí [**MIT License**](LICENSE) (Copyright © 2026 Jalop-end).
 
-Pro zajištění 100% souladu s právními předpisy a podmínkami poskytovatelů AI platí:
-1. **Google Gemini API:** Přístup ke službám Google Gemini podléhá [Google APIs Terms of Service](https://developers.google.com/terms) a [Gemini API Additional Terms of Service](https://ai.google.dev/gemini-api/terms). AI Lens funguje výhradně jako nezávislé klientské rozhraní — API klíč zadává sám uživatel a je držen pouze v krátkodobé paměti RAM (nikdy se neukládá na disk ani neodesílá třetím stranám).
+1. **Google Gemini API:** Přístup ke službám Google Gemini podléhá [Google APIs Terms of Service](https://developers.google.com/terms) a [Gemini API Additional Terms of Service](https://ai.google.dev/gemini-api/terms). AI Lens funguje výhradně jako nezávislé klientské rozhraní — API klíč zadává sám uživatel a je držen pouze v krátkodobé paměti RAM.
 2. **Lokální modely (Ollama):** Váhy modelů (**Google Gemma**, **Qwen2.5-VL**, **MiniCPM-V**) nejsou součástí tohoto softwaru a stahuje si je uživatel sám z oficiálních repozitářů v souladu s jejich příslušnými licencemi (Gemma Terms of Use, Apache 2.0).
 3. **Knihovny třetích stran:** Aplikace využívá open-source komponenty (PyQt6/Qt, httpx, Pillow, mss, pynput, typer, numpy). Kompletní přehled licencí a ochranných známek je podrobně uveden v souboru [**`NOTICE`**](NOTICE).
-4. **Vyloučení odpovědnosti (Disclaimer):** AI Lens je nezávislý open-source projekt a není nijak spojen, sponzorován ani autorizován společnostmi Google LLC, Alibaba Cloud, OpenBMB, The Qt Company ani Riverbank Computing. Všechny ochranné známky náleží jejich právoplatným vlastníkům.
-
+4. **Vyloučení odpovědnosti (Disclaimer):** AI Lens je nezávislý open-source projekt a není nijak spojen, sponzorován ani autorizován společnostmi Google LLC, Alibaba Cloud, OpenBMB, The Qt Company ani Riverbank Computing.

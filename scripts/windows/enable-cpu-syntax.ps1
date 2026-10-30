@@ -126,5 +126,5 @@ if (Get-Module -ListAvailable -Name PSReadLine) {
     }
 }
 
-Write-Host "[AI Lens] Podpora pro '.\ai-lens.bat start with Gemini' a '@\' byla úspěšně aktivována v PowerShellu." -ForegroundColor Green
+Write-Host "[AI Lens] Podpora pro '.\ai-lens.bat start with Gemini' a '@\' byla uspesne aktivovana v PowerShellu." -ForegroundColor Green
 
