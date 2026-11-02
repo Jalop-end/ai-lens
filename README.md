@@ -22,7 +22,7 @@ With a single hotkey (**`Alt + F8`** / **`Ctrl + Alt + Shift + G`**), Secret Qui
   - [macOS & Linux](#macos--linux)
 - [🎯 Modes & Features Comparison](#-modes--features-comparison)
 - [🚀 Launch Modes](#-launch-modes)
-  - [Mode A: Google Gemini API (Free & Paid + Billing Guard)](#mode-a-google-gemini-api)
+  - [Mode A: Google Gemini API (Free & Gemini Pro + Smart Quota Guard)](#mode-a-google-gemini-api)
   - [Mode B: Local VLM (GPU vs. CPU Thinking Tiers)](#mode-b-local-vlm-thinking-tiers)
 - [⌨️ Hotkeys & Gestures](#-hotkeys--shortcuts)
 - [🌐 Supported Languages (15)](#-supported-languages-full-ui--ai-localization)
@@ -101,11 +101,11 @@ AI Lens offers two purpose-built modes depending on whether you need deep encycl
 | **Selection Gesture** | **Freehand mouse lasso** around any screen element | **Text-selection drag** (like selecting text in browser/Word) |
 | **Selection Visibility** | Smooth animated contour with 4px tight crop | **Vanishes immediately upon mouse release** (screen stays 100% clean) |
 | **Display Interface** | Floating `PopoverCard` anchored next to selection | Glassmorphic `SecretTopBar` along top screen edge |
-| **Reasoning & Depth** | **Comprehensive & deep:** +25% rich text depth, citations, follow-up chat | **Direct & concise:** Minimal text, immediate answer without filler |
-| **Thinking in UI** | Shown in collapsible thought block (when enabled) | **Zero thoughts in UI:** Internal reasoning stays strictly in background |
-| **Math Formatting** | Clean styled LaTeX / KaTeX equations | **Human-friendly chat math:** (e.g. `11 % × 0.81 = 8.91 %` or `x - 5`) |
-| **Question Options** | Detailed rationale of each choice | **Smart checkmarks:** Correct marked with `✓`, incorrect with `✗` |
-| **Language Logic** | Follows configured app language | **Context-aware:** Fills English tests in English; translates only when asked |
+| **Reasoning & Depth** | **Comprehensive & deep:** +25% rich text depth, citations, follow-up chat | **Strict max 25 words:** Direct verified answer only, zero filler |
+| **Thinking in UI** | Shown in collapsible thought block (when enabled) | **Zero thoughts in UI:** Real-time stream filter strips all thought blocks |
+| **Math Formatting** | Clean human-readable equations | **Human-friendly chat math:** (e.g. `11 % × 0.81 = 8.91 %` or `x - 5`) |
+| **Question Options** | Detailed rationale of each choice (`✓` / `✗`) | **Smart checkmarks:** Correct marked with `✓`, incorrect with `✗` |
+| **Language Logic** | Follows configured app language | **Context-aware:** Fills exercises in original language; direct answer otherwise |
 | **Dismissal & RAM** | Click outside, press `Esc`, or right-click to wipe | Click `✕`, copy button, or click outside to instantly wipe RAM |
 
 ---
@@ -120,27 +120,28 @@ Launch with:
 ./ai-lens.sh start with Gemini      # macOS / Linux
 ```
 
-#### 1. Subscription Gate & Model Selection
-AI Lens queries whether you have an active Google Cloud / AI Studio paid billing subscription:
+#### 1. Subscription Tier & Model Selection
+AI Lens prompts whether you have a Gemini Pro / paid API subscription (`[y/N]`) and presents the corresponding model lineup, dynamically resolving logical model IDs to live Google `/v1beta/models` endpoints:
 
-| Model ID | Subscription Tier | Role / Specialization | Reasoning Mode |
+| Model ID | Tier Availability | Role / Specialization | Reasoning Mode |
 |---|---|---|---|
-| **`gemini-2.5-flash`** *(Recommended)* | **Free & Paid** | Next-gen lightning-fast multimodal model. High accuracy, instant response. | Reasoning with dynamic budget |
-| **`gemini-3.5-flash-lite`** | **Free & Paid** | Ultra-lightweight model with lowest latency and highest request throughput. | Snappy direct inference |
-| **`gemini-3.1-pro`** | **Paid (Billing Required)** | Flagship model for complex code, advanced mathematics, logic, and deep analysis. | High thinking depth (+0.5–1.0s) |
-| **`gemini-3.5-flash`** | **Paid (Billing Required)** | Superior reasoning speed & intelligence balance for complex multi-modal prompts. | High thinking depth (+0.5–1.0s) |
-| **`gemini-3.8-flash`** | *(Currently Disabled)* | *Kept in menu for reference, disabled due to upstream preview rate-limits.* | Low-thinking locked |
-| **`custom`** | **Free & Paid** | Enter any Google Gemini model identifier manually. | Dynamically configured |
+| **`gemini-2.5-flash`** *(Recommended)* | **Free & Gemini Pro / Paid** | Next-gen lightning-fast multimodal model. High accuracy, instant response. | Dynamic thinking budget |
+| **`gemini-3.1-pro`** | **Gemini Pro / Paid** | Flagship Pro model for complex code, advanced mathematics, logic, and deep analysis. | Pro reasoning (`low` / `high`) |
+| **`gemini-3.5-flash`** | **Free & Gemini Pro / Paid** | High-intelligence next-gen multimodal model balancing frontier accuracy and speed. | Fast reasoning |
+| **`gemini-3.5-flash-lite`** | **Free & Gemini Pro / Paid** | Ultra-lightweight model with lowest latency and highest request throughput. | Snappy low-latency inference |
+| **`gemini-2.5-pro`** | **Gemini Pro / Paid** | Stable high-precision Pro reasoning model for demanding STEM and analytical tasks. | Deep thinking budget |
+| **`gemini-3.8-flash`** | *(Currently Disabled)* | *Shown as out of working due to upstream preview rate-limits.* | Disabled in selector |
+| **`custom`** | **Free & Gemini Pro / Paid** | Enter any valid Google Gemini model identifier manually. | Dynamically configured |
 
 > [!IMPORTANT]
-> **Gemini Billing Guard (Automatic Fallback Protection):**
-> If you choose a Pro model (`gemini-3.1-pro` or `gemini-3.5-flash`) but provide an API key belonging to a free project without billing, AI Lens **will not crash or print raw error JSON**. 
-> Instead, it immediately catches the 403/404 billing refusal, prints a clear friendly warning in your terminal, and **automatically switches your session to `gemini-2.5-flash`**.
+> **Smart Access & Quota Guard (Zero-Quota-Waste Startup + Seamless Runtime Fallback):**
+> - Startup verifies your API key and model catalog via `GET /v1beta/models` (**consuming 0 RPM / 0 token quota**), keeping your selected model (such as `gemini-3.1-pro`) active immediately.
+> - If a request during active use hits a temporary rate limit (`429`) or an unsupported model tier (`403`/`404`), AI Lens retries cleanly or answers seamlessly via the highest-capability available fallback model (`gemini-2.5-pro` → `gemini-3.5-flash` → `gemini-2.5-flash`) without crashing or permanently downgrading your chosen Pro model on transient rate limits.
 
-#### 2. Strict RAM-Only API Key Security
-- Your Gemini API key is entered at startup and verified live against Google's `/v1beta/models` endpoint.
-- **100% Volatile Memory:** The key is stored **strictly in process RAM** and is **never written to disk**, `config.json`, or log files.
-- **Instant Auto-Wipe:** Exiting the app (`[Esc]`, clicking `✕`, or `stop`) immediately clears the key variable and calls `gc.collect()`.
+#### 2. Strict RAM-Only API Key Security & Masked Input
+- **Masked Console Paste (`*`):** Supports `Ctrl+V` and right-click pasting with asterisk masking for both classic **`AIza...`** (39-char) and modern **`AQ....`** (53-char) Google Gemini API keys, automatically stripping invisible browser/clipboard formatting characters while rejecting malformed non-ASCII input.
+- **HTTPS Header-Only Transport:** Transmitted exclusively in the `x-goog-api-key` header (never in URL query strings) with automatic secret redaction in any error output.
+- **100% Volatile Memory & Auto-Wipe:** Stored **strictly in process RAM** (never written to `config.json`, logs, or disk) and immediately wiped with `gc.collect()` upon exit.
 
 ---
 
@@ -178,9 +179,9 @@ When running on CPU (e.g. `.\ai-lens.bat cs Low CPU`), AI Lens automatically act
 | Action | Windows Shortcut | macOS Shortcut | Description |
 |---|---|---|---|
 | **Standard Lasso Capture** | **`Alt + F8`** or **`Ctrl + Alt + Shift + G`** or **`F8`** | **`Option + F8`** or **`Cmd + Shift + G`** or **`F8`** | Freehand mouse lasso; opens PopoverCard with +25% rich depth. |
-| **Secret Quick-Answer Mode** | **`Ctrl + Alt + Shift + Q`** | **`Cmd + Option + Shift + Q`** | Text-selection highlight drag; opens concise Glassmorphic SecretTopBar. |
+| **Secret Quick-Answer Mode** | **`Ctrl + Alt + Shift + Q`** | **`Cmd + Option + Shift + Q`** | Text-selection highlight drag; opens Glassmorphic SecretTopBar (strict max 25 words, zero thoughts). |
 | **Dismiss / Cancel** | **`Esc`** or Right-Click | **`Esc`** or Two-Finger Tap | Immediately closes overlay and flushes RAM. |
-| **Clean Process Exit** | **Click Green Dot** (top-right) | **Click Green Dot** (top-right) | Turns red on hover; 1-click immediate safe shutdown. |
+| **Clean Process Exit** | **Click Green Dot** (or `Ctrl + C`) | **Click Green Dot** (or `Ctrl + C`) | Turns red on hover; safe `[y/N]` exit confirmation (`N` returns cleanly to standby). |
 
 ---
 
@@ -257,7 +258,7 @@ AI Lens is built with strict privacy and defensive security standards:
 - **Strict SSRF & Localhost Enforcement:** The Ollama client validates host URLs to ensure requests only route to local loopback (`127.0.0.1`, `localhost`).
 - **Proxy Bypass Immunity:** HTTP clients enforce `trust_env=False`, ignoring system-level `HTTP_PROXY` redirects to prevent MitM snooping.
 - **XSS & Link Hardening:** Markdown output is strictly HTML-escaped before display, and all external navigation links are disabled.
-- **Volatile Gemini Key Storage:** API keys reside only in process RAM and are instantly wiped on shutdown.
+- **Volatile Gemini Key Storage & Header-Only Transport:** Masked `*` console input supports both `AIza...` and `AQ....` keys strictly in process RAM, transmitted exclusively via the `x-goog-api-key` HTTPS header (never in URLs or logs), with automatic secret redaction and instant wipe on shutdown.
 
 For complete audit logs and threat vector analysis, see [**`SPECIFICATIONS.md`**](SPECIFICATIONS.md).
 
@@ -275,7 +276,7 @@ flowchart LR
         direction TB
         CLI["CLI / Daemon"] --> CFG["Config & Tiers"]
         CFG --> HK["Hotkeys:<br/>Alt+F8 / Ctrl+Alt+Shift+Q"]
-        CFG --> DOT["Green Dot<br/>(1-click exit)"]
+        CFG --> DOT["Green Dot / Ctrl+C<br/>([y/N] safe exit)"]
     end
 
     subgraph S2 ["2. Capture & Crop"]
@@ -292,7 +293,7 @@ flowchart LR
         direction TB
         CROP --> ROUTE{"Engine Router"}
         ROUTE -->|"Local Ollama"| LOCAL["Ollama VLM (GPU/CPU)<br/>Low / Med / High"]
-        ROUTE -->|"Google Gemini"| CLOUD["Gemini 2.5 / 3.x Flash<br/>+ Billing Guard Fallback"]
+        ROUTE -->|"Google Gemini"| CLOUD["Gemini 2.5 / 3.x Pro & Flash<br/>+ Smart Quota Guard"]
     end
 
     subgraph S4 ["4. Display & RAM Wipe"]
@@ -300,7 +301,7 @@ flowchart LR
         LOCAL --> DISP["Stream Response"]
         CLOUD --> DISP
         DISP -->|"Standard"| POP["PopoverCard (+25% depth)"]
-        DISP -->|"Secret"| BAR["SecretTopBar (concise)"]
+        DISP -->|"Secret"| BAR["SecretTopBar (max 25 words)"]
         POP --> WIPE["Zero-Retention Wipe<br/>(RAM cleared, gc.collect)"]
         BAR --> WIPE
     end
@@ -326,11 +327,11 @@ flowchart LR
    - The cropped region is encoded in memory as a compressed JPEG base64 buffer without touching disk.
 4. **Step 4: AI Brain Processing & Reasoning**
    - **Local VLM (Ollama):** Applies system prompt guards against prompt injection, bounds KV-cache allocation, and dynamically configures thinking budgets.
-   - **Google Gemini API:** Injects the volatile RAM-only API key, sets thinking levels (`low` for Gemini 3.8 Flash to guarantee rapid 1.5–2.5 s response), and runs Billing Guard.
+   - **Google Gemini API:** Injects the volatile RAM-only API key via `x-goog-api-key`, dynamically resolves live `/v1beta/models` endpoints (`gemini-3.1-pro`, `gemini-3.5-flash`, `gemini-3.5-flash-lite`, `gemini-2.5-pro`, `gemini-2.5-flash`), configures quota-friendly thinking budgets, and runs Smart Access & Quota Guard.
    - Emits tokens asynchronously via dedicated background threads (`QThread`) with live progress reporting.
 5. **Step 5: High-Precision Formatting & Typography**
    - Answers in bold 16px text (`#E5E7EB`), citations in italic serif font, LaTeX equations converted into natural chat math (e.g. `11 % × 0.81 = 8.91 %`), and multiple-choice options marked with `✓` and `✗`.
-   - Secret Mode suppresses all internal thought text (thoughts stay 100% in background).
+   - Secret Mode enforces a strict max 25-word direct answer and strips all internal thought blocks in real time (zero thoughts displayed in UI).
 6. **Step 6: Zero-Retention RAM Wipe**
    - Upon pressing `[Esc]`, clicking the copy/close button, or clicking outside the card, all image buffers, history dictionaries, and Qt documents are cleared, followed by immediate Python garbage collection (`gc.collect()`).
 

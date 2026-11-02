@@ -84,11 +84,11 @@ function global:start {
     # start with Gemini
     if ($firstArg -eq "with" -and $secondArg -like "*gemini*") {
         if (Test-Path $py) {
-            & $py -m ai_lens start with Gemini
+            & $py -m ai_lens start @AllArgs
             return
         }
         if (Test-Path $aiLensBat) {
-            & $aiLensBat start with Gemini
+            & $aiLensBat start @AllArgs
             return
         }
     }
@@ -146,9 +146,10 @@ if (Get-Module -ListAvailable -Name PSReadLine) {
         [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState([ref]$line, [ref]$cursor)
 
         # start with gemini
-        if ($line -match '(?i)^\s*(?:(?:(?:\.\\)?ai-lens(?:\.bat)?\s+)?start(?:\.bat|\.ps1)?|(?:\.\\)?start(?:\.bat|\.ps1)?)\s+with\s+gemini.*$') {
+        if ($line -match '(?i)^\s*(?:(?:(?:\.\\)?ai-lens(?:\.bat)?\s+)?start(?:\.bat|\.ps1)?|(?:\.\\)?start(?:\.bat|\.ps1)?)\s+with\s+gemini(\s+.*)?$') {
+            $rest = if ($Matches[1]) { $Matches[1] } else { "" }
             $cmd = if (Test-Path ".\ai-lens.bat") { ".\ai-lens.bat" } elseif (Test-Path "..\ai-lens.bat") { "..\ai-lens.bat" } else { "ai-lens" }
-            $newLine = "$cmd start with Gemini"
+            $newLine = "$cmd start with Gemini$rest"
             [Microsoft.PowerShell.PSConsoleReadLine]::RevertLine()
             [Microsoft.PowerShell.PSConsoleReadLine]::Insert($newLine)
         }

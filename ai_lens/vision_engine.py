@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import sys
 import time
+import unicodedata
 import urllib.parse
 from typing import Any, Optional
 
@@ -23,18 +24,68 @@ from PyQt6.QtCore import QThread, pyqtSignal
 DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
 GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 
-# Short-term memory (RAM-only) storage for Gemini API key and active model.
+# Short-term memory (RAM-only) storage for Gemini API key, active model, and discovered live model IDs.
 # Never written to config.json, environment files, or disk; cleared automatically on program exit.
 _VOLATILE_GEMINI_API_KEY: Optional[str] = None
 _VOLATILE_GEMINI_MODEL: Optional[str] = None
 _VOLATILE_GEMINI_PAID_TIER: bool = False
+_VOLATILE_GEMINI_REMOTE_MODELS: list[str] = []
 
 # Security: strict allow-list for Gemini model IDs interpolated into the API URL path.
 # Blocks path traversal / query injection (e.g. "gemini-x/../../files?") from custom input or config.json.
 _SAFE_GEMINI_MODEL_RE = re.compile(r"^gemini-[a-z0-9][a-z0-9.\-]{0,62}$")
-# Security: patterns used to scrub API keys from any error text before it is printed or shown in the UI.
-_API_KEY_REDACT_RE = re.compile(r"AIza[0-9A-Za-z_\-]{10,}")
+# Security: patterns used to scrub API keys (both classic 'AIza...' and modern 53-char 'AQ....' keys) from error text.
+_API_KEY_REDACT_RE = re.compile(
+    r"(?:AIza[0-9A-Za-z_\-]{10,}|AQ\.[0-9A-Za-z._\-+/=]{10,}|ya29\.[0-9A-Za-z._\-+/=]{10,})"
+)
 _KEY_PARAM_REDACT_RE = re.compile(r"([?&]key=)[^&\s\"']+", re.IGNORECASE)
+# Security & Input Hygiene: pure-ASCII Google API key extraction and validation (supports 'AIza...', 'AQ....', etc.).
+_EMBEDDED_GOOGLE_API_KEY_RE = re.compile(
+    r"((?:AIza[0-9A-Za-z_\-]{16,160}|AQ\.[0-9A-Za-z._\-+/=]{16,200}|ya29\.[0-9A-Za-z._\-+/=]{16,240}))"
+)
+_VALID_ASCII_API_KEY_RE = re.compile(r"^[A-Za-z0-9._\-:+/=]{16,256}$")
+
+
+def sanitize_gemini_api_key(raw_key: Optional[str]) -> str:
+    """
+    Cleans and normalizes a raw Gemini API key input string (supports both 'AIza...' and 53-char 'AQ....' keys):
+      - Preserves short terminal exit commands ('q', 'quit', 'exit', 'konec', 'zpet', 'back').
+      - Strips terminal bracketed-paste markers ('\\x1b[200~', '[200~', '[201~'), invisible Unicode
+        formatting/control characters (category 'Cf'/'Cc' and soft hyphens '\\u00ad' inserted by browsers),
+        surrounding whitespace, quotes, and brackets.
+      - Joins accidental line-breaks/spaces inside wrapped 'AIza...' / 'AQ....' keys.
+      - Extracts an embedded 'AIza...' or 'AQ....' token if surrounded by accidental paste/keyboard noise.
+    """
+    if not raw_key or not isinstance(raw_key, str):
+        return ""
+    # Strip ANSI / terminal bracketed-paste wrappers first
+    s = re.sub(r"(?:\x1b)?\[20[01]~", "", raw_key)
+    s = re.sub(r"\x1b\[[0-9;?]*[A-Za-z~]", "", s)
+    # Remove invisible Unicode format/control characters ('Cf', 'Cc') and soft hyphens ('\u00ad')
+    # while keeping visible non-ASCII letters (like Czech diacritics) intact so real typos are still caught.
+    s = "".join(
+        ch
+        for ch in s
+        if ch != "\u00ad" and unicodedata.category(ch) not in ("Cf", "Cc")
+    ).strip()
+    s = s.strip('"\'`„“”’()<>[]{}').strip()
+    if s.lower() in ("q", "quit", "exit", "konec", "zpet", "back", "cancel"):
+        return s
+    m = _EMBEDDED_GOOGLE_API_KEY_RE.search(s)
+    if m:
+        return m.group(1)
+    # Handle keys copied across line-wraps / accidental spaces inside 'AIza...' or 'AQ....'
+    collapsed = re.sub(r"\s+", "", s)
+    if collapsed.startswith(("AIza", "AQ.", "ya29.")) and collapsed.isascii() and _VALID_ASCII_API_KEY_RE.match(collapsed):
+        return collapsed
+    return s
+
+
+def is_valid_ascii_gemini_api_key(api_key: Optional[str]) -> bool:
+    """Returns True only if `api_key` is pure ASCII and matches valid Google API key characters (including '.' in 'AQ....')."""
+    if not api_key or not isinstance(api_key, str):
+        return False
+    return api_key.isascii() and bool(_VALID_ASCII_API_KEY_RE.match(api_key))
 
 
 def is_safe_gemini_model_id(model_id: Optional[str]) -> bool:
@@ -70,8 +121,8 @@ PAID_GEMINI_MODELS: list[dict[str, str]] = [
         "model": "gemini-3.1-pro",
         "name": "Gemini 3.1 Pro",
         "tag": "Complex Reasoning",
-        "desc_en": "Advanced flagship model for complex logical reasoning, intricate code, mathematics, and deep analysis.",
-        "desc_cs": "Pokročilý model pro komplexní logické uvažování, kód, matematiku a hloubkový rozbor detailů.",
+        "desc_en": "Advanced flagship Pro model for complex logical reasoning, intricate code, mathematics, and deep analysis.",
+        "desc_cs": "Pokročilý vlajkový Pro model pro komplexní logické uvažování, kód, matematiku a hloubkový rozbor detailů.",
         "capabilities": "Multimodal · Deep Logic · Coding & STEM",
     },
     {
@@ -80,7 +131,7 @@ PAID_GEMINI_MODELS: list[dict[str, str]] = [
         "name": "Gemini 3.5 Flash",
         "tag": "High Intelligence & Speed",
         "desc_en": "Next-generation multimodal model balancing high intelligence with responsive real-time generation.",
-        "desc_cs": "Nová generace multimodálního modelu kombinující vysokou inteligenci s rychlou odezvou.",
+        "desc_cs": "Nová generace multimodálního modelu kombinující vysokou inteligenci s velmi rychlou odezvou.",
         "capabilities": "Multimodal · Fast Reasoning · Next-Gen",
     },
     {
@@ -98,17 +149,26 @@ PAID_GEMINI_MODELS: list[dict[str, str]] = [
         "model": "gemini-3.5-flash-lite",
         "name": "Gemini 3.5 Flash-Lite",
         "tag": "Ultra-Lightweight",
-        "desc_en": "Lightest, most cost-efficient preview model designed for minimal latency and high query volume.",
-        "desc_cs": "Nejlehčí a nejúspornější model navržený pro minimální latenci a maximální propustnost.",
+        "desc_en": "Lightest, most cost-efficient model designed for minimal latency and high query volume.",
+        "desc_cs": "Nejlehčí a nejrychlejší model navržený pro minimální latenci a maximální propustnost.",
         "capabilities": "Multimodal · Ultra-Low Latency · Lightweight",
     },
     {
         "id": "6",
+        "model": "gemini-2.5-pro",
+        "name": "Gemini 2.5 Pro",
+        "tag": "Advanced Pro Reasoning",
+        "desc_en": "Stable high-precision Pro reasoning model for demanding analytical, STEM, and coding tasks.",
+        "desc_cs": "Stabilní vysoce přesný Pro model pro náročné analytické úlohy, vědu, matematiku a programování.",
+        "capabilities": "Multimodal · Pro Thinking · High Accuracy",
+    },
+    {
+        "id": "7",
         "model": "custom",
         "name": "Custom Model ID",
         "tag": "User Choice",
-        "desc_en": "Enter any Google Gemini model identifier manually (e.g. gemini-2.5-pro, gemini-2.0-flash).",
-        "desc_cs": "Zadat libovolný název Google Gemini modelu ručně (např. gemini-2.5-pro).",
+        "desc_en": "Enter any Google Gemini model identifier manually (e.g. gemini-3.1-pro, gemini-2.5-pro).",
+        "desc_cs": "Zadat libovolný název Google Gemini modelu ručně (např. gemini-3.1-pro, gemini-2.5-pro).",
         "capabilities": "Custom Model ID",
     },
 ]
@@ -120,11 +180,20 @@ FREE_GEMINI_MODELS: list[dict[str, str]] = [
         "name": "Gemini 2.5 Flash",
         "tag": "Recommended (Free Quota)",
         "desc_en": "Fast multimodal model with reasoning support available under standard Google AI Studio free quota.",
-        "desc_cs": "Rychlý multimodální model s podporou uvažování dostupný i ve standardní bezplatné kvótě.",
+        "desc_cs": "Rychlý multimodální model s podporou uvažování dostupný ve standardní bezplatné kvótě.",
         "capabilities": "Multimodal · Thinking · Free Quota",
     },
     {
         "id": "2",
+        "model": "gemini-3.5-flash",
+        "name": "Gemini 3.5 Flash",
+        "tag": "High Intelligence & Speed (Free Quota)",
+        "desc_en": "Next-generation multimodal model balancing high intelligence with fast real-time generation.",
+        "desc_cs": "Nová generace multimodálního modelu kombinující vysokou inteligenci s rychlou odezvou.",
+        "capabilities": "Multimodal · Fast Reasoning · Free Quota",
+    },
+    {
+        "id": "3",
         "model": "gemini-3.5-flash-lite",
         "name": "Gemini 3.5 Flash-Lite",
         "tag": "Lightweight (Free Quota)",
@@ -133,7 +202,7 @@ FREE_GEMINI_MODELS: list[dict[str, str]] = [
         "capabilities": "Multimodal · Ultra-Fast · Free Quota",
     },
     {
-        "id": "3",
+        "id": "4",
         "model": "custom",
         "name": "Custom Model ID",
         "tag": "User Choice",
@@ -161,11 +230,24 @@ GEMINI_MODEL_ALIASES: dict[str, str] = {
     "3.1-pro": "gemini-3.1-pro",
     "gemini-3.1": "gemini-3.1-pro",
     "gemini-3.1-pro": "gemini-3.1-pro",
+    "3.1-pro-preview": "gemini-3.1-pro-preview",
+    "gemini-3.1-pro-preview": "gemini-3.1-pro-preview",
+    "3pro": "gemini-3.1-pro",
+    "3-pro": "gemini-3.1-pro",
+    "gemini-3-pro": "gemini-3.1-pro",
+    "gemini-3-pro-preview": "gemini-3-pro-preview",
     "3.5": "gemini-3.5-flash",
     "3.5flash": "gemini-3.5-flash",
     "3.5-flash": "gemini-3.5-flash",
     "gemini-3.5": "gemini-3.5-flash",
     "gemini-3.5-flash": "gemini-3.5-flash",
+    "3": "gemini-3-flash-preview",
+    "3flash": "gemini-3-flash-preview",
+    "3-flash": "gemini-3-flash-preview",
+    "3-flash-preview": "gemini-3-flash-preview",
+    "gemini-3": "gemini-3-flash-preview",
+    "gemini-3-flash": "gemini-3-flash-preview",
+    "gemini-3-flash-preview": "gemini-3-flash-preview",
     "3.8": "gemini-3.8-flash",
     "3.8flash": "gemini-3.8-flash",
     "3.8-flash": "gemini-3.8-flash",
@@ -180,6 +262,15 @@ GEMINI_MODEL_ALIASES: dict[str, str] = {
     "gemini-3.5-flash-lite": "gemini-3.5-flash-lite",
     "flash-lite": "gemini-3.5-flash-lite",
     "lite": "gemini-3.5-flash-lite",
+    "3.1-lite": "gemini-3.1-flash-lite-preview",
+    "3.1-flash-lite": "gemini-3.1-flash-lite-preview",
+    "3.1flashlite": "gemini-3.1-flash-lite-preview",
+    "gemini-3.1-flash-lite": "gemini-3.1-flash-lite-preview",
+    "gemini-3.1-flash-lite-preview": "gemini-3.1-flash-lite-preview",
+    "2.5-lite": "gemini-2.5-flash-lite",
+    "2.5-flash-lite": "gemini-2.5-flash-lite",
+    "2.5flashlite": "gemini-2.5-flash-lite",
+    "gemini-2.5-flash-lite": "gemini-2.5-flash-lite",
     "2.0": "gemini-2.0-flash",
     "2.0flash": "gemini-2.0-flash",
     "2.0-flash": "gemini-2.0-flash",
@@ -266,20 +357,15 @@ def resolve_gemini_model_name(model_str: Optional[str]) -> str:
 
 
 def is_gemini_api_key(arg: Optional[str]) -> bool:
-    """Returns True if `arg` has the format of a Google Gemini API key."""
+    """Returns True if `arg` has the format of a pure-ASCII Google Gemini API key ('AIza...' or 'AQ....')."""
     if not arg or not isinstance(arg, str):
         return False
-    cleaned = (
-        arg.strip()
-        .strip('"')
-        .strip("'")
-        .strip("()")
-        .strip("<>")
-        .strip()
-    )
-    if (cleaned.startswith("AIzaSy") or cleaned.startswith("AIza")) and len(cleaned) >= 8:
-        return True
-    if len(cleaned) >= 16 and not any(c in cleaned for c in (" ", "/", "\\")):
+    cleaned = sanitize_gemini_api_key(arg)
+    if not cleaned.isascii():
+        return False
+    if cleaned.startswith(("AIzaSy", "AIza", "AQ.", "ya29.")) and len(cleaned) >= 16:
+        return bool(_VALID_ASCII_API_KEY_RE.match(cleaned))
+    if len(cleaned) >= 16 and _VALID_ASCII_API_KEY_RE.match(cleaned):
         lower = cleaned.lower()
         if (
             is_recognized_gemini_model(lower)
@@ -293,17 +379,13 @@ def is_gemini_api_key(arg: Optional[str]) -> bool:
 
 
 def set_volatile_gemini_api_key(api_key: Optional[str]) -> None:
-    """Stores the Gemini API key strictly in short-term process RAM (never persisted to disk)."""
+    """Stores the sanitized pure-ASCII Gemini API key strictly in short-term process RAM (never persisted to disk)."""
     global _VOLATILE_GEMINI_API_KEY, _VOLATILE_GEMINI_MODEL
-    if api_key and api_key.strip():
-        _VOLATILE_GEMINI_API_KEY = (
-            api_key.strip()
-            .strip('"')
-            .strip("'")
-            .strip("()")
-            .strip("<>")
-            .strip()
-        )
+    cleaned = sanitize_gemini_api_key(api_key)
+    if cleaned and not cleaned.isascii():
+        cleaned = cleaned.encode("ascii", errors="ignore").decode("ascii").strip()
+    if cleaned:
+        _VOLATILE_GEMINI_API_KEY = cleaned
         if _VOLATILE_GEMINI_MODEL is None:
             _VOLATILE_GEMINI_MODEL = DEFAULT_GEMINI_MODEL
     else:
@@ -335,46 +417,181 @@ def get_volatile_gemini_model() -> str:
 
 
 def set_volatile_gemini_paid_tier(is_paid: bool) -> None:
-    """Sets whether the user selected a paid Google Cloud / AI Studio tier in volatile RAM."""
+    """Sets whether the current session uses a paid/Pro Gemini tier in volatile RAM."""
     global _VOLATILE_GEMINI_PAID_TIER
     _VOLATILE_GEMINI_PAID_TIER = bool(is_paid)
 
 
 def get_volatile_gemini_paid_tier() -> bool:
-    """Returns True if the current session was configured with a paid Gemini tier."""
+    """Returns True if the current session was configured with a paid/Pro Gemini tier."""
     return _VOLATILE_GEMINI_PAID_TIER
+
+
+def set_volatile_gemini_remote_models(models: Optional[list[str]]) -> None:
+    """Caches the list of live model IDs returned by `GET /v1beta/models` in volatile RAM."""
+    global _VOLATILE_GEMINI_REMOTE_MODELS
+    if models:
+        _VOLATILE_GEMINI_REMOTE_MODELS = [
+            str(m).replace("models/", "").strip().lower()
+            for m in models
+            if m and str(m).strip()
+        ]
+    else:
+        _VOLATILE_GEMINI_REMOTE_MODELS = []
+
+
+def get_volatile_gemini_remote_models() -> list[str]:
+    """Returns the cached live model IDs available to the active Gemini API key."""
+    return list(_VOLATILE_GEMINI_REMOTE_MODELS)
+
+
+def resolve_live_gemini_model_id(
+    requested_model: Optional[str],
+    remote_models: Optional[list[str]] = None,
+) -> str:
+    """
+    Resolves `requested_model` against the live model list from Google's `/v1beta/models` endpoint.
+    Automatically maps base IDs to active `-preview` endpoints (e.g. `gemini-3.1-pro` -> `gemini-3.1-pro-preview`,
+    `gemini-3-flash` -> `gemini-3-flash-preview`) or vice versa if Google graduates a preview model to stable,
+    while strictly preserving the requested model tier (never downgrading Pro to Flash).
+    """
+    if not requested_model:
+        return DEFAULT_GEMINI_MODEL
+    m = requested_model.strip().lower()
+    if m.startswith("models/"):
+        m = m[7:]
+    if m in GEMINI_MODEL_ALIASES:
+        m = GEMINI_MODEL_ALIASES[m]
+    if not is_safe_gemini_model_id(m):
+        return DEFAULT_GEMINI_MODEL
+
+    avail_source = remote_models if remote_models else _VOLATILE_GEMINI_REMOTE_MODELS
+    avail_set = {
+        str(x).replace("models/", "").strip().lower()
+        for x in (avail_source or [])
+        if x and str(x).strip()
+    }
+    if not avail_set:
+        static_preview_map = {
+            "gemini-3.1-pro": "gemini-3.1-pro-preview",
+            "gemini-3-flash": "gemini-3-flash-preview",
+            "gemini-3.5-flash": "gemini-3-flash-preview",
+            "gemini-3.1-flash-lite": "gemini-3.1-flash-lite-preview",
+            "gemini-3.5-flash-lite": "gemini-3.1-flash-lite-preview",
+        }
+        return static_preview_map.get(m, m)
+
+    if m in avail_set:
+        return m
+
+    base = re.sub(r"-preview(?:-[a-z0-9.\-]+)?$", "", m)
+    if base == "gemini-3.5-flash":
+        for alt in ("gemini-3.5-flash", "gemini-3.5-flash-preview", "gemini-3-flash", "gemini-3-flash-preview"):
+            if alt in avail_set:
+                return alt
+        base = "gemini-3-flash"
+    elif base == "gemini-3.5-flash-lite":
+        for alt in (
+            "gemini-3.5-flash-lite",
+            "gemini-3.5-flash-lite-preview",
+            "gemini-3.1-flash-lite",
+            "gemini-3.1-flash-lite-preview",
+            "gemini-2.5-flash-lite",
+        ):
+            if alt in avail_set:
+                return alt
+        base = "gemini-3.1-flash-lite"
+
+    if base in avail_set:
+        return base
+    if f"{base}-preview" in avail_set:
+        return f"{base}-preview"
+
+    excluded_suffixes = (
+        "-tts",
+        "-image",
+        "-audio",
+        "-embed",
+        "-customtools",
+        "-computer-use",
+        "-robotics",
+        "-live",
+    )
+    want_pro = "pro" in base
+    want_lite = "lite" in base
+    want_flash = "flash" in base
+
+    candidates = [
+        c
+        for c in sorted(avail_set)
+        if c.startswith(base + "-")
+        and not any(sfx in c for sfx in excluded_suffixes)
+        and (("pro" in c) == want_pro)
+        and (("lite" in c) == want_lite)
+        and (("flash" in c) == want_flash)
+    ]
+    if candidates:
+        for preferred in candidates:
+            if preferred.endswith("-preview") or preferred.endswith("-latest"):
+                return preferred
+        return candidates[0]
+
+    return m
 
 
 def is_paid_exclusive_gemini_model(model_name: Optional[str]) -> bool:
     """
-    Returns True for Google Gemini models that are available when the user indicates
-    having a paid/pro subscription, but are NOT available in the free quota lineup:
-      - gemini-3.1-pro
-      - gemini-3.5-flash
-      - gemini-3.8-flash (or gemini-3.8-pro)
-      - any pro model (gemini-2.5-pro, etc.)
-    Free quota models (gemini-2.5-flash, gemini-3.5-flash-lite) return False.
+    Returns True for flagship Pro reasoning Gemini models (e.g. `gemini-3.1-pro-preview`, `gemini-2.5-pro`).
     """
     if not model_name:
         return False
     m = model_name.lower().replace("models/", "").strip()
-    if m in ("gemini-2.5-flash", "gemini-3.5-flash-lite", "gemini-1.5-flash"):
+    return "pro" in m or "3.8" in m
+
+
+def is_gemini_model_access_denied(status_code: int, err_text: str) -> bool:
+    """
+    Determines whether a Gemini API error genuinely indicates that the API key lacks access/quota
+    for the requested model (as opposed to a transient per-minute rate limit where `limit > 0`
+    or a `400` request parameter mismatch).
+    """
+    lower_err = (err_text or "").lower()
+    if any(k in lower_err for k in ("api_key_invalid", "api key not valid", "invalid api key")):
         return False
-    if any(k in m for k in ("3.1-pro", "3.1pro", "3.5-flash", "3.8", "pro")):
+    if status_code in (403, 404):
         return True
-    return bool(_VOLATILE_GEMINI_PAID_TIER and m not in ("gemini-2.5-flash", "gemini-3.5-flash-lite"))
+    billing_phrases = (
+        "billing must be enabled",
+        "requires billing",
+        "enable billing",
+        "paid tier only",
+        "not available on free tier",
+        "upgrade to a paid",
+        "account is not authorized",
+    )
+    if status_code == 429:
+        has_zero_limit = bool(
+            re.search(r"\blimit\s*:\s*0\b", lower_err)
+            or re.search(r"quota_limit_value[\"'\s:]+0\b", lower_err)
+        )
+        return has_zero_limit or any(p in lower_err for p in billing_phrases)
+    if status_code == 400:
+        return any(p in lower_err for p in billing_phrases)
+    return False
 
 
 def clear_volatile_gemini_api_key() -> bool:
     """
-    Immediately clears the Gemini API key and volatile model from short-term memory (RAM) and triggers garbage collection.
+    Immediately clears the Gemini API key, volatile model, and cached model list from short-term memory (RAM)
+    and triggers garbage collection.
     Returns True if an active key was present and cleared.
     """
-    global _VOLATILE_GEMINI_API_KEY, _VOLATILE_GEMINI_MODEL, _VOLATILE_GEMINI_PAID_TIER
+    global _VOLATILE_GEMINI_API_KEY, _VOLATILE_GEMINI_MODEL, _VOLATILE_GEMINI_PAID_TIER, _VOLATILE_GEMINI_REMOTE_MODELS
     had_key = _VOLATILE_GEMINI_API_KEY is not None
     _VOLATILE_GEMINI_API_KEY = None
     _VOLATILE_GEMINI_MODEL = None
     _VOLATILE_GEMINI_PAID_TIER = False
+    _VOLATILE_GEMINI_REMOTE_MODELS = []
     gc.collect()
     return had_key
 
@@ -410,36 +627,39 @@ def confirm_terminal_exit(is_cs: bool = True) -> bool:
 def choose_gemini_model_interactive(lang: Optional[str] = "en") -> str:
     """
     Renders an interactive selection dialog and table of Google Gemini models in the terminal.
-    Prompts the user whether they have a paid Google Cloud / AI Studio subscription with billing enabled:
-      - If Yes: displays the full/paid lineup (2.5 Flash, 3.1 Pro, 3.5 Flash, 3.8 Flash, 3.5 Flash-Lite, Custom).
-      - If No: displays standard/free quota models (2.5 Flash, 3.5 Flash-Lite, Custom).
+    Prompts the user whether they have a paid Gemini subscription (Gemini Pro / paid API tier):
+      - If Yes: displays the full Pro & Flash lineup (2.5 Flash, 3.1 Pro, 3 Flash, 2.5 Pro, 3.1 Flash-Lite, Custom).
+      - If No: displays standard free-quota models (2.5 Flash, 3 Flash, 2.5 Flash-Lite, Custom).
+    Actual API access to the chosen model is verified live right after entering the API key.
     """
     is_cs = (lang or "").lower().startswith("cs") or (lang or "").lower().startswith("sk")
 
     print("\n" + "=" * 88, flush=True)
     if is_cs:
-        print("  AI LENS — VÝBĚR MODELU GOOGLE GEMINI & TARIFU (PŘEDPLATNÉHO)", flush=True)
+        print("  AI LENS — VÝBĚR MODELU GOOGLE GEMINI & PŘEDPLATNÉHO", flush=True)
         print("=" * 88, flush=True)
-        print("  Poznámka: Pokročilé modely (Gemini 3.1 Pro, 3.5 Flash) vyžadují", flush=True)
-        print("  placený účet Google Cloud / AI Studio s povolenou fakturací (billing).", flush=True)
-        print("  Bezplatné účty (Free tier) mají kvótu pro Gemini 2.5 Flash a Gemini 3.5 Flash-Lite.\n", flush=True)
+        print("  Poznámka: Pokročilé Pro modely (Gemini 3.1 Pro, Gemini 2.5 Pro) jsou dostupné,", flush=True)
+        print("  pokud má váš API klíč povolený přístup k Pro modelům (předplacené Gemini Pro / API tarif).", flush=True)
+        print("  Po zadání klíče AI Lens ověří skutečný přístup k modelu a přepne jej pouze tehdy,", flush=True)
+        print("  pokud Google API přístup k vybranému modelu zamítne.\n", flush=True)
     else:
-        print("  AI LENS — GOOGLE GEMINI API SETUP & SUBSCRIPTION TIER", flush=True)
+        print("  AI LENS — GOOGLE GEMINI MODEL & SUBSCRIPTION SELECTION", flush=True)
         print("=" * 88, flush=True)
-        print("  Note: Advanced preview models (Gemini 3.8 Flash, 3.1 Pro, 3.5 Flash) require", flush=True)
-        print("  a paid Google Cloud / AI Studio account with billing enabled.", flush=True)
-        print("  Free-tier accounts only have quota for Gemini 2.5 Flash and Gemini 3.5 Flash-Lite.\n", flush=True)
+        print("  Note: Advanced Pro models (Gemini 3.1 Pro, Gemini 2.5 Pro) are available whenever", flush=True)
+        print("  your API key has active Pro model access (Gemini Pro / paid API tier).", flush=True)
+        print("  After key entry, AI Lens verifies real API access to your chosen model and only", flush=True)
+        print("  switches models if Google API denies access.\n", flush=True)
 
     has_paid_subscription = False
     while True:
         try:
             sub_prompt = (
-                "Máte placený účet Google Cloud / AI Studio s aktivní fakturací (billing)? [y/N]: "
+                "Máte předplacené Gemini (Gemini Pro / placený API tarif)? [y/N]: "
                 if is_cs
-                else "Do you have a paid Google Cloud / AI Studio subscription with billing enabled? [y/N]: "
+                else "Do you have a paid Gemini subscription (Gemini Pro / paid API tier)? [y/N]: "
             )
             sub_ans = input(sub_prompt).strip().lower()
-            if sub_ans in ("q", "quit", "exit"):
+            if sub_ans in ("q", "quit", "exit", "konec"):
                 if confirm_terminal_exit(is_cs):
                     sys.exit(0)
                 else:
@@ -458,11 +678,18 @@ def choose_gemini_model_interactive(lang: Optional[str] = "en") -> str:
             break
 
     models_to_show = PAID_GEMINI_MODELS if has_paid_subscription else FREE_GEMINI_MODELS
-    tier_title = (
-        "Available Google Gemini Models (Paid / Billing Tier)"
-        if has_paid_subscription
-        else "Available Google Gemini Models (Free / Standard Quota Tier)"
-    )
+    if is_cs:
+        tier_title = (
+            "Dostupné modely Google Gemini (Předplacené Gemini Pro / Placený tarif)"
+            if has_paid_subscription
+            else "Dostupné modely Google Gemini (Standardní bezplatný tarif)"
+        )
+    else:
+        tier_title = (
+            "Available Google Gemini Models (Gemini Pro / Paid Tier)"
+            if has_paid_subscription
+            else "Available Google Gemini Models (Free / Standard Quota Tier)"
+        )
 
     print("\n" + "-" * 88, flush=True)
     print(f"  {tier_title.upper()}", flush=True)
@@ -481,24 +708,25 @@ def choose_gemini_model_interactive(lang: Optional[str] = "en") -> str:
         )
         table.add_column("#", style="bold yellow", justify="center")
         table.add_column("Model ID", style="bold white")
-        table.add_column("Name & Description", style="white")
-        table.add_column("Capabilities", style="green")
+        table.add_column("Název a popis" if is_cs else "Name & Description", style="white")
+        table.add_column("Schopnosti" if is_cs else "Capabilities", style="green")
 
         for m in models_to_show:
             is_rec = "Recommended" in m["tag"]
             is_disabled = m.get("disabled", False)
+            desc_raw = m["desc_cs"] if is_cs else m["desc_en"]
             if is_disabled:
                 tag_markup = " [bold red](Currently Out of Working)[/]"
                 name_markup = f"[dim strike]{m['name']}[/]"
                 mid_markup = f"[dim strike]{m['model']}[/]"
                 cap_markup = "[bold red]Currently Out of Working[/]"
-                desc = f"[dim red]{m['desc_en']}[/]"
+                desc = f"[dim red]{desc_raw}[/]"
             else:
                 tag_markup = f" [bold cyan]({m['tag']})[/]" if is_rec else f" [dim]({m['tag']})[/]"
                 name_markup = m["name"]
                 mid_markup = m["model"] if m["model"] != "custom" else "<custom>"
                 cap_markup = m["capabilities"]
-                desc = m["desc_en"]
+                desc = desc_raw
 
             table.add_row(
                 m["id"],
@@ -514,7 +742,7 @@ def choose_gemini_model_interactive(lang: Optional[str] = "en") -> str:
 
     if not rendered_rich:
         for m in models_to_show:
-            desc = m["desc_en"]
+            desc = m["desc_cs"] if is_cs else m["desc_en"]
             mid = m["model"] if m["model"] != "custom" else "<custom>"
             if m.get("disabled", False):
                 print(f"  [{m['id']}] {m['name']} (Currently Out of Working) — {mid}", flush=True)
@@ -541,44 +769,59 @@ def choose_gemini_model_interactive(lang: Optional[str] = "en") -> str:
         except EOFError:
             choice = "1"
 
-        if choice.lower() in ("q", "quit", "exit", "konec", "zpet", "back", "cancel"):
+        low_choice = choice.lower()
+        if low_choice in ("q", "quit", "exit", "konec", "zpet", "back", "cancel"):
             if confirm_terminal_exit(is_cs):
                 sys.exit(0)
             else:
                 continue
 
-        # Gemini 3.8 Flash is currently out of working and cannot be selected
-        if choice in ("4", "3.8", "3.8-flash", "3.8flash", "gemini-3.8", "gemini-3.8-flash", "3.8pro", "3.8-pro", "gemini-3.8-pro"):
+        # Gemini 3.8 Flash is row #4 in the Paid menu and remains blocked if selected or typed explicitly
+        if (low_choice == "4" and has_paid_subscription) or low_choice in (
+            "3.8",
+            "3.8-flash",
+            "3.8flash",
+            "gemini-3.8",
+            "gemini-3.8-flash",
+            "3.8pro",
+            "3.8-pro",
+            "gemini-3.8-pro",
+        ):
             print(
                 "\n[AI Lens] ! Gemini 3.8 Flash is currently out of working and cannot be selected.",
                 flush=True,
             )
             print(
-                "[AI Lens] Please choose an active model from the table (e.g. 1 for Gemini 2.5 Flash, 3 for Gemini 3.5 Flash, 5 for Gemini 3.5 Flash-Lite).\n",
+                "[AI Lens] Zvolte prosím aktivní model z tabulky (např. 1 pro Gemini 2.5 Flash, 2 pro Gemini 3.1 Pro, 3 pro Gemini 3.5 Flash, 5 pro Gemini 3.5 Flash-Lite, 6 pro Gemini 2.5 Pro).\n"
+                if is_cs
+                else "[AI Lens] Please choose an active model from the table (e.g. 1 for Gemini 2.5 Flash, 2 for Gemini 3.1 Pro, 3 for Gemini 3.5 Flash, 5 for Gemini 3.5 Flash-Lite, 6 for Gemini 2.5 Pro).\n",
                 flush=True,
             )
             continue
 
         selected = "gemini-2.5-flash"
-        if not choice or choice in ("1", "flash", "default", "recommended"):
+        if not low_choice or low_choice in ("1", "flash", "default", "recommended"):
             selected = "gemini-2.5-flash"
             break
         elif has_paid_subscription:
-            if choice in ("2", "3.1", "3.1-pro", "3.1pro"):
+            if low_choice in ("2", "3.1", "3.1-pro", "3.1pro", "3.1-pro-preview"):
                 selected = "gemini-3.1-pro"
                 break
-            elif choice in ("3", "3.5", "3.5-flash", "3.5flash"):
+            elif low_choice in ("3", "3.5", "3.5-flash", "3.5flash", "3-flash", "3flash"):
                 selected = "gemini-3.5-flash"
                 break
-            elif choice in ("5", "lite", "flash-lite", "3.5-lite", "3.5-flash-lite"):
+            elif low_choice in ("5", "lite", "flash-lite", "3.5-lite", "3.5-flash-lite", "3.1-lite", "3.1-flash-lite"):
                 selected = "gemini-3.5-flash-lite"
                 break
-            elif choice in ("6", "custom", "vlastni", "vlastní"):
+            elif low_choice in ("6", "2.5-pro", "2.5pro"):
+                selected = "gemini-2.5-pro"
+                break
+            elif low_choice in ("7", "custom", "vlastni", "vlastní"):
                 try:
                     custom_prompt = (
-                        "Zadejte přesné ID modelu Google Gemini (např. gemini-2.5-pro): "
+                        "Zadejte přesné ID modelu Google Gemini (např. gemini-3.1-pro, gemini-2.5-pro): "
                         if is_cs
-                        else "Enter exact Google Gemini model ID (e.g. gemini-2.5-pro): "
+                        else "Enter exact Google Gemini model ID (e.g. gemini-3.1-pro, gemini-2.5-pro): "
                     )
                     custom_val = input(custom_prompt).strip()
                     if custom_val.lower() in ("q", "quit", "exit", "konec", "zpet", "back"):
@@ -610,16 +853,19 @@ def choose_gemini_model_interactive(lang: Optional[str] = "en") -> str:
                 selected = resolved
                 break
         else:
-            # Free tier
-            if choice in ("2", "lite", "flash-lite", "3.5-lite", "3.5-flash-lite"):
+            # Free / Standard tier menu (1: 2.5 Flash, 2: 3.5 Flash, 3: 3.5 Flash-Lite, 4: Custom)
+            if low_choice in ("2", "3.5", "3.5-flash", "3.5flash", "3-flash", "3flash"):
+                selected = "gemini-3.5-flash"
+                break
+            elif low_choice in ("3", "lite", "flash-lite", "3.5-lite", "3.5-flash-lite"):
                 selected = "gemini-3.5-flash-lite"
                 break
-            elif choice in ("3", "custom", "vlastni", "vlastní"):
+            elif low_choice in ("4", "custom", "vlastni", "vlastní"):
                 try:
                     custom_prompt = (
-                        "Zadejte přesné ID modelu Google Gemini (např. gemini-2.5-pro): "
+                        "Zadejte přesné ID modelu Google Gemini (např. gemini-3.1-pro, gemini-2.5-pro): "
                         if is_cs
-                        else "Enter exact Google Gemini model ID (e.g. gemini-2.5-pro): "
+                        else "Enter exact Google Gemini model ID (e.g. gemini-3.1-pro, gemini-2.5-pro): "
                     )
                     custom_val = input(custom_prompt).strip()
                     if custom_val.lower() in ("q", "quit", "exit", "konec", "zpet", "back"):
@@ -651,21 +897,174 @@ def choose_gemini_model_interactive(lang: Optional[str] = "en") -> str:
                 selected = resolved
                 break
 
+    if is_paid_exclusive_gemini_model(selected):
+        set_volatile_gemini_paid_tier(True)
     set_volatile_gemini_model(selected)
-    print(f"[AI Lens] ✓ Selected model: {selected}\n", flush=True)
+    msg = (
+        f"[AI Lens] ✓ Vybraný model: {selected}\n"
+        if is_cs
+        else f"[AI Lens] ✓ Selected model: {selected}\n"
+    )
+    print(msg, flush=True)
     return selected
+
+
+def _get_windows_clipboard_text() -> str:
+    """Safely reads Unicode plain text from the Windows clipboard (64-bit pointer safe)."""
+    if sys.platform != "win32":
+        return ""
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        CF_UNICODETEXT = 13
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+
+        user32.OpenClipboard.argtypes = [wintypes.HWND]
+        user32.OpenClipboard.restype = wintypes.BOOL
+        user32.GetClipboardData.argtypes = [wintypes.UINT]
+        user32.GetClipboardData.restype = wintypes.HANDLE
+        user32.CloseClipboard.argtypes = []
+        user32.CloseClipboard.restype = wintypes.BOOL
+
+        kernel32.GlobalLock.argtypes = [wintypes.HGLOBAL]
+        kernel32.GlobalLock.restype = ctypes.c_void_p
+        kernel32.GlobalUnlock.argtypes = [wintypes.HGLOBAL]
+        kernel32.GlobalUnlock.restype = wintypes.BOOL
+
+        if not user32.OpenClipboard(None):
+            return ""
+        try:
+            handle = user32.GetClipboardData(CF_UNICODETEXT)
+            if not handle:
+                return ""
+            ptr = kernel32.GlobalLock(handle)
+            if not ptr:
+                return ""
+            try:
+                return ctypes.wstring_at(ptr) or ""
+            finally:
+                kernel32.GlobalUnlock(handle)
+        finally:
+            user32.CloseClipboard()
+    except Exception:
+        return ""
+
+
+def _read_masked_api_key(prompt_label: str) -> str:
+    """
+    Reads the Gemini API key safely from the terminal with '*' asterisk masking:
+      - On interactive Windows consoles (PowerShell, Windows Terminal, CMD): consumes 2-byte special key
+        sequences ('\\x00', '\\xe0' from arrow/Delete/Home/End keys) so they can never corrupt the key with
+        non-ASCII ordinal 224 bytes, supports Ctrl+V paste and Backspace, and echoes '*' per character.
+      - On non-Windows TTYs: uses `getpass.getpass`.
+      - On non-TTY / piped streams (tests): reads a line from `sys.stdin`.
+    """
+    if sys.stdin is None:
+        raise EOFError
+
+    if sys.platform == "win32" and sys.stdin is sys.__stdin__ and sys.stdin.isatty():
+        try:
+            import ctypes
+            import msvcrt
+
+            mode = ctypes.c_uint32()
+            stdin_handle = msvcrt.get_osfhandle(sys.stdin.fileno())
+            if ctypes.windll.kernel32.GetConsoleMode(stdin_handle, ctypes.byref(mode)) != 0:
+                sys.stdout.write(prompt_label)
+                sys.stdout.flush()
+                chars: list[str] = []
+                paste_burst = False
+                while True:
+                    ch = msvcrt.getwch()
+                    if msvcrt.kbhit():
+                        paste_burst = True
+                    if ch in ("\r", "\n"):
+                        sys.stdout.write("\n")
+                        sys.stdout.flush()
+                        raw_res = "".join(chars)
+                        # If a console paste burst occurred and terminal codepage emulation corrupted characters,
+                        # recover the pristine UTF-16 string directly from Win32 CF_UNICODETEXT clipboard.
+                        if paste_burst and not is_valid_ascii_gemini_api_key(sanitize_gemini_api_key(raw_res)):
+                            clip_raw = _get_windows_clipboard_text()
+                            clip_first = clip_raw.splitlines()[0] if clip_raw else ""
+                            clip_clean = sanitize_gemini_api_key(clip_first)
+                            if is_valid_ascii_gemini_api_key(clip_clean):
+                                return clip_clean
+                        return raw_res
+                    if ch == "\x03":
+                        sys.stdout.write("\n")
+                        sys.stdout.flush()
+                        raise KeyboardInterrupt
+                    if ch == "\x1a":
+                        sys.stdout.write("\n")
+                        sys.stdout.flush()
+                        raise EOFError
+                    if ch in ("\x00", "\xe0"):
+                        # Consume second code of Windows extended keys (arrows, Delete, Home, End, F-keys)
+                        try:
+                            msvcrt.getwch()
+                        except Exception:
+                            pass
+                        continue
+                    if ch in ("\x08", "\x7f"):
+                        if chars:
+                            chars.pop()
+                            sys.stdout.write("\b \b")
+                            sys.stdout.flush()
+                        continue
+                    if ch == "\x16":
+                        # Raw Ctrl+V in legacy conhost when terminal paste shortcuts are disabled
+                        clip = _get_windows_clipboard_text()
+                        first_line = clip.splitlines()[0] if clip else ""
+                        added = 0
+                        for c in first_line:
+                            if ord(c) >= 32 and ord(c) != 127:
+                                chars.append(c)
+                                added += 1
+                        if added:
+                            sys.stdout.write("*" * added)
+                            sys.stdout.flush()
+                        continue
+                    if ord(ch) < 32 or ord(ch) == 127:
+                        continue
+                    chars.append(ch)
+                    sys.stdout.write("*")
+                    sys.stdout.flush()
+        except (KeyboardInterrupt, EOFError):
+            raise
+        except Exception:
+            pass
+
+    if sys.stdin is sys.__stdin__ and sys.stdin.isatty():
+        import getpass
+        import warnings
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            return getpass.getpass(prompt_label)
+
+    sys.stdout.write(prompt_label)
+    sys.stdout.flush()
+    line = sys.stdin.readline()
+    if not line:
+        raise EOFError
+    return line.rstrip("\r\n")
 
 
 def validate_gemini_api_key_live(api_key: str) -> tuple[bool, str, list[str]]:
     """
     Performs a live validation check against Google Generative Language API
-    (`GET /v1beta/models`). The key is sent ONLY in the `x-goog-api-key` header,
-    never in the URL, so it cannot leak through URL-bearing exception messages.
+    (`GET /v1beta/models`). The key is sanitized to pure ASCII and sent ONLY in the
+    `x-goog-api-key` header, never in the URL.
     Returns (is_valid, message, available_models).
     """
-    cleaned = api_key.strip().strip('"\'()<>').strip()
+    cleaned = sanitize_gemini_api_key(api_key)
     if not cleaned:
         return False, "API key cannot be empty", []
+    if not is_valid_ascii_gemini_api_key(cleaned):
+        return False, "INVALID_KEY_FORMAT", []
     try:
         url = f"{GEMINI_API_BASE_URL}/models"
         headers = {"x-goog-api-key": cleaned}
@@ -684,45 +1083,95 @@ def validate_gemini_api_key_live(api_key: str) -> tuple[bool, str, list[str]]:
             except Exception:
                 err_msg = resp.text
             return False, redact_secrets(err_msg, cleaned), []
-    except httpx.ConnectError:
+    except (httpx.TransportError, httpx.TimeoutException):
         return True, "CONNECT_WARNING", []
     except Exception as exc:
-        return True, f"EXCEPTION_WARNING: {redact_secrets(exc, cleaned)}", []
+        return False, redact_secrets(exc, cleaned), []
 
 
-def check_model_supported_by_gemini_key(api_key: str, model_name: str) -> tuple[bool, int, str]:
+def check_model_supported_by_gemini_key(
+    api_key: str,
+    model_name: str,
+    remote_models: Optional[list[str]] = None,
+) -> tuple[bool, int, str]:
     """
-    Sends a minimal probe request to verify whether `api_key` has permissions and Google Cloud Billing
-    enabled to query `model_name`.
+    Lightweight helper to verify whether `api_key` has access to `model_name`.
+    Sanitizes `api_key` to pure ASCII and distinguishes hard access denials (`403`, `404`, `429 limit: 0`)
+    from transient rate limits (`429 limit > 0`).
     Returns (is_supported, status_code, message).
     """
-    m = model_name.replace("models/", "").strip()
+    cleaned_key = sanitize_gemini_api_key(api_key)
+    if not is_valid_ascii_gemini_api_key(cleaned_key):
+        return False, 400, "Invalid API key format (non-ASCII characters)"
+
+    m = resolve_live_gemini_model_id(model_name, remote_models)
     if not is_safe_gemini_model_id(m):
         return False, 400, "Invalid model ID"
     url = f"{GEMINI_API_BASE_URL}/models/{m}:generateContent"
     headers = {
         "Content-Type": "application/json",
-        "x-goog-api-key": api_key,
+        "x-goog-api-key": cleaned_key,
     }
-    probe_payload = {
-        "contents": [{"role": "user", "parts": [{"text": "ping"}]}],
-        "generationConfig": {"maxOutputTokens": 1},
+
+    is_g3 = bool(re.search(r"gemini-3(?:[.\-]|$)", m))
+    if is_g3:
+        gen_cfg: dict[str, Any] = {
+            "maxOutputTokens": 128,
+            "thinkingConfig": {"thinkingLevel": "low"},
+        }
+    elif "2.5" in m and "pro" in m:
+        gen_cfg = {
+            "maxOutputTokens": 256,
+            "thinkingConfig": {"thinkingBudget": 128},
+        }
+    else:
+        gen_cfg = {"maxOutputTokens": 32}
+
+    probe_payload: dict[str, Any] = {
+        "contents": [{"role": "user", "parts": [{"text": "ok"}]}],
+        "generationConfig": gen_cfg,
     }
+
+    def _extract_err(response: httpx.Response) -> str:
+        try:
+            err_data = response.json()
+            raw_msg = str((err_data.get("error") or {}).get("message") or response.text)
+        except Exception:
+            raw_msg = response.text
+        return redact_secrets(raw_msg, cleaned_key)
+
     try:
-        with httpx.Client(timeout=6.0, trust_env=False) as client:
+        with httpx.Client(timeout=15.0, trust_env=False) as client:
             resp = client.post(url, headers=headers, json=probe_payload)
             if resp.status_code == 200:
                 return True, 200, "OK"
+
             status = resp.status_code
-            try:
-                err_data = resp.json()
-                msg = str((err_data.get("error") or {}).get("message") or resp.text)
-            except Exception:
-                msg = resp.text
-            return False, status, redact_secrets(msg, api_key)
+            msg = _extract_err(resp)
+
+            if status == 400 and not is_gemini_model_access_denied(status, msg):
+                bare_payload = {"contents": [{"role": "user", "parts": [{"text": "ok"}]}]}
+                resp2 = client.post(url, headers=headers, json=bare_payload)
+                if resp2.status_code == 200:
+                    return True, 200, "OK"
+                status = resp2.status_code
+                msg = _extract_err(resp2)
+                if status == 400 and not is_gemini_model_access_denied(status, msg):
+                    return True, 200, "OK_PARAM_TOLERATED"
+
+            if status == 429:
+                if is_gemini_model_access_denied(status, msg):
+                    return False, 429, msg
+                return True, 200, "OK_TRANSIENT_RATE_LIMIT"
+
+            if is_gemini_model_access_denied(status, msg):
+                return False, status, msg
+
+            return True, 200, msg
+    except (httpx.TransportError, httpx.TimeoutException) as exc:
+        return True, 200, redact_secrets(exc, cleaned_key)
     except Exception as exc:
-        # If network error or timeout during probe, don't block startup
-        return True, 200, redact_secrets(exc, api_key)
+        return False, 400, redact_secrets(exc, cleaned_key)
 
 
 def prompt_for_gemini_api_key(
@@ -730,69 +1179,94 @@ def prompt_for_gemini_api_key(
     chosen_model: Optional[str] = None,
 ) -> str:
     """
-    Prompts the user to enter their Gemini API key, validates it live with Google API,
-    and stores it strictly in volatile short-term RAM for this session.
+    Prompts the user to enter their Gemini API key, validates it live via `GET /v1beta/models`
+    (consuming zero RPM / token quota at startup so limited-quota Pro models like `gemini-3.1-pro`
+    are never pre-emptively rate-limited or downgraded), and stores key + model strictly in volatile RAM.
     """
     active_m = chosen_model or get_volatile_gemini_model()
     is_cs = (lang or "").lower().startswith("cs") or (lang or "").lower().startswith("sk")
 
-    def _verify_and_fallback_if_unsupported(key_to_test: str, current_model: str) -> str:
-        """Helper to test model compatibility and cleanly switch to free tier if billing is not enabled."""
-        if not is_paid_exclusive_gemini_model(current_model):
-            return current_model
-        print(f"[AI Lens] Checking model '{current_model}' compatibility with your API key…", flush=True)
-        m_supported, m_status, m_err = check_model_supported_by_gemini_key(key_to_test, current_model)
-        is_billing_issue = not m_supported and (
-            m_status in (400, 403, 404, 429)
-            or any(k in m_err.lower() for k in ("billing", "permission", "not enabled", "not found", "not supported", "quota"))
-        )
-        if is_billing_issue:
-            fallback_m = "gemini-2.5-flash"
-            if is_cs:
-                print(
-                    f"\n[AI Lens] ! Upozornění na fakturaci: Vybraný model '{current_model}' vyžaduje placený účet (Google Cloud Billing),",
-                    flush=True,
-                )
-                print(
-                    f"               který váš API klíč nepodporuje (Google hlásí {m_status}: {m_err[:120]}).",
-                    flush=True,
-                )
-                print(
-                    f"[AI Lens] ✓ Automaticky přepnuto na plně podporovaný bezplatný model: '{fallback_m}'.\n",
-                    flush=True,
-                )
-            else:
-                print(
-                    f"\n[AI Lens] ! Billing Notice: Selected model '{current_model}' requires Google Cloud Billing (paid subscription),",
-                    flush=True,
-                )
-                print(
-                    f"               which is not enabled for this API key (Google returned {m_status}: {m_err[:120]}).",
-                    flush=True,
-                )
-                print(
-                    f"[AI Lens] ✓ Automatically switched to supported free-tier model: '{fallback_m}'.\n",
-                    flush=True,
-                )
-            set_volatile_gemini_model(fallback_m)
-            set_volatile_gemini_paid_tier(False)
-            return fallback_m
-        return current_model
+    def _verify_and_fallback_if_unsupported(
+        current_model: str,
+        discovered_models: Optional[list[str]] = None,
+    ) -> str:
+        """
+        Matches `current_model` against the key's `/v1beta/models` catalog (`discovered_models`)
+        without sending any quota-consuming `:generateContent` requests at startup.
+        Keeps `gemini-3.1-pro` (and any listed model) active, only switching if the requested
+        model ID does not exist in `discovered_models`.
+        """
+        logical_m = resolve_gemini_model_name(current_model)
+        live_m = resolve_live_gemini_model_id(logical_m, discovered_models)
+        set_volatile_gemini_model(logical_m)
 
-    # Reuse key if already stored in volatile RAM
-    if has_volatile_gemini_api_key():
-        active_m = _verify_and_fallback_if_unsupported(get_volatile_gemini_api_key() or "", active_m)
+        if not discovered_models:
+            if is_paid_exclusive_gemini_model(logical_m) or is_paid_exclusive_gemini_model(live_m):
+                set_volatile_gemini_paid_tier(True)
+            return logical_m
+
+        avail_lower = {
+            str(x).lower().replace("models/", "").strip()
+            for x in discovered_models
+            if x and str(x).strip()
+        }
+        if not avail_lower or live_m.lower() in avail_lower or logical_m.lower() in avail_lower:
+            if is_paid_exclusive_gemini_model(logical_m) or is_paid_exclusive_gemini_model(live_m):
+                set_volatile_gemini_paid_tier(True)
+            endpoint_note = f" (endpoint: {live_m})" if live_m != logical_m else ""
+            ok_msg = (
+                f"[AI Lens] ✓ Model '{logical_m}'{endpoint_note} je připraven a aktivní."
+                if is_cs
+                else f"[AI Lens] ✓ Model '{logical_m}'{endpoint_note} is ready and active."
+            )
+            print(ok_msg, flush=True)
+            return logical_m
+
+        # Requested model does not exist in the key's /v1beta/models catalog -> select best available fallback
+        fallback_candidates = (
+            "gemini-2.5-pro",
+            "gemini-3.5-flash",
+            "gemini-2.5-flash",
+            "gemini-3.5-flash-lite",
+            "gemini-2.5-flash-lite",
+        )
+        fallback_logical = "gemini-2.5-flash"
+        for cand_logical in fallback_candidates:
+            cand_live = resolve_live_gemini_model_id(cand_logical, discovered_models)
+            if cand_live.lower() in avail_lower or cand_logical.lower() in avail_lower:
+                fallback_logical = cand_logical
+                break
+
+        warn_msg = (
+            f"[AI Lens] ! Model '{logical_m}' nebyl nalezen v katalogu tohoto API klíče — přepnuto na '{fallback_logical}'."
+            if is_cs
+            else f"[AI Lens] ! Model '{logical_m}' was not found in this API key's model catalog — switched to '{fallback_logical}'."
+        )
+        print(warn_msg, flush=True)
+        set_volatile_gemini_model(fallback_logical)
+        set_volatile_gemini_paid_tier(is_paid_exclusive_gemini_model(fallback_logical))
+        return fallback_logical
+
+    # Reuse key if already stored in volatile RAM and valid pure ASCII
+    existing_ram_key = get_volatile_gemini_api_key()
+    if existing_ram_key and is_valid_ascii_gemini_api_key(existing_ram_key):
+        active_m = _verify_and_fallback_if_unsupported(
+            active_m,
+            get_volatile_gemini_remote_models(),
+        )
         print(f"[AI Lens] ✓ Using active Gemini API key from volatile memory (Model: {active_m}).\n", flush=True)
         return "ok"
 
     # Check GEMINI_API_KEY environment variable if present
-    env_key = os.environ.get("GEMINI_API_KEY", "").strip().strip('"\'()<>').strip()
-    if env_key:
+    env_key = sanitize_gemini_api_key(os.environ.get("GEMINI_API_KEY", ""))
+    if env_key and is_valid_ascii_gemini_api_key(env_key):
         print("[AI Lens] Found GEMINI_API_KEY environment variable, validating…", flush=True)
-        is_ok, err_msg, _ = validate_gemini_api_key_live(env_key)
+        is_ok, err_msg, env_models = validate_gemini_api_key_live(env_key)
         if is_ok:
             set_volatile_gemini_api_key(env_key)
-            active_m = _verify_and_fallback_if_unsupported(env_key, active_m)
+            if env_models:
+                set_volatile_gemini_remote_models(env_models)
+            active_m = _verify_and_fallback_if_unsupported(active_m, env_models)
             print(f"[AI Lens] ✓ Gemini API key verified from environment (Model: {active_m}).\n", flush=True)
             return "ok"
 
@@ -804,36 +1278,34 @@ def prompt_for_gemini_api_key(
     print("=" * 88, flush=True)
 
     prompt_label = (
-        "Zadejte svůj Gemini API klíč (vstup je skrytý, 'q' pro konec): "
+        "Zadejte nebo vložte (Ctrl+V / pravé tlačítko) svůj Gemini API klíč ('q' pro konec): "
         if is_cs
-        else "Enter your Gemini API key (input is hidden, 'q' to quit): "
+        else "Enter or paste (Ctrl+V / right-click) your Gemini API key ('q' to quit): "
     )
 
     for attempt in range(1, 4):
         try:
-            # Security: hide the key while typing/pasting so it never appears on screen or in terminal scrollback.
-            import getpass
-            import warnings
-
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                raw_key = getpass.getpass(prompt_label)
+            raw_key = _read_masked_api_key(prompt_label)
         except KeyboardInterrupt:
             sys.exit(130)
         except EOFError:
             print("\n[AI Lens] API key entry cancelled.", flush=True)
             sys.exit(0)
 
-        cleaned_key = raw_key.strip().strip('"\'()<>').strip()
-        if cleaned_key.lower() in ("q", "quit", "exit", "konec"):
+        cleaned_key = sanitize_gemini_api_key(raw_key)
+        if cleaned_key.lower() in ("q", "quit", "exit", "konec", "zpet", "back"):
             if confirm_terminal_exit(is_cs):
                 sys.exit(0)
             else:
                 continue
 
-        cleaned_key = raw_key.strip().strip('"\'()<>').strip()
         if not cleaned_key:
-            print("[AI Lens] API key cannot be empty. Please try again.", flush=True)
+            empty_msg = (
+                "[AI Lens] API klíč nemůže být prázdný. Zkuste to prosím znovu."
+                if is_cs
+                else "[AI Lens] API key cannot be empty. Please try again."
+            )
+            print(empty_msg, flush=True)
             continue
 
         print("[AI Lens] Validating API key with Google Generative Language API…", flush=True)
@@ -841,23 +1313,50 @@ def prompt_for_gemini_api_key(
 
         if is_ok and err_msg == "OK":
             set_volatile_gemini_api_key(cleaned_key)
-            print(f"[AI Lens] ✓ Gemini API key successfully verified with Google API!", flush=True)
-            active_m = _verify_and_fallback_if_unsupported(cleaned_key, active_m)
+            set_volatile_gemini_remote_models(remote_models)
+            print("[AI Lens] ✓ Gemini API key successfully verified with Google API!", flush=True)
+            active_m = _verify_and_fallback_if_unsupported(active_m, remote_models)
             cleaned_key = ""
             raw_key = ""
             print(f"[AI Lens] ✓ Active model: {active_m} (loaded into volatile RAM).\n", flush=True)
             return "ok"
         elif is_ok:
             set_volatile_gemini_api_key(cleaned_key)
-            active_m = _verify_and_fallback_if_unsupported(cleaned_key, active_m)
+            active_m = resolve_gemini_model_name(active_m)
+            set_volatile_gemini_model(active_m)
             cleaned_key = ""
             raw_key = ""
             print(f"[AI Lens] ! Warning: Could not verify key online ({err_msg}). Key stored in RAM.\n", flush=True)
             return "ok"
         else:
-            print(f"[AI Lens] ✕ Invalid API key (Google: {err_msg}).", flush=True)
+            if err_msg == "INVALID_KEY_FORMAT":
+                has_mask_dots = any(m in cleaned_key for m in ("•", "●", "…", "***"))
+                if has_mask_dots:
+                    fmt_err = (
+                        "[AI Lens] ✕ Vložený text obsahuje zástupné znaky maskování (••• / …) místo celého API klíče. "
+                        "Klikněte prosím v Google AI Studiu přímo na ikonu kopírování celého klíče."
+                        if is_cs
+                        else "[AI Lens] ✕ Pasted text contains masking placeholders (••• / …) instead of the full API key. "
+                             "Please use the Copy icon in Google AI Studio to copy the full key."
+                    )
+                else:
+                    fmt_err = (
+                        "[AI Lens] ✕ API klíč obsahuje neplatné znaky (diakritiku, mezery nebo řídicí znaky). "
+                        "Zkopírujte a vložte prosím platný Google API klíč (např. 'AIza...' nebo 'AQ....')."
+                        if is_cs
+                        else "[AI Lens] ✕ API key contains invalid characters (non-ASCII/diacritics or spaces). "
+                             "Please copy and paste a valid Google API key (e.g. 'AIza...' or 'AQ....')."
+                    )
+                print(fmt_err, flush=True)
+            else:
+                print(f"[AI Lens] ✕ Invalid API key (Google: {err_msg}).", flush=True)
             if attempt < 3:
-                print(f"Please try again (attempt {attempt + 1}/3):", flush=True)
+                retry_lbl = (
+                    f"Zkuste to prosím znovu (pokus {attempt + 1}/3):"
+                    if is_cs
+                    else f"Please try again (attempt {attempt + 1}/3):"
+                )
+                print(retry_lbl, flush=True)
 
     if is_cs:
         print("[AI Lens] Nebyl zadán platný Gemini API klíč. Ukončuji.", flush=True)
@@ -2174,10 +2673,6 @@ class VisionInferenceWorker(QThread):
                                     if is_thinking:
                                         self.thinkingProgress.emit()
                                     if clean_token:
-                                        if not emitted_any_token and is_paid_exclusive and not self.is_secret_mode:
-                                            self.thinkingProgress.emit()
-                                            time.sleep(0.75)
-                                            self.thinkingProgress.emit()
                                         emitted_any_token = True
                                         self.tokenReceived.emit(clean_token)
 
@@ -2191,24 +2686,24 @@ class VisionInferenceWorker(QThread):
 
     def _run_gemini(self, t0: float, ui: dict[str, str], b64_img: str) -> None:
         """Runs multimodal streaming inference via the Gemini API using the volatile RAM-only API key."""
-        api_key = get_volatile_gemini_api_key()
-        if not api_key:
+        api_key = sanitize_gemini_api_key(get_volatile_gemini_api_key())
+        if not api_key or not is_valid_ascii_gemini_api_key(api_key):
             err = (
-                "Chybí Gemini API klíč v krátkodobé paměti (RAM). Spusť program znovu příkazem 'start with Gemini' a zadej platný klíč."
+                "Chybí platný Gemini API klíč v paměti RAM (nebo klíč obsahoval neplatné znaky/diakritiku). "
+                "Spusť program znovu příkazem 'start with Gemini' a vlož platný klíč ('AIza...' nebo 'AQ....')."
                 if self.language in ("cs", "sk")
-                else "Missing Gemini API key in short-term memory (RAM). Please restart with 'start with Gemini' and provide your API key."
+                else "Missing or malformed Gemini API key in RAM (non-ASCII characters detected). "
+                     "Please restart with 'start with Gemini' and paste a valid API key ('AIza...' or 'AQ....')."
             )
             self.errorOccurred.emit(err)
             return
 
-        gemini_model = (
+        raw_gemini_model = (
             self.model
             if self.model and self.model.lower().startswith("gemini-")
             else get_volatile_gemini_model()
         )
-        gemini_model = gemini_model.strip().lower()
-        if gemini_model.startswith("models/"):
-            gemini_model = gemini_model[7:]
+        gemini_model = resolve_live_gemini_model_id(raw_gemini_model)
         # Security: never interpolate a malformed model ID into the request URL path.
         if not is_safe_gemini_model_id(gemini_model):
             gemini_model = DEFAULT_GEMINI_MODEL
@@ -2250,33 +2745,43 @@ class VisionInferenceWorker(QThread):
             followup_parts.append({"text": prompt_text})
             contents.append({"role": "user", "parts": followup_parts})
 
-        gen_cfg: dict[str, Any] = {
-            "temperature": float(self.temperature),
-            "topP": float(self.tier_cfg.get("top_p", 0.88)),
-            "maxOutputTokens": 160 if self.is_secret_mode else int(self.tier_cfg.get("num_predict", 4096)),
-        }
-
-        is_gemini_3 = any(k in gemini_model.lower() for k in ("3.8", "3.5", "3.1", "3."))
+        is_gemini_3 = bool(re.search(r"gemini-3(?:[.\-]|$)", gemini_model.lower()))
         is_gemini_25 = "2.5" in gemini_model.lower()
         is_paid_exclusive = is_paid_exclusive_gemini_model(gemini_model)
 
-        if not self.is_secret_mode:
+        base_max_tokens = int(self.tier_cfg.get("num_predict", 4096))
+        if self.is_secret_mode:
+            # Pro/Gemini-3 thinking models draw internal thought tokens from maxOutputTokens;
+            # keep enough headroom for internal reasoning while prompt + UI cap visible text to 25 words.
+            secret_max_tokens = 1024 if (is_gemini_3 or is_paid_exclusive) else 256
+            gen_cfg: dict[str, Any] = {
+                "temperature": float(self.temperature),
+                "topP": float(self.tier_cfg.get("top_p", 0.88)),
+                "maxOutputTokens": secret_max_tokens,
+            }
             if is_gemini_3:
-                # Gemini 3.x models (3.8 Flash, 3.5 Flash, 3.1 Pro) require thinkingLevel instead of thinkingBudget!
-                # Sending thinkingBudget causes HTTP 400 Bad Request.
-                # User requirement: Gemini 3.8 Flash is strictly locked to "low" thinking level so it never stalls.
-                if "3.8" in gemini_model.lower():
+                gen_cfg["thinkingConfig"] = {"thinkingLevel": "low"}
+            elif is_gemini_25 and "pro" in gemini_model.lower():
+                gen_cfg["thinkingConfig"] = {"thinkingBudget": 128}
+            elif is_gemini_25:
+                gen_cfg["thinkingConfig"] = {"thinkingBudget": 0}
+        else:
+            gen_cfg = {
+                "temperature": float(self.temperature),
+                "topP": float(self.tier_cfg.get("top_p", 0.88)),
+                "maxOutputTokens": base_max_tokens,
+            }
+            if is_gemini_3:
+                # Gemini 3 & 3.1 models (3.1 Pro, 3 Flash, 3.1 Flash-Lite) require thinkingLevel ('low' or 'high').
+                if "3.8" in gemini_model.lower() or self.thinking_level in ("low", "medium"):
                     t_level = "low"
-                elif is_paid_exclusive:
-                    # Pro/Paid tier exclusive models use high thinking level for deep reasoning & comprehension
-                    t_level = "high"
                 else:
-                    t_level = "low" if self.thinking_level in ("low", "medium") else "high"
+                    t_level = "high"
                 gen_cfg["thinkingConfig"] = {
                     "thinkingLevel": t_level,
                 }
-            elif (is_gemini_25 or "pro" in gemini_model.lower()) and self.think:
-                budget = 4096 if (is_paid_exclusive or self.thinking_level == "high") else 2048
+            elif (is_gemini_25 or "pro" in gemini_model.lower()) and (self.think or is_paid_exclusive):
+                budget = 2048 if self.thinking_level == "high" else 1024
                 gen_cfg["thinkingConfig"] = {"thinkingBudget": budget}
 
         payload: dict[str, Any] = {
@@ -2292,74 +2797,94 @@ class VisionInferenceWorker(QThread):
             "Content-Type": "application/json",
             "x-goog-api-key": api_key,
         }
-        timeout_sec = 25.0 if self.thinking_level == "low" else (120.0 if self.thinking_level == "high" else 60.0)
+        base_timeout = 35.0 if self.thinking_level == "low" else (120.0 if self.thinking_level == "high" else 75.0)
+        timeout_sec = max(90.0, base_timeout) if is_paid_exclusive else base_timeout
 
         try:
-            with httpx.Client(timeout=httpx.Timeout(timeout_sec, connect=6.0), trust_env=False) as client:
+            with httpx.Client(timeout=httpx.Timeout(timeout_sec, connect=8.0), trust_env=False) as client:
                 self._client = client
                 url = f"{GEMINI_API_BASE_URL}/models/{gemini_model}:streamGenerateContent?alt=sse"
                 ok, status_code, err_body = self._stream_gemini_chat(
                     client, url, headers, payload, is_paid_exclusive=is_paid_exclusive
                 )
 
-                # Fallback 1: If 400 error occurs and thinkingConfig was included, retry without it
+                # Fallback 1: If 400 error occurs and thinkingConfig was included, retry same model without it
                 if not ok and status_code == 400 and "thinkingConfig" in payload.get("generationConfig", {}):
-                    payload["generationConfig"].pop("thinkingConfig", None)
-                    ok, status_code, err_body = self._stream_gemini_chat(
-                        client, url, headers, payload, is_paid_exclusive=is_paid_exclusive
-                    )
-
-                # Fallback 2: Handle 429 Quota / Rate-limit / Concurrency saturation from rapid sequential calls
-                if not ok and status_code == 429:
-                    time.sleep(1.2)
-                    ok, status_code, err_body = self._stream_gemini_chat(
-                        client, url, headers, payload, is_paid_exclusive=is_paid_exclusive
-                    )
-
-                # Fallback 3: If still failing or quota exhausted (429/403/404/400), switch to high-quota alternative models
-                if not ok and status_code in (400, 403, 404, 429):
-                    orig_err_code = status_code if status_code != 200 else 400
-                    is_billing_reason = status_code in (403, 404) or any(
-                        k in err_body.lower() for k in ("billing", "permission", "not enabled", "not found", "not supported", "quota")
-                    )
-                    for fallback_model in ("gemini-2.5-flash", "gemini-3.5-flash-lite", "gemini-1.5-flash"):
-                        if gemini_model == fallback_model:
-                            continue
-                        time.sleep(0.6)
-                        fallback_url = f"{GEMINI_API_BASE_URL}/models/{fallback_model}:streamGenerateContent?alt=sse"
+                    if not any(k in err_body.lower() for k in ("api_key_invalid", "api key not valid", "invalid api key")):
                         payload["generationConfig"].pop("thinkingConfig", None)
-                        is_fb_paid = is_paid_exclusive_gemini_model(fallback_model)
                         ok, status_code, err_body = self._stream_gemini_chat(
-                            client, fallback_url, headers, payload, is_paid_exclusive=is_fb_paid
+                            client, url, headers, payload, is_paid_exclusive=is_paid_exclusive
+                        )
+
+                # Fallback 2: Transient 429 rate-limit (when limit > 0) — wait briefly and retry the SAME chosen model
+                if not ok and status_code == 429 and not is_gemini_model_access_denied(429, err_body):
+                    time.sleep(1.5)
+                    ok, status_code, err_body = self._stream_gemini_chat(
+                        client, url, headers, payload, is_paid_exclusive=is_paid_exclusive
+                    )
+
+                # Fallback 3: Switch to alternative accessible models if access is denied or model rate-limit is saturated
+                access_denied_now = not ok and is_gemini_model_access_denied(status_code, err_body)
+                if not ok and (access_denied_now or status_code in (403, 404, 429, 503)):
+                    orig_err_code = status_code if status_code != 200 else 400
+                    hard_forbidden = orig_err_code in (403, 404)
+                    fallback_chain = (
+                        "gemini-2.5-pro",
+                        "gemini-3.5-flash",
+                        "gemini-2.5-flash",
+                        "gemini-3.5-flash-lite",
+                        "gemini-2.5-flash-lite",
+                    )
+                    tested_fb_live: set[str] = {gemini_model}
+                    for raw_fb in fallback_chain:
+                        fallback_model = resolve_live_gemini_model_id(raw_fb)
+                        if fallback_model in tested_fb_live:
+                            continue
+                        tested_fb_live.add(fallback_model)
+                        if not access_denied_now and orig_err_code in (429, 503):
+                            time.sleep(0.25)
+                        fallback_url = f"{GEMINI_API_BASE_URL}/models/{fallback_model}:streamGenerateContent?alt=sse"
+                        fb_payload = {
+                            **payload,
+                            "generationConfig": {
+                                k: v
+                                for k, v in payload.get("generationConfig", {}).items()
+                                if k != "thinkingConfig"
+                            },
+                        }
+                        if self.is_secret_mode and fb_payload["generationConfig"].get("maxOutputTokens", 256) < 1024:
+                            if "pro" in fallback_model or "gemini-3" in fallback_model:
+                                fb_payload["generationConfig"]["maxOutputTokens"] = 1024
+                        is_fb_paid = is_paid_exclusive_gemini_model(raw_fb)
+                        ok, status_code, err_body = self._stream_gemini_chat(
+                            client, fallback_url, headers, fb_payload, is_paid_exclusive=is_fb_paid
                         )
                         if ok:
-                            if is_billing_reason:
+                            if hard_forbidden:
                                 print(
-                                    f"[AI Lens] Notice: Model '{gemini_model}' requires Google Cloud Billing not enabled on this API key ({orig_err_code}), automatically switched to '{fallback_model}'.",
+                                    f"[AI Lens] Notice: Model '{gemini_model}' returned HTTP {orig_err_code}; switched session model to '{raw_fb}'.",
                                     flush=True,
                                 )
+                                gemini_model = fallback_model
+                                set_volatile_gemini_model(raw_fb)
+                                set_volatile_gemini_paid_tier(is_fb_paid)
                             else:
+                                # Keep chosen model (e.g. gemini-3.1-pro) active in session for subsequent queries!
                                 print(
-                                    f"[AI Lens] Model '{gemini_model}' was rate-limited or unavailable ({orig_err_code}), automatically fell back to '{fallback_model}'.",
+                                    f"[AI Lens] Notice: '{gemini_model}' hit quota/rate-limit ({orig_err_code}); answered this query via '{raw_fb}' (keeping '{raw_gemini_model}' active).",
                                     flush=True,
                                 )
-                            gemini_model = fallback_model
-                            set_volatile_gemini_model(fallback_model)
-                            set_volatile_gemini_paid_tier(False)
                             break
 
-                # Fallback 4: Standard non-streaming generateContent if streaming had any issue
+                # Fallback 4: Standard non-streaming generateContent if SSE streaming had a transport issue
                 if not ok:
                     non_stream_url = f"{GEMINI_API_BASE_URL}/models/{gemini_model}:generateContent"
                     payload["generationConfig"].pop("thinkingConfig", None)
                     try:
-                        if is_paid_exclusive and not self.is_secret_mode:
-                            self.thinkingProgress.emit()
-                            time.sleep(0.75)
-                            self.thinkingProgress.emit()
                         resp = client.post(non_stream_url, headers=headers, json=payload)
                         if resp.status_code == 200:
                             data = resp.json()
+                            fb_think_filter = StreamThinkingFilter()
                             candidates = data.get("candidates") or []
                             for cand in candidates:
                                 parts = (cand.get("content") or {}).get("parts") or []
@@ -2367,8 +2892,8 @@ class VisionInferenceWorker(QThread):
                                     if not part.get("thought"):
                                         txt = part.get("text", "")
                                         if txt:
-                                            clean_txt, _ = think_filter.filter_chunk(txt)
-                                            clean_txt += think_filter.flush()
+                                            clean_txt, _ = fb_think_filter.filter_chunk(txt)
+                                            clean_txt += fb_think_filter.flush()
                                             if clean_txt:
                                                 self.tokenReceived.emit(clean_txt)
                             ok = True
@@ -2379,36 +2904,21 @@ class VisionInferenceWorker(QThread):
                         err_body = redact_secrets(ex, api_key)
 
                 if not ok:
-                    is_billing_or_perm = (
-                        status_code in (403, 404)
-                        or any(
-                            k in err_body.lower()
-                            for k in (
-                                "billing",
-                                "permission",
-                                "not enabled",
-                                "not found",
-                                "not supported",
-                                "billing must be enabled",
-                                "quota exceeded",
-                            )
-                        )
-                    )
-                    if is_billing_or_perm:
+                    if is_gemini_model_access_denied(status_code, err_body):
                         user_friendly_err = (
-                            f"Model '{gemini_model}' vyžaduje aktivní fakturaci (Google Cloud Billing / placený účet), "
-                            f"kterou váš API klíč nepodporuje. Pro bezplatný účet použijte model 'gemini-2.5-flash' nebo 'gemini-3.5-flash-lite'. (Kód {status_code})"
+                            f"Váš API klíč nemá aktivní přístup ke zvolenému modelu '{gemini_model}' (Kód {status_code}). "
+                            f"Zkontrolujte kvóty svého klíče v Google AI Studiu (aistudio.google.com) nebo zvolte model 'gemini-2.5-flash'."
                             if self.language in ("cs", "sk")
-                            else f"Model '{gemini_model}' requires Google Cloud Billing (paid subscription), "
-                                 f"which is not enabled for your API key. For free accounts, please use 'gemini-2.5-flash' or 'gemini-3.5-flash-lite'. (Code {status_code})"
+                            else f"Your API key does not have active access to model '{gemini_model}' (Code {status_code}). "
+                                 f"Please check your API key quotas in Google AI Studio (aistudio.google.com) or use 'gemini-2.5-flash'."
                         )
                     elif status_code == 429:
                         user_friendly_err = (
-                            "Překročen limit dotazů Google Gemini API (429). Počkej 2–3 sekundy a zkus to znovu."
+                            "Překročen okamžitý limit dotazů Google Gemini API (429). Počkej 2–3 sekundy a zkus to znovu."
                             if self.language in ("cs", "sk")
                             else "Google Gemini API rate limit exceeded (429). Please wait 2–3 seconds and try again."
                         )
-                    elif status_code == 400 and any(
+                    elif status_code in (400, 403) and any(
                         k in err_body.lower() for k in ("api_key_invalid", "api key not valid", "invalid api key")
                     ):
                         user_friendly_err = (

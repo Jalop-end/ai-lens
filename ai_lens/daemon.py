@@ -535,8 +535,9 @@ def run_daemon(
 
     # Handle Gemini API mode: always show model selection table first, then prompt for API key
     if norm_dev == "gemini":
-        chosen_m = choose_gemini_model_interactive(language or "cs")
-        prompt_for_gemini_api_key(language or "cs", chosen_model=chosen_m)
+        effective_lang = language or str(load_config().get("language", "cs"))
+        chosen_m = choose_gemini_model_interactive(effective_lang)
+        prompt_for_gemini_api_key(effective_lang, chosen_model=chosen_m)
 
     if language:
         set_language_in_config(language)

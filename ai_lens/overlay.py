@@ -36,6 +36,7 @@ from ai_lens.vision_engine import (
     THINKING_LEVELS,
     VisionInferenceWorker,
     build_secret_system_prompt,
+    choose_gemini_model_interactive,
     clear_volatile_gemini_api_key,
     encode_pil_to_base64,
     get_volatile_gemini_model,
@@ -49,6 +50,7 @@ from ai_lens.vision_engine import (
     normalize_compute_device,
     normalize_language_code,
     normalize_thinking_level,
+    prompt_for_gemini_api_key,
     validate_local_ollama_host,
 )
 
@@ -868,8 +870,14 @@ def run_overlay_mvp(
         set_language_in_config(language)
     if thinking_level:
         set_thinking_level_in_config(thinking_level)
-    if compute_device and normalize_compute_device(compute_device) != "gemini":
-        set_compute_device_in_config(compute_device)
+    if compute_device:
+        norm_dev = normalize_compute_device(compute_device)
+        if norm_dev == "gemini" and not has_volatile_gemini_api_key():
+            eff_lang = language or str(load_config().get("language", "cs"))
+            chosen_m = choose_gemini_model_interactive(eff_lang)
+            prompt_for_gemini_api_key(eff_lang, chosen_model=chosen_m)
+        elif norm_dev != "gemini":
+            set_compute_device_in_config(compute_device)
     app = QApplication.instance() or QApplication(sys.argv)
     overlay = OverlayWindow(daemon_mode=False)
     capture_ms = overlay.activate_overlay(secret_mode=secret_mode)
