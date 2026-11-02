@@ -43,6 +43,7 @@ from ai_lens.vision_engine import (
     get_compute_device_display,
     get_default_prompt,
     get_language_display,
+    get_secret_prompt,
     get_thinking_level_config,
     get_thinking_level_display,
     get_ui_strings,
@@ -460,6 +461,46 @@ class OverlayWindow(QWidget):
         else:
             super().mouseMoveEvent(event)
 
+    def _compute_secret_selection_rect(self, include_padding: bool = False) -> QRect:
+        """
+        Computes the full bounding box across all swept/drawn points in Secret Mode:
+          - Supports diagonal rectangle drag, multi-line text sweep (never cutting off the right half
+            of earlier lines), AND freehand circling identically to Standard Lasso Mode.
+          - Automatically expands horizontal single-line I-beam drags vertically (>= 34 px) so tall
+            capitals, diacritics (háčky/čárky), exponents, and descenders are never sliced off.
+          - Adds protective padding (`pad_x >= 10`, `pad_y >= 16`) when cropping (`include_padding=True`)
+            so edge glyphs sit cleanly inside ViT vision patches.
+        """
+        if not self._lasso_points:
+            return QRect()
+        xs = [p.x() for p in self._lasso_points]
+        ys = [p.y() for p in self._lasso_points]
+        min_x, max_x = min(xs), max(xs)
+        min_y, max_y = min(ys), max(ys)
+        raw_w = max_x - min_x
+        raw_h = max_y - min_y
+
+        if raw_w < 8 and raw_h < 8:
+            return QRect()
+
+        # Single-line horizontal I-beam text drag: expand vertically around center so full glyph height is covered
+        if raw_w >= 12 and raw_h < 34:
+            cy = (min_y + max_y) / 2.0
+            min_y = cy - 17.0
+            max_y = cy + 17.0
+
+        if include_padding:
+            cfg_pad = int(self.config.get("padding", 4))
+            pad_x = float(max(10, cfg_pad))
+            pad_y = float(max(16, cfg_pad))
+            min_x -= pad_x
+            max_x += pad_x
+            min_y -= pad_y
+            max_y += pad_y
+
+        rect = QRectF(QPointF(min_x, min_y), QPointF(max_x, max_y)).normalized().toRect()
+        return rect.intersected(self.rect())
+
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:  # noqa: N802
         """
         Computes the Bounding Box with tight padding, crops screenshot in RAM only,
@@ -473,13 +514,10 @@ class OverlayWindow(QWidget):
             self._lasso_path.lineTo(pos)
 
             if self._is_secret_mode:
-                start_p = self._drag_start_pos if self._drag_start_pos is not None else pos
-                rect = QRectF(start_p, pos).normalized().toRect()
-                rect = rect.intersected(self.rect())
-                if rect.width() < 5 or rect.height() < 5:
+                bbox = self._compute_secret_selection_rect(include_padding=True)
+                if bbox.isNull() or (bbox.width() < 12 and bbox.height() < 12):
                     self.reset_selection()
                     return
-                bbox = rect
 
                 if self.capture_result is not None:
                     cropped = crop_from_capture(self.capture_result, bbox)
@@ -542,7 +580,11 @@ class OverlayWindow(QWidget):
             super().mouseReleaseEvent(event)
 
     def _start_secret_inference(self, cropped_image: Image.Image) -> None:
-        """Spawns VisionInferenceWorker in Secret Mode: full reasoning and comprehension, concise output, instant streaming."""
+        """
+        Spawns VisionInferenceWorker in Secret Mode using the EXACT same thinking level,
+        internal reasoning (`think`), and comprehension pipeline as Standard Lasso Mode,
+        differing only in concise output length (<= 25 words, zero visible thoughts).
+        """
         self._stop_active_worker()
         self._current_reply_buffer = ""
 
@@ -559,31 +601,14 @@ class OverlayWindow(QWidget):
             if compute_device == "gemini"
             else raw_model_name
         )
-        tier_cfg = get_thinking_level_config(thinking_level, compute_device)
 
         secret_sys_prompt = build_secret_system_prompt(
             lang=lang_code,
-            thinking_level="low",
+            thinking_level=thinking_level,
             compute_device=compute_device,
             model=display_model,
         )
-        secret_user_prompt = (
-            "PŘÍSNÝ LIMIT: MAXIMÁLNĚ 25 SLOV. "
-            "Uveď POUZE konečnou správnou odpověď bez jakéhokoliv myšlenkového postupu, úvah, rozborů, vysvětlování či omáčky. "
-            "Myšlenkový postup (thoughts) nevypisuj. "
-            "U testů s možnostmi označ správnou možnost '✓' a špatné možnosti '✗' (bez vysvětlování proč). "
-            "Výpočty a vzorce piš lidsky jako v chatu (např. 11 % × 0,81 = 8,91 % nebo x - 5), bez LaTeXu. "
-            "U jazykových cvičení doplň chybějící slovo v původním jazyce. "
-            "Odpověz přímo a bleskově do 25 slov."
-            if lang_code in ("cs", "sk")
-            else "STRICT LIMIT: MAXIMUM 25 WORDS. "
-            "Provide ONLY the final direct answer with zero thinking, internal reasoning, analysis, explanation, or filler. "
-            "Do NOT output any thought process. "
-            "For multiple-choice questions, mark the correct option with '✓' and wrong options with '✗' (no explanation why). "
-            "Write math naturally as in chat (e.g. 11 % × 0.81 = 8.91 % or x - 5), no raw LaTeX. "
-            "For language exercises, provide the word in the original language. "
-            f"Answer directly in at most 25 words in {lang_code}."
-        )
+        secret_user_prompt = get_secret_prompt(lang_code)
 
         worker = VisionInferenceWorker(
             image=cropped_image,
@@ -591,11 +616,9 @@ class OverlayWindow(QWidget):
             ollama_host=ollama_host,
             model=display_model,
             language=lang_code,
-            thinking_level="low",
+            thinking_level=thinking_level,
             compute_device=compute_device,
             system_prompt=secret_sys_prompt,
-            think=False,
-            temperature=0.1,
             history=None,
             is_secret_mode=True,
             parent=self,
@@ -734,10 +757,15 @@ class OverlayWindow(QWidget):
 
         # 2. Dimming overlay & selection rendering
         if self._is_secret_mode:
-            # Secret Mode: pure text selection highlight only while actively dragging.
+            # Secret Mode: clean selection highlight covering all swept text/area while actively dragging.
             # Upon release, the highlight vanishes immediately so the screen is completely unmarked.
             if self._is_drawing and self._drag_start_pos and self._drag_current_pos:
-                rect = QRectF(self._drag_start_pos, self._drag_current_pos).normalized()
+                preview_rect = self._compute_secret_selection_rect(include_padding=False)
+                rect = (
+                    QRectF(preview_rect)
+                    if not preview_rect.isNull()
+                    else QRectF(self._drag_start_pos, self._drag_current_pos).normalized()
+                )
                 painter.setPen(Qt.PenStyle.NoPen)
                 painter.setBrush(QColor(0, 120, 215, 120))
                 painter.drawRect(rect)

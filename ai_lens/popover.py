@@ -564,46 +564,53 @@ def clean_chat_math_and_thoughts(text: str, max_words: Optional[int] = None) -> 
     """
     Cleans internal thoughts, reasoning blocks, analysis monologues, and transforms
     raw LaTeX / KaTeX math expressions into natural human-friendly chat representations.
-    If `max_words` is specified, strictly caps output to that number of words (e.g. max 25 words).
+    If `max_words` is specified, strictly caps output to that number of lexical words (e.g. max 25 words).
     """
     if not text:
         return ""
 
-    # 1. Strip internal thoughts blocks: <thought>...</thought>, <think>...</think>, <reasoning>...</reasoning>, and unclosed tags
-    text = re.sub(r'(?is)<\s*(?:thought|think|reasoning|reflection)[^>]*>.*?<\s*/\s*(?:thought|think|reasoning|reflection)\s*>', '', text)
-    text = re.sub(r'(?is)<\s*(?:thought|think|reasoning|reflection)[^>]*>.*', '', text)
+    # 1. Strip internal thoughts blocks: <thought>...</thought>, <think>...</think>, <|thought|>...<|/thought|>, and unclosed tags
+    text = re.sub(
+        r'(?is)<\s*\|?\s*(?:thought|think|reasoning|reflection)\s*\|?[^>]*>.*?<\s*\|?\s*/\s*(?:thought|think|reasoning|reflection)\s*\|?\s*>',
+        '',
+        text,
+    )
+    text = re.sub(r'(?is)<\s*\|?\s*(?:thought|think|reasoning|reflection)\s*\|?[^>]*>.*', '', text)
 
-    # 2. Extract from explicit answer marker if preceded by thinking / monologue
-    # E.g. "Analyzing options... Option A is wrong. Správná odpověď: ✓ B) Paříž"
+    # 2. Extract from explicit final-answer label ONLY if preceded by a thinking monologue (or empty prefix).
+    # Never match bare '✓', which appears legitimately on option B/C/D after '✗ A) ...'!
     marker_m = re.search(
-        r'(?im)(?:^|\n)\s*(?:(?:\*\*)?(?:správná odpověď|odpověď|výsledek|konečná odpověď|řešení|answer|solution|result):\s*(?:\*\*)?|[✓✔])',
+        r'(?im)(?:^|\n)\s*(?:\*\*)?(?:final\s+answer|konečná\s+odpověď|správná\s+odpověď|odpověď|výsledek|řešení|answer|solution|result)(?:\*\*)?\s*:\s*(?:\*\*)?',
         text,
     )
     if marker_m:
         prefix = text[:marker_m.start()].strip()
-        if prefix:
-            text = text[marker_m.start():].strip()
-            text = re.sub(
-                r'(?im)^(?:\*\*)?(?:správná odpověď|odpověď|výsledek|konečná odpověď|řešení|answer|solution|result):\s*(?:\*\*)?',
-                '',
-                text,
-            ).strip()
+        after = text[marker_m.end():].strip()
+        if after and (
+            not prefix
+            or len(prefix.split()) > 15
+            or re.search(
+                r'(?i)(?:think(?:ing)?|thoughts?|reasoning|úvah[ay]|analýz[ay]|rozbor|myšlenkov|(?:^|\n)\s*(?:step\s*1|krok\s*1|1\.))',
+                prefix,
+            )
+        ):
+            text = after
 
-    # 3. Strip thought/reasoning section headers and their lines
+    # 3. Strip explicit thought/reasoning section headers and meta-thinking lead-ins
     thought_header_pat = (
-        r'(?im)^\s*(?:\*\*)?(?:thoughts?|thinking(?:\s+process)?|internal reasoning|reasoning|'
-        r'myšlenkový postup|úvaha|analýza(?:\s+otázky|\s+zadání|\s+textu|\s+úlohy)?|'
-        r'rozbor(?:\s+zadání|\s+úlohy)?|vysvětlení|zdůvodnění|postup(?:\s+řešení)?|kroky(?:\s+řešení)?):\s*(?:\*\*)?.*?(?:\n|$)'
+        r'(?im)^\s*(?:\*\*)?(?:thoughts?|thinking(?:\s+process)?|internal\s+reasoning|reasoning|'
+        r'myšlenkový\s+postup|úvaha):\s*(?:\*\*)?.*?(?:\n|$)'
     )
     text = re.sub(thought_header_pat, '', text)
-
-    # 4. Strip lead-in monologue lines
     text = re.sub(
-        r'(?im)^\s*(?:let\'s think step by step|here is my reasoning|nejprve se podíváme na|'
-        r'na obrázku vidíme|zadání požaduje|otázka vyžaduje|prozkoumáme možnosti|musíme určit|podle obrázku).*?\n',
+        r'(?im)^\s*(?:let\'s\s+think\s+step\s+by\s+step|here\s+is\s+my\s+reasoning)\b.*?\n',
         '',
         text,
     )
+
+    # 4. In concise Secret Mode (`max_words` set), strip any trailing '[Jistota: XX %]' / '[Confidence: XX %]' tag
+    if max_words is not None:
+        text = re.sub(r'(?i)\[\s*(?:jistota|confidence|pravděpodobnost)\s*:\s*\d+\s*%\s*\]', '', text)
 
     # 5. Convert LaTeX text wrappers: \text{...}, \mathrm{...}, \mathbf{...}, \mathit{...}
     text = re.sub(r'\\(?:text|mathrm|mathbf|mathit)\s*\{([^}]*)\}', r'\1', text)
@@ -643,26 +650,37 @@ def clean_chat_math_and_thoughts(text: str, max_words: Optional[int] = None) -> 
     text = re.sub(r'\$([^\$]+)\$', r'\1', text)
     text = text.replace('$$', '').replace('$', '')
 
-    # 11. Clean redundant whitespace
+    # 11. Clean redundant horizontal whitespace
     text = re.sub(r'[ \t]+', ' ', text)
+    text = re.sub(r'\n{2,}', '\n', text)
 
-    # 12. Strict word count clamp (if requested, e.g. max 25 words in secret mode)
+    # 12. Strict lexical word count clamp (standalone symbols like '✓', '✗', '=', '×' don't consume the 25-word budget)
     if max_words is not None and max_words > 0:
-        words = text.split()
-        if len(words) > max_words:
-            text = ' '.join(words[:max_words])
+        word_count = 0
+        cut_idx: Optional[int] = None
+        for m_tok in re.finditer(r'\S+', text):
+            tok = m_tok.group(0)
+            if any(ch.isalnum() for ch in tok):
+                word_count += 1
+                if word_count > max_words:
+                    cut_idx = m_tok.start()
+                    break
+        if cut_idx is not None:
+            text = text[:cut_idx].rstrip(' ,;:-–—\n')
 
     return text.strip()
 
 
 def _format_secret_display(text: str) -> str:
-    """Escapes HTML, strips thoughts, cleans math to chat style, strictly caps to 25 words, and highlights checkmarks and crosses for SecretTopBar."""
+    """Escapes HTML, strips thoughts, cleans math to chat style, strictly caps to 25 words, and highlights bold/checkmarks/crosses for SecretTopBar."""
     if not text:
         return ""
     cleaned = clean_chat_math_and_thoughts(text, max_words=25)
     if not cleaned:
         return ""
     escaped = html.escape(cleaned, quote=False)
+    escaped = re.sub(r"\*\*(.+?)\*\*", r'<span style="color: #F8FAFC; font-weight: 800;">\1</span>', escaped)
+    escaped = escaped.replace("**", "")
     escaped = re.sub(
         r"([✓✔])",
         r'<span style="color: #34D399; font-weight: 800; font-size: 16px;">\1</span>',
@@ -798,7 +816,7 @@ class SecretTopBar(QFrame):
         from PyQt6.QtWidgets import QApplication
         cb = QApplication.clipboard()
         if cb is not None:
-            cleaned = clean_chat_math_and_thoughts(self._raw_text, max_words=25)
+            cleaned = clean_chat_math_and_thoughts(self._raw_text, max_words=25).replace("**", "")
             cb.setText(cleaned)
             copied_text = "Zkopírováno" if self._language in ("cs", "sk") else "Copied"
             reset_text = "Kopírovat" if self._language in ("cs", "sk") else "Copy"
