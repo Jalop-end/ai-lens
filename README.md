@@ -134,9 +134,9 @@ All active Gemini models run in **unified `High` reasoning mode** with an expand
 
 | Model ID | Tier Availability | Role / Specialization | Reasoning Mode (`thinkingConfig`) | Token Ceiling (`maxOutputTokens`) |
 |---|---|---|---|---|
-| **`gemini-3.5-flash`** *(Recommended)* | **Free & Gemini Pro** | Next-generation multimodal model balancing frontier intelligence with blazing sub-5s response. | **Unified High:** `thinkingLevel: "high"`, `includeThoughts: True` | **12 288 tokens** |
-| **`gemini-3.1-pro`** | **Gemini Pro (with Quota Guard)** | Flagship Pro model for complex code, advanced mathematics, STEM logic, and deep analysis. | **Unified High:** `thinkingLevel: "high"`, `includeThoughts: True` + Pro Directive | **12 288 tokens** |
-| **`gemini-3.5-flash-lite`** | **Free & Gemini Pro** | Ultra-lightweight model with lowest latency and highest request throughput. | **Unified High:** `thinkingLevel: "high"`, `includeThoughts: True` | **12 288 tokens** |
+| **`gemini-3.5-flash`** *(Recommended)* | **Free & Gemini Pro** | Next-generation multimodal model balancing frontier intelligence with blazing sub-5s response. | **Unified High:** `thinkingLevel: "high"` | **12 288 tokens** |
+| **`gemini-3.1-pro`** | **Gemini Pro (with Quota Guard)** | Flagship Pro model for complex code, advanced mathematics, STEM logic, and deep analysis. | **Unified High:** `thinkingLevel: "high"` + Pro Directive | **12 288 tokens** |
+| **`gemini-3.5-flash-lite`** | **Free & Gemini Pro** | Ultra-lightweight model with lowest latency and highest request throughput. | **Unified High:** `thinkingLevel: "high"` | **12 288 tokens** |
 | **`gemini-3.8-flash`** | *(Currently Disabled)* | *Temporarily locked due to upstream preview rate limits and latency.* | Disabled in selector | — |
 | **`custom`** | **Free & Gemini Pro** | Enter any custom Google Gemini model identifier dynamically. | Dynamically configured | User-specified |
 
@@ -362,7 +362,7 @@ flowchart LR
    - Encoded directly in memory as a base64 buffer without touching disk.
 4. **Step 4: AI Brain Processing (Unified High Reasoning)**
    - **Local VLM (Ollama):** Applies system prompt guards against prompt injection, bounds KV-cache allocation, and dynamically configures thinking budgets.
-   - **Google Gemini API:** Dynamically configures `{"thinkingLevel": "high", "includeThoughts": True}` and `maxOutputTokens: 12288` across all active models (`gemini-3.5-flash`, `gemini-3.1-pro`, `gemini-3.5-flash-lite`).
+   - **Google Gemini API:** Dynamically configures `{"thinkingLevel": "high"}` and `maxOutputTokens: 12288` across all active models (`gemini-3.5-flash`, `gemini-3.1-pro`, `gemini-3.5-flash-lite`).
    - **Smart Quota Guard:** Intercepts `429 (limit: 0)` errors on flagship Pro models and seamlessly routes through active Gemini 3 endpoints without dropping thinking depth or showing errors.
 5. **Step 5: High-Precision Formatting, Typography & Animations**
    - **Luminous Infinity Animation (∞):** Renders dynamic Bernoulli lemniscate glowing path and circulating photons in PopoverCard during reasoning.

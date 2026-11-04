@@ -573,8 +573,12 @@ def resolve_live_gemini_model_id(
     if not is_safe_gemini_model_id(m):
         return DEFAULT_GEMINI_MODEL
 
+    now_mono = time.monotonic()
     with _GEMINI_STATE_LOCK:
-        forbidden = set(_GEMINI_FORBIDDEN_MODELS)
+        expired = [k for k, u in _GEMINI_MODEL_COOLDOWN_UNTIL.items() if u <= now_mono]
+        for k in expired:
+            _GEMINI_MODEL_COOLDOWN_UNTIL.pop(k, None)
+        forbidden = set(_GEMINI_FORBIDDEN_MODELS) | set(_GEMINI_MODEL_COOLDOWN_UNTIL.keys())
 
     avail_source = remote_models if remote_models else _VOLATILE_GEMINI_REMOTE_MODELS
     avail_set = {
@@ -586,14 +590,35 @@ def resolve_live_gemini_model_id(
         static_chains: dict[str, tuple[str, ...]] = {
             "gemini-3.1-pro": (
                 "gemini-3.1-pro-preview",
-                "gemini-3-pro-preview",
+                "gemini-3-flash-preview",
+                "gemini-3.1-flash-lite-preview",
+                "gemini-flash-latest",
+                "gemini-flash-lite-latest",
+            ),
+            "gemini-3-flash": (
+                "gemini-3-flash-preview",
+                "gemini-3.1-flash-lite-preview",
+                "gemini-flash-latest",
+                "gemini-flash-lite-latest",
+            ),
+            "gemini-3.5-flash": (
+                "gemini-3-flash-preview",
+                "gemini-3.1-flash-lite-preview",
+                "gemini-flash-latest",
+                "gemini-flash-lite-latest",
+            ),
+            "gemini-3.1-flash-lite": (
+                "gemini-3.1-flash-lite-preview",
+                "gemini-flash-lite-latest",
                 "gemini-3-flash-preview",
                 "gemini-flash-latest",
             ),
-            "gemini-3-flash": ("gemini-3-flash-preview", "gemini-flash-latest"),
-            "gemini-3.5-flash": ("gemini-3-flash-preview", "gemini-flash-latest"),
-            "gemini-3.1-flash-lite": ("gemini-3.1-flash-lite-preview", "gemini-flash-lite-latest"),
-            "gemini-3.5-flash-lite": ("gemini-3.1-flash-lite-preview", "gemini-flash-lite-latest"),
+            "gemini-3.5-flash-lite": (
+                "gemini-3.1-flash-lite-preview",
+                "gemini-flash-lite-latest",
+                "gemini-3-flash-preview",
+                "gemini-flash-latest",
+            ),
         }
         if m in static_chains:
             for cand in static_chains[m]:
@@ -612,7 +637,9 @@ def resolve_live_gemini_model_id(
             "gemini-3.5-flash-preview",
             "gemini-3-flash",
             "gemini-3-flash-preview",
+            "gemini-3.1-flash-lite-preview",
             "gemini-flash-latest",
+            "gemini-flash-lite-latest",
         ):
             if alt in avail_set and alt not in forbidden:
                 return alt
@@ -627,6 +654,8 @@ def resolve_live_gemini_model_id(
             "gemini-3.1-flash-lite",
             "gemini-3.1-flash-lite-preview",
             "gemini-flash-lite-latest",
+            "gemini-3-flash-preview",
+            "gemini-flash-latest",
         ):
             if alt in avail_set and alt not in forbidden:
                 return alt
@@ -647,7 +676,9 @@ def resolve_live_gemini_model_id(
             "gemini-3-pro-preview",
             "gemini-3-flash",
             "gemini-3-flash-preview",
+            "gemini-3.1-flash-lite-preview",
             "gemini-flash-latest",
+            "gemini-flash-lite-latest",
         ):
             if alt in avail_set and alt not in forbidden:
                 return alt
@@ -3007,7 +3038,7 @@ class VisionInferenceWorker(QThread):
         return max(0.0, MAX_INFERENCE_WALL_TIME - (time.perf_counter() - self._t0))
 
     def cancel(self) -> None:
-        """Signals the streaming loop to abort cleanly and closes the active stream without killing the keep-alive pool."""
+        """Signals the streaming loop to abort cleanly and resets any stalled HTTP connection."""
         self._cancelled = True
         resp = self._active_response
         if resp is not None:
@@ -3015,6 +3046,7 @@ class VisionInferenceWorker(QThread):
                 resp.close()
             except Exception:
                 pass
+        _close_shared_http_clients()
 
     def clear_memory(self) -> None:
         """Immediately releases the worker's in-memory image copy and conversation history."""
@@ -3108,8 +3140,11 @@ class VisionInferenceWorker(QThread):
         think_filter = StreamThinkingFilter()
         emitted_visible = False
         thought_texts: list[str] = []
+        stream_t0 = time.perf_counter()
         eff_timeout = min(timeout_sec, max(2.0, self._remaining_budget()))
-        req_timeout = httpx.Timeout(eff_timeout, connect=min(6.0, eff_timeout))
+        # Cap per-endpoint silent read wait to 14s so a stalled or overloaded endpoint never consumes
+        # the full 40s watchdog and instead fails over to a healthy endpoint with time to spare.
+        req_timeout = httpx.Timeout(eff_timeout, read=min(14.0, eff_timeout), connect=min(5.0, eff_timeout))
 
         try:
             _pace_gemini_request(0.12)
@@ -3130,7 +3165,9 @@ class VisionInferenceWorker(QThread):
                     for line in response.iter_lines():
                         if self._cancelled:
                             return True, 200, ""
-                        if self._remaining_budget() <= 0.5:
+                        if self._remaining_budget() <= 0.5 or (
+                            not emitted_visible and (time.perf_counter() - stream_t0) > 15.0
+                        ):
                             break
                         if not line:
                             continue
@@ -3201,11 +3238,15 @@ class VisionInferenceWorker(QThread):
                 except Exception:
                     pass
                 return True, 200, ""
+            if isinstance(exc, (httpx.ReadTimeout, httpx.ConnectTimeout, httpx.PoolTimeout)) and not thought_texts:
+                _close_shared_http_clients()
+                return False, 408, "THINKING_READ_TIMEOUT"
             if not emitted_visible and thought_texts:
                 salvaged = _extract_conclusion_from_thought("".join(thought_texts))
                 if salvaged:
                     self._salvaged_thought_answer = salvaged
                 return False, 204, "EMPTY_VISIBLE_OUTPUT_AFTER_THINKING"
+            _close_shared_http_clients()
             return False, 500, redact_secrets(exc, headers.get("x-goog-api-key"))
 
     def _build_gemini_generation_config(self, gemini_model: str) -> dict[str, Any]:
@@ -3213,11 +3254,13 @@ class VisionInferenceWorker(QThread):
         Builds a deterministic, high-intelligence `generationConfig` for `gemini_model`:
           - Uses `temperature = 0.0` (greedy deterministic decoding) so identical math, logic, and
             algorithmic questions (such as B-tree insertions) ALWAYS produce the exact same verified result.
-          - Sets `maxOutputTokens >= 12288` so internal thinking tokens NEVER exhaust the output token
+          - Sets `maxOutputTokens = 12288` so internal thinking tokens NEVER exhaust the output token
             budget (`finishReason: MAX_TOKENS`) and starve the visible response.
-          - Always enforces `"high"` thinkingLevel on Gemini 3/3.1/3.5 models (or `thinkingBudget = 8192`
-            on non-Gemini-3 endpoints) with `includeThoughts = True` so real-time thinking progress and
-            thought-salvage work natively across every model without ever downgrading to `"low"`.
+          - Enforces `"thinkingLevel": "high"` on all Gemini 3/3.1/3.5 models WITHOUT `includeThoughts: True`
+            (omitting `includeThoughts` keeps full High latent thinking on Google's TPU while avoiding the
+            20–35s latency of serializing verbose thought essays over SSE, delivering < 5s responses).
+          - On backup 2.5 alias endpoints (`gemini-flash-latest`, `gemini-flash-lite-latest`), uses
+            `thinkingBudget: 2048` so fallback responses also stream in 3–5s instead of hitting the 40s limit.
         """
         m_low = gemini_model.lower()
         is_gemini_3 = bool(re.search(r"gemini-3(?:[.\-]|$)", m_low))
@@ -3233,12 +3276,10 @@ class VisionInferenceWorker(QThread):
         if is_gemini_3 and "3.8" not in m_low:
             gen_cfg["thinkingConfig"] = {
                 "thinkingLevel": "high",
-                "includeThoughts": True,
             }
         else:
             gen_cfg["thinkingConfig"] = {
-                "thinkingBudget": 8192,
-                "includeThoughts": True,
+                "thinkingBudget": 2048,
             }
 
         return gen_cfg
@@ -3399,19 +3440,18 @@ class VisionInferenceWorker(QThread):
                 self.tokenReceived.emit(self._salvaged_thought_answer)
                 ok = True
 
-            # Fallback 1: If 400 error occurs because an endpoint rejects `includeThoughts` (or `thinkingConfig`),
-            # first keep `thinkingLevel: "high"` / `thinkingBudget: 8192` without `includeThoughts`.
+            # Fallback 1: If a custom endpoint rejects `thinkingConfig` with HTTP 400, retry without `thinkingConfig`.
             if (
                 not ok
                 and not self._cancelled
-                and status_code in (204, 400)
+                and status_code == 400
                 and "thinkingConfig" in payload.get("generationConfig", {})
                 and self._remaining_budget() > 3.5
             ):
                 if not any(k in err_body.lower() for k in ("api_key_invalid", "api key not valid", "invalid api key")):
-                    t_cfg = payload["generationConfig"].get("thinkingConfig")
-                    if isinstance(t_cfg, dict) and "includeThoughts" in t_cfg:
-                        t_cfg.pop("includeThoughts", None)
+                    payload["generationConfig"].pop("thinkingConfig", None)
+                    client = _get_shared_gemini_client(self._remaining_budget())
+                    self._client = client
                     ok, status_code, err_body = self._stream_gemini_chat(
                         client, url, headers, payload, is_paid_exclusive=is_paid_exclusive, timeout_sec=self._remaining_budget()
                     )
@@ -3422,6 +3462,8 @@ class VisionInferenceWorker(QThread):
             )
             if primary_access_denied:
                 _mark_gemini_model_forbidden(gemini_model)
+            elif not ok and status_code == 429:
+                _mark_gemini_model_cooldown(gemini_model, err_body, cooldown_sec=45.0)
 
             fallback_candidates = self._get_quota_safe_fallback_models(gemini_model, raw_gemini_model)
 
@@ -3433,7 +3475,9 @@ class VisionInferenceWorker(QThread):
                 and not self._cancelled
                 and self._remaining_budget() > 4.0
             ):
-                time.sleep(1.15)
+                time.sleep(0.85)
+                client = _get_shared_gemini_client(self._remaining_budget())
+                self._client = client
                 ok, status_code, err_body = self._stream_gemini_chat(
                     client, url, headers, payload, is_paid_exclusive=is_paid_exclusive, timeout_sec=self._remaining_budget()
                 )
@@ -3446,13 +3490,15 @@ class VisionInferenceWorker(QThread):
                 not ok
                 and not self._cancelled
                 and self._remaining_budget() > 3.5
-                and (primary_access_denied or status_code in (204, 400, 403, 404, 429, 500, 502, 503))
+                and (primary_access_denied or status_code in (204, 400, 403, 404, 408, 429, 500, 502, 503))
             ):
                 orig_err_code = status_code if status_code != 200 else 400
                 orig_err_body = err_body
                 for _raw_fb, fallback_model in fallback_candidates:
                     if self._cancelled or self._remaining_budget() <= 3.0:
                         break
+                    client = _get_shared_gemini_client(self._remaining_budget())
+                    self._client = client
                     fallback_url = f"{GEMINI_API_BASE_URL}/models/{fallback_model}:streamGenerateContent?alt=sse"
                     fb_gen_cfg = self._build_gemini_generation_config(fallback_model)
                     fb_payload = {
@@ -3463,19 +3509,6 @@ class VisionInferenceWorker(QThread):
                     fb_ok, fb_status, fb_err = self._stream_gemini_chat(
                         client, fallback_url, headers, fb_payload, is_paid_exclusive=is_fb_paid, timeout_sec=self._remaining_budget()
                     )
-                    if (
-                        not fb_ok
-                        and not self._cancelled
-                        and fb_status in (204, 400)
-                        and "thinkingConfig" in fb_payload.get("generationConfig", {})
-                        and self._remaining_budget() > 3.0
-                    ):
-                        fb_t_cfg = fb_payload["generationConfig"].get("thinkingConfig")
-                        if isinstance(fb_t_cfg, dict) and "includeThoughts" in fb_t_cfg:
-                            fb_t_cfg.pop("includeThoughts", None)
-                        fb_ok, fb_status, fb_err = self._stream_gemini_chat(
-                            client, fallback_url, headers, fb_payload, is_paid_exclusive=is_fb_paid, timeout_sec=self._remaining_budget()
-                        )
                     if fb_ok:
                         ok = True
                         status_code = 200
@@ -3483,6 +3516,10 @@ class VisionInferenceWorker(QThread):
                         break
                     if is_gemini_model_access_denied(fb_status, fb_err):
                         _mark_gemini_model_forbidden(fallback_model)
+                    elif fb_status == 429:
+                        _mark_gemini_model_cooldown(fallback_model, fb_err, cooldown_sec=45.0)
+                        status_code = fb_status
+                        err_body = fb_err
                     else:
                         status_code = fb_status
                         err_body = fb_err
@@ -3538,19 +3575,15 @@ class VisionInferenceWorker(QThread):
                         if self.language in ("cs", "sk")
                         else "Response time limit exceeded (40 s). Query was automatically terminated — try a lower thinking level."
                     )
-                elif is_gemini_model_access_denied(status_code, err_body):
+                elif status_code == 429 or is_gemini_model_access_denied(status_code, err_body):
                     user_friendly_err = (
-                        f"Váš API klíč nemá aktivní přístup ke zvolenému modelu '{raw_gemini_model}' (Kód {status_code}). "
-                        f"Zkontrolujte kvóty svého klíče v Google AI Studiu (aistudio.google.com)."
+                        "Byl vyčerpán limit dotazů (kvóta 429) pro tento API klíč na všech dostupných modelech. "
+                        "Počkejte prosím ~1 minutu (při minutovém limitu RPM) nebo použijte nový API klíč "
+                        "(pokud jste v Google AI Studiu vyčerpali denní limit RPD)."
                         if self.language in ("cs", "sk")
-                        else f"Your API key does not have active access to model '{raw_gemini_model}' (Code {status_code}). "
-                             f"Please check your API key quotas in Google AI Studio (aistudio.google.com)."
-                    )
-                elif status_code == 429:
-                    user_friendly_err = (
-                        "Překročen okamžitý limit dotazů Google Gemini API (429). Počkej 2–3 sekundy a zkus to znovu."
-                        if self.language in ("cs", "sk")
-                        else "Google Gemini API rate limit exceeded (429). Please wait 2–3 seconds and try again."
+                        else "API key request quota (429) has been exhausted across all available models. "
+                             "Please wait ~1 minute (for per-minute RPM limit) or use a fresh API key "
+                             "(if your daily RPD limit in Google AI Studio has been reached)."
                     )
                 elif status_code in (400, 403) and any(
                     k in err_body.lower() for k in ("api_key_invalid", "api key not valid", "invalid api key")
