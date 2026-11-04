@@ -53,6 +53,7 @@ from ai_lens.vision_engine import (
     normalize_thinking_level,
     prompt_for_gemini_api_key,
     set_volatile_gemini_api_key,
+    warmup_gemini_connection,
     warmup_local_model,
 )
 
@@ -278,36 +279,39 @@ class ExitConfirmDialog(QDialog):
         self.lang_code = normalize_language_code(language)
         self.is_cs = self.lang_code in ("cs", "sk")
 
-        self.setFixedSize(380, 160)
+        self.setFixedSize(436, 196)
 
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(10, 10, 10, 10)
+        main_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         card = QFrame(self)
         card.setObjectName("Card")
         card.setStyleSheet("""
             QFrame#Card {
                 background-color: #0F172A;
-                border: 1px solid rgba(255, 255, 255, 0.18);
-                border-radius: 12px;
+                border: 1.5px solid rgba(255, 255, 255, 0.22);
+                border-radius: 14px;
             }
             QLabel#Title {
                 color: #FFFFFF;
-                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-                font-size: 15px;
+                font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+                font-size: 16px;
                 font-weight: 700;
+                background: transparent;
             }
             QLabel#Subtitle {
                 color: #94A3B8;
-                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-                font-size: 12px;
+                font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+                font-size: 12.5px;
+                background: transparent;
             }
             QPushButton {
-                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
                 font-size: 13px;
                 font-weight: 600;
                 border-radius: 8px;
-                padding: 7px 18px;
+                padding: 0px 14px;
             }
             QPushButton#BtnNo {
                 background-color: #22C55E;
@@ -320,7 +324,7 @@ class ExitConfirmDialog(QDialog):
             QPushButton#BtnYes {
                 background-color: rgba(239, 68, 68, 0.15);
                 color: #EF4444;
-                border: 1px solid rgba(239, 68, 68, 0.40);
+                border: 1px solid rgba(239, 68, 68, 0.45);
             }
             QPushButton#BtnYes:hover {
                 background-color: #EF4444;
@@ -329,7 +333,7 @@ class ExitConfirmDialog(QDialog):
         """)
 
         card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(18, 16, 18, 16)
+        card_layout.setContentsMargins(24, 20, 24, 20)
         card_layout.setSpacing(10)
 
         title = QLabel(
@@ -337,6 +341,7 @@ class ExitConfirmDialog(QDialog):
             card,
         )
         title.setObjectName("Title")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         card_layout.addWidget(title)
 
         subtitle = QLabel(
@@ -346,14 +351,20 @@ class ExitConfirmDialog(QDialog):
             card,
         )
         subtitle.setObjectName("Subtitle")
+        subtitle.setWordWrap(True)
+        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
         card_layout.addWidget(subtitle)
 
+        card_layout.addStretch(1)
+
         btn_layout = QHBoxLayout()
-        btn_layout.setSpacing(10)
-        btn_layout.addStretch()
+        btn_layout.setContentsMargins(0, 4, 0, 0)
+        btn_layout.setSpacing(14)
+        btn_layout.addStretch(1)
 
         self.btn_no = QPushButton("Ne (vrátit se)" if self.is_cs else "No (return)", card)
         self.btn_no.setObjectName("BtnNo")
+        self.btn_no.setFixedSize(166, 38)
         self.btn_no.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_no.clicked.connect(self.reject)
         self.btn_no.setDefault(True)
@@ -362,22 +373,24 @@ class ExitConfirmDialog(QDialog):
 
         self.btn_yes = QPushButton("Ano, ukončit" if self.is_cs else "Yes, exit", card)
         self.btn_yes.setObjectName("BtnYes")
+        self.btn_yes.setFixedSize(166, 38)
         self.btn_yes.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_yes.clicked.connect(self.accept)
         btn_layout.addWidget(self.btn_yes)
 
+        btn_layout.addStretch(1)
+
         card_layout.addLayout(btn_layout)
         main_layout.addWidget(card)
 
-        # Center on primary screen
+        # Center on primary screen available geometry
         screen = QGuiApplication.primaryScreen()
         if screen is not None:
-            sgeom = screen.geometry()
+            sgeom = screen.availableGeometry()
             self.move(
                 int(sgeom.x() + (sgeom.width() - self.width()) / 2),
                 int(sgeom.y() + (sgeom.height() - self.height()) / 2),
             )
-
     def keyPressEvent(self, event: QKeyEvent) -> None:  # noqa: N802
         if event.key() in (Qt.Key.Key_N, Qt.Key.Key_Escape):
             self.reject()
@@ -840,7 +853,7 @@ def run_daemon(
     sigint_timer.start(250)
     sigint_timer.timeout.connect(lambda: None)
 
-    # Pre-warm local VLM in background thread (skipped for Gemini API cloud mode)
+    # Pre-warm local VLM + system prompt KV-cache (or Gemini TLS 1.3 connection pool) in background thread
     if dev_code != "gemini":
         temperature = float(tier_cfg.get("temperature", 0.12))
         threading.Thread(
@@ -852,8 +865,16 @@ def run_daemon(
                 temperature,
                 dev_code,
                 int(tier_cfg.get("num_ctx", 10240)),
+                level_code,
+                lang_code,
             ),
             name="AILensWarmup",
+            daemon=True,
+        ).start()
+    else:
+        threading.Thread(
+            target=warmup_gemini_connection,
+            name="AILensGeminiWarmup",
             daemon=True,
         ).start()
 

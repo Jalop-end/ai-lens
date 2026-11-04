@@ -310,6 +310,12 @@ class PopoverCard(QFrame):
         self._loading_timer.setInterval(350)
         self._loading_timer.timeout.connect(self._tick_loading)
 
+        self._render_timer = QTimer(self)
+        self._render_timer.setSingleShot(True)
+        self._render_timer.setInterval(20)
+        self._render_timer.timeout.connect(self._flush_pending_render)
+        self._last_render_len = 0
+
         self._setup_style()
         self._setup_ui()
 
@@ -456,7 +462,9 @@ class PopoverCard(QFrame):
     def clear_sensitive_data(self) -> None:
         """Immediately wipes all conversation text, DOM content, and input buffers from RAM."""
         self._loading_timer.stop()
+        self._render_timer.stop()
         self._raw_markdown = ""
+        self._last_render_len = 0
         self._loading_step = 0
         self._thinking_tokens = 0
         self.confidence_badge.clear()
@@ -521,30 +529,41 @@ class PopoverCard(QFrame):
         """Stops the loading indicator once streaming completes or pauses."""
         ui = get_ui_strings(self._language)
         self._loading_timer.stop()
+        if self._render_timer.isActive() or self._last_render_len != len(self._raw_markdown):
+            self._render_timer.stop()
+            self._flush_pending_render()
         self.status_label.setText(status_text or ui["ready"])
         self._update_confidence_badge()
 
-    def set_markdown_content(self, markdown_text: str) -> None:
-        """Replaces the displayed Markdown text using styled HTML rendering."""
-        self._raw_markdown = markdown_text
+    def _flush_pending_render(self) -> None:
+        """Renders accumulated Markdown into styled HTML at up to 50 FPS without blocking fast token streams."""
+        if not self._raw_markdown:
+            return
+        self._last_render_len = len(self._raw_markdown)
         self.response_browser.setHtml(render_styled_markdown_html(self._raw_markdown))
         self._update_confidence_badge()
         sb = self.response_browser.verticalScrollBar()
         if sb is not None:
             sb.setValue(sb.maximum())
 
+    def set_markdown_content(self, markdown_text: str) -> None:
+        """Replaces the displayed Markdown text using styled HTML rendering."""
+        self._render_timer.stop()
+        self._raw_markdown = markdown_text
+        self._flush_pending_render()
+
     def append_token(self, token: str) -> None:
-        """Appends a newly streamed token and re-renders styled HTML in real time."""
+        """Appends a newly streamed token and schedules a batched 50 FPS DOM render."""
         ui = get_ui_strings(self._language)
         if self._loading_timer.isActive():
             self._loading_timer.stop()
         self.status_label.setText(ui["streaming"])
+        was_empty = not self._raw_markdown
         self._raw_markdown += token
-        self.response_browser.setHtml(render_styled_markdown_html(self._raw_markdown))
-        self._update_confidence_badge()
-        sb = self.response_browser.verticalScrollBar()
-        if sb is not None:
-            sb.setValue(sb.maximum())
+        if was_empty:
+            self._flush_pending_render()
+        elif not self._render_timer.isActive():
+            self._render_timer.start()
 
     def place_near_bbox(self, bbox: QRect, screen_rect: QRect) -> QPoint:
         """Positions the PopoverCard next to `bbox` respecting `screen_rect` borders."""
@@ -654,7 +673,7 @@ def clean_chat_math_and_thoughts(text: str, max_words: Optional[int] = None) -> 
     text = re.sub(r'[ \t]+', ' ', text)
     text = re.sub(r'\n{2,}', '\n', text)
 
-    # 12. Strict lexical word count clamp (standalone symbols like '✓', '✗', '=', '×' don't consume the 25-word budget)
+    # 12. Strict lexical word count clamp (standalone symbols like '✓', '✗', '=', '×' don't consume the word budget)
     if max_words is not None and max_words > 0:
         word_count = 0
         cut_idx: Optional[int] = None
@@ -666,16 +685,22 @@ def clean_chat_math_and_thoughts(text: str, max_words: Optional[int] = None) -> 
                     cut_idx = m_tok.start()
                     break
         if cut_idx is not None:
-            text = text[:cut_idx].rstrip(' ,;:-–—\n')
+            candidate = text[:cut_idx]
+            # Prefer ending at the last complete sentence boundary if available past 60% of the text
+            last_sent = max(candidate.rfind('. '), candidate.rfind('! '), candidate.rfind('? '))
+            if last_sent >= int(len(candidate) * 0.6):
+                text = candidate[: last_sent + 1].strip()
+            else:
+                text = candidate.rstrip(' ,;:-–—\n')
 
     return text.strip()
 
 
 def _format_secret_display(text: str) -> str:
-    """Escapes HTML, strips thoughts, cleans math to chat style, strictly caps to 25 words, and highlights bold/checkmarks/crosses for SecretTopBar."""
+    """Escapes HTML, strips thoughts, cleans math to chat style, caps to <= 45 words, and highlights bold/checkmarks/crosses for SecretTopBar."""
     if not text:
         return ""
-    cleaned = clean_chat_math_and_thoughts(text, max_words=25)
+    cleaned = clean_chat_math_and_thoughts(text, max_words=45)
     if not cleaned:
         return ""
     escaped = html.escape(cleaned, quote=False)
@@ -816,7 +841,7 @@ class SecretTopBar(QFrame):
         from PyQt6.QtWidgets import QApplication
         cb = QApplication.clipboard()
         if cb is not None:
-            cleaned = clean_chat_math_and_thoughts(self._raw_text, max_words=25).replace("**", "")
+            cleaned = clean_chat_math_and_thoughts(self._raw_text, max_words=45).replace("**", "")
             cb.setText(cleaned)
             copied_text = "Zkopírováno" if self._language in ("cs", "sk") else "Copied"
             reset_text = "Kopírovat" if self._language in ("cs", "sk") else "Copy"

@@ -6,6 +6,8 @@
 #   gemini
 # přímo ve Windows PowerShellu.
 
+$env:PYTHONUTF8 = "1"
+$env:PYTHONIOENCODING = "utf-8"
 if (Test-Path Alias:start) {
     Remove-Item Alias:start -Force -ErrorAction SilentlyContinue
 }
@@ -21,10 +23,11 @@ function global:Find-AiLensBat {
         if (Test-Path (Join-Path $scriptDir "..\..\ai-lens.bat")) { return (Resolve-Path (Join-Path $scriptDir "..\..\ai-lens.bat")).Path }
     }
     foreach ($cand in @(
+        "$env:USERPROFILE\ai-lens\ai-lens.bat",
+        "$env:USERPROFILE\Desktop\aiforscreen\ai-lens.bat",
         "$env:USERPROFILE\ai-lens-1\ai-lens.bat",
         "$env:USERPROFILE\Desktop\ai-lens-main\ai-lens.bat",
-        "$env:USERPROFILE\Desktop\ai-lens-main3\ai-lens.bat",
-        "$env:USERPROFILE\ai-lens\ai-lens.bat"
+        "$env:USERPROFILE\Desktop\ai-lens-main3\ai-lens.bat"
     )) {
         if (Test-Path $cand) { return $cand }
     }
@@ -42,6 +45,8 @@ function global:Find-AiLensPython {
     $root = Split-Path $bat -Parent
     $cands = @(
         (Join-Path $root ".venv\Scripts\python.exe"),
+        "$env:USERPROFILE\ai-lens\.venv\Scripts\python.exe",
+        "$env:USERPROFILE\Desktop\aiforscreen\.venv\Scripts\python.exe",
         "$env:USERPROFILE\Desktop\ai-lens-main\.venv\Scripts\python.exe",
         "$env:USERPROFILE\Desktop\ai-lens-main3\.venv\Scripts\python.exe",
         (Join-Path $root "..\ai-lens\.venv\Scripts\python.exe")
@@ -179,4 +184,3 @@ if (Get-Module -ListAvailable -Name PSReadLine) {
 }
 
 Write-Host "[AI Lens] Podpora pro '.\ai-lens.bat start with Gemini' a '@\' byla uspesne aktivovana v PowerShellu." -ForegroundColor Green
-

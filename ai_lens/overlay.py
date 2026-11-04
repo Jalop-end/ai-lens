@@ -484,15 +484,15 @@ class OverlayWindow(QWidget):
             return QRect()
 
         # Single-line horizontal I-beam text drag: expand vertically around center so full glyph height is covered
-        if raw_w >= 12 and raw_h < 34:
+        if raw_w >= 12 and raw_h < 38:
             cy = (min_y + max_y) / 2.0
-            min_y = cy - 17.0
-            max_y = cy + 17.0
+            min_y = cy - 19.0
+            max_y = cy + 19.0
 
         if include_padding:
             cfg_pad = int(self.config.get("padding", 4))
-            pad_x = float(max(10, cfg_pad))
-            pad_y = float(max(16, cfg_pad))
+            pad_x = float(max(18, cfg_pad))
+            pad_y = float(max(18, cfg_pad))
             min_x -= pad_x
             max_x += pad_x
             min_y -= pad_y
@@ -552,7 +552,7 @@ class OverlayWindow(QWidget):
                 self.update()
                 return
             else:
-                padding = int(self.config.get("padding", 4))
+                padding = max(8, int(self.config.get("padding", 4)))
                 bbox = compute_bounding_box(
                     points=self._lasso_points,
                     screen_width=self.width(),
