@@ -200,10 +200,21 @@ def render_styled_markdown_html(markdown_text: str) -> str:
         f"{body}</div>"
     )
 
+import math
+import time
 from typing import Optional
 
-from PyQt6.QtCore import QPoint, QRect, QSize, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor
+from PyQt6.QtCore import QPoint, QPointF, QRect, QRectF, QSize, Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import (
+    QBrush,
+    QColor,
+    QFont,
+    QLinearGradient,
+    QPainter,
+    QPainterPath,
+    QPen,
+    QRadialGradient,
+)
 from PyQt6.QtWidgets import (
     QFrame,
     QGraphicsDropShadowEffect,
@@ -278,6 +289,327 @@ def compute_popover_position(
         y = screen_top + gap
 
     return QPoint(x, y)
+
+
+class NeuralOrbWidget(QWidget):
+    """
+    Futuristic Lemniscate (Infinity Loop ∞) with flowing celestial light.
+    Renders with anti-aliasing:
+      - Continuous Bernoulli lemniscate glowing conduit (cyan & indigo neon)
+      - Dual focal-core ambient breathing energy in loop centers
+      - Central nexus crossing pulse
+      - Twin celestial light photons circulating along the infinity path with comet trails
+    """
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self.setFixedSize(96, 54)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self._phase: float = 0.0
+        self._cached_path: Optional[QPainterPath] = None
+
+    def set_phase(self, phase: float) -> None:
+        self._phase = phase
+        self.update()
+
+    @staticmethod
+    def _lemniscate_point(t: float, a: float = 27.0) -> tuple[float, float]:
+        """Calculates (x, y) along the Bernoulli Lemniscate (horizontal infinity loop)."""
+        denom = 1.0 + math.sin(t) ** 2
+        x = (a * math.sqrt(2) * math.cos(t)) / denom
+        y = (a * math.sqrt(2) * math.sin(t) * math.cos(t)) / denom
+        return x, y
+
+    def _get_infinity_path(self, cx: float, cy: float, a: float) -> QPainterPath:
+        if self._cached_path is None:
+            path = QPainterPath()
+            steps = 72
+            for i in range(steps + 1):
+                t = (2.0 * math.pi * i) / steps
+                x, y = self._lemniscate_point(t, a)
+                pt = QPointF(cx + x, cy + y)
+                if i == 0:
+                    path.moveTo(pt)
+                else:
+                    path.lineTo(pt)
+            self._cached_path = path
+        return self._cached_path
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        cx = self.width() / 2.0
+        cy = self.height() / 2.0
+        a = 27.0
+
+        # 1. Subtle breathing ambient energy in left & right loop centers
+        pulse = 0.5 + 0.5 * math.sin(self._phase * 1.5)
+        for focal_x in (-20.0, 20.0):
+            core_grad = QRadialGradient(cx + focal_x, cy, 14.0)
+            core_alpha = int(45 + 35 * pulse)
+            core_grad.setColorAt(0.0, QColor(56, 189, 248, core_alpha))
+            core_grad.setColorAt(0.6, QColor(147, 51, 234, int(core_alpha * 0.45)))
+            core_grad.setColorAt(1.0, QColor(15, 23, 42, 0))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(core_grad))
+            painter.drawEllipse(QPointF(cx + focal_x, cy), 14.0, 14.0)
+
+        # 2. Draw the cached smooth infinity curve path
+        path = self._get_infinity_path(cx, cy, a)
+
+        # Ambient diffuse glow around the infinity loop
+        glow_pen = QPen(QColor(56, 189, 248, 48))
+        glow_pen.setWidthF(7.0)
+        glow_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        glow_pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        painter.setPen(glow_pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawPath(path)
+
+        # Crisp electric neon conduit line
+        conduit_pen = QPen(QColor(129, 140, 248, 145))
+        conduit_pen.setWidthF(2.0)
+        conduit_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        conduit_pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        painter.setPen(conduit_pen)
+        painter.drawPath(path)
+
+        # 3. Intersection nexus at (cx, cy)
+        nexus_r = 3.0 + 1.2 * math.sin(self._phase * 2.5)
+        nexus_grad = QRadialGradient(cx, cy, nexus_r + 2.0)
+        nexus_grad.setColorAt(0.0, QColor(255, 255, 255, 230))
+        nexus_grad.setColorAt(0.5, QColor(192, 132, 252, 170))
+        nexus_grad.setColorAt(1.0, QColor(99, 102, 241, 0))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(nexus_grad))
+        painter.drawEllipse(QPointF(cx, cy), nexus_r + 2.0, nexus_r + 2.0)
+
+        # 4. Circulating celestial light photons with glowing comet trails
+        for offset in (0.0, math.pi):
+            base_t = self._phase * 1.35 + offset
+
+            # Comet tail: 8 trailing light particles diminishing in size and alpha
+            for k in range(8, 0, -1):
+                tr_t = base_t - k * 0.08
+                tx, ty = self._lemniscate_point(tr_t, a)
+                frac = 1.0 - (k / 8.0)
+                tr_r = 1.0 + frac * 2.3
+                tr_alpha = int(35 + frac * 175)
+                trail_color = (
+                    QColor(192, 132, 252, tr_alpha)
+                    if offset == 0.0
+                    else QColor(56, 189, 248, tr_alpha)
+                )
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(QBrush(trail_color))
+                painter.drawEllipse(QPointF(cx + tx, cy + ty), tr_r, tr_r)
+
+            # Leading bright light sphere (the glowing photon head)
+            hx, hy = self._lemniscate_point(base_t, a)
+            head_pt = QPointF(cx + hx, cy + hy)
+            light_grad = QRadialGradient(head_pt, 9.5)
+            light_grad.setColorAt(0.0, QColor(255, 255, 255, 255))
+            light_grad.setColorAt(0.28, QColor(224, 242, 254, 235))
+            light_grad.setColorAt(0.60, QColor(56, 189, 248, 175))
+            light_grad.setColorAt(0.85, QColor(168, 85, 247, 90))
+            light_grad.setColorAt(1.0, QColor(147, 51, 234, 0))
+            painter.setBrush(QBrush(light_grad))
+            painter.drawEllipse(head_pt, 9.5, 9.5)
+
+
+class ThinkingGlowBar(QFrame):
+    """
+    Sleek horizontal neon scanning beam that sweeps back and forth
+    while the model is processing or reasoning.
+    Runs at ~30 FPS with negligible CPU footprint.
+    """
+
+    def __init__(self, parent: Optional[QWidget] = None, height: int = 3) -> None:
+        super().__init__(parent)
+        self.setFixedHeight(height)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self._phase: float = 0.0
+        self._is_active: bool = False
+        self._timer = QTimer(self)
+        self._timer.setInterval(30)
+        self._timer.timeout.connect(self._on_tick)
+        self.setVisible(False)
+
+    def start_animation(self) -> None:
+        self._is_active = True
+        self._phase = 0.0
+        self.setVisible(True)
+        if not self._timer.isActive():
+            self._timer.start()
+        self.update()
+
+    def stop_animation(self) -> None:
+        self._is_active = False
+        self._timer.stop()
+        self.setVisible(False)
+        self.update()
+
+    def _on_tick(self) -> None:
+        if not self._is_active:
+            self._timer.stop()
+            return
+        self._phase += 0.075
+        if self._phase > 2.0 * math.pi:
+            self._phase -= 2.0 * math.pi
+        self.update()
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        if not self._is_active:
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        w = float(self.width())
+        h = float(self.height())
+        if w <= 0 or h <= 0:
+            return
+
+        center_norm = (math.sin(self._phase) + 1.0) / 2.0
+        center_x = center_norm * w
+        beam_w = max(60.0, w * 0.35)
+
+        gradient = QLinearGradient(center_x - beam_w, 0, center_x + beam_w, 0)
+        gradient.setColorAt(0.0, QColor(56, 189, 248, 0))
+        gradient.setColorAt(0.3, QColor(96, 165, 250, 160))
+        gradient.setColorAt(0.5, QColor(192, 132, 252, 240))
+        gradient.setColorAt(0.7, QColor(56, 189, 248, 160))
+        gradient.setColorAt(1.0, QColor(56, 189, 248, 0))
+
+        painter.fillRect(QRectF(0, 0, w, h), gradient)
+
+
+class ThinkingAnimationCard(QFrame):
+    """
+    Futuristic, comforting thinking animation card shown in PopoverCard
+    while waiting for the first tokens to stream.
+    Features:
+      - Multi-ring pulsating neural AI orb
+      - Live stopwatch in tenths of seconds (proves real-time execution)
+      - Psychologically staged status messages (connecting -> synthesis -> deep reasoning)
+      - Active reasoning step counter (fires on thinkingProgress)
+    """
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("ThinkingAnimationCard")
+        self._language = "cs"
+        self._thinking_level = "medium"
+        self._start_time: float = 0.0
+        self._phase: float = 0.0
+        self._thinking_steps: int = 0
+        self._timer = QTimer(self)
+        self._timer.setInterval(33)  # ~30 FPS
+        self._timer.timeout.connect(self._on_tick)
+
+        self._setup_style()
+        self._setup_ui()
+
+    def _setup_style(self) -> None:
+        self.setStyleSheet(
+            """
+            QFrame#ThinkingAnimationCard {
+                background-color: rgba(22, 26, 36, 210);
+                border: 1px solid rgba(255, 255, 255, 0.10);
+                border-radius: 8px;
+            }
+            QLabel#ThinkingHeadline {
+                color: #F3F4F6;
+                font-family: "Segoe UI", system-ui, sans-serif;
+                font-size: 13px;
+                font-weight: 600;
+                background: transparent;
+            }
+            QLabel#ThinkingPhase {
+                color: #9CA3AF;
+                font-family: "Segoe UI", system-ui, sans-serif;
+                font-size: 11px;
+                font-weight: 400;
+                background: transparent;
+            }
+            """
+        )
+
+    def _setup_ui(self) -> None:
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 18, 16, 18)
+        layout.setSpacing(8)
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        self.orb = NeuralOrbWidget(self)
+
+        self.headline_label = QLabel("Příprava & analýza výřezu", self)
+        self.headline_label.setObjectName("ThinkingHeadline")
+        self.headline_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        self.phase_label = QLabel("Snímání scény a kódování vizuálního kontextu…", self)
+        self.phase_label.setObjectName("ThinkingPhase")
+        self.phase_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.phase_label.setWordWrap(True)
+
+        layout.addStretch(1)
+        layout.addWidget(self.orb, alignment=Qt.AlignmentFlag.AlignCenter)
+        layout.addSpacing(4)
+        layout.addWidget(self.headline_label, alignment=Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.phase_label, alignment=Qt.AlignmentFlag.AlignCenter)
+        layout.addStretch(1)
+
+    def start_animation(self, language: str = "cs", thinking_level: str = "medium") -> None:
+        self._language = normalize_language_code(language)
+        self._thinking_level = normalize_thinking_level(thinking_level)
+        self._start_time = time.time()
+        self._phase = 0.0
+        self._thinking_steps = 0
+        self._on_tick()
+        if not self._timer.isActive():
+            self._timer.start()
+
+    def stop_animation(self) -> None:
+        self._timer.stop()
+
+    def on_thinking_step(self, count: int) -> None:
+        self._thinking_steps = count
+
+    def _on_tick(self) -> None:
+        self._phase += 0.06
+        self.orb.set_phase(self._phase)
+        elapsed = max(0.0, time.time() - self._start_time)
+
+        is_cs = self._language in ("cs", "sk")
+        if self._thinking_steps > 0:
+            headline = "Aktivní řetězec myšlenek" if is_cs else "Active Chain of Thought"
+            phase = (
+                f"Model interně simuluje logiku a ověřuje data… ({self._thinking_steps} kroků)"
+                if is_cs
+                else f"Model is simulating logic and verifying data… ({self._thinking_steps} steps)"
+            )
+        elif elapsed < 1.0:
+            headline = "Příprava & analýza výřezu" if is_cs else "Preparing Visual Input"
+            phase = (
+                "Snímání scény a kódování vizuálního kontextu…"
+                if is_cs
+                else "Encoding image region and multimodal context…"
+            )
+        elif elapsed < 2.5:
+            headline = "Multimodální syntéza" if is_cs else "Multimodal Synthesis"
+            phase = (
+                "Propojování vizuálních prvků se zadáním…"
+                if is_cs
+                else "Correlating visual elements with semantics…"
+            )
+        else:
+            headline = "Hluboké uvažování modelu" if is_cs else "Deep Neural Reasoning"
+            phase = (
+                "Formulace logické argumentace a přesné odpovědi…"
+                if is_cs
+                else "Formulating comprehensive and exact response…"
+            )
+
+        self.headline_label.setText(headline)
+        self.phase_label.setText(phase)
 
 
 class PopoverCard(QFrame):
@@ -387,7 +719,7 @@ class PopoverCard(QFrame):
     def _setup_ui(self) -> None:
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 10, 12, 12)
-        layout.setSpacing(8)
+        layout.setSpacing(6)
 
         # Header row
         header_layout = QHBoxLayout()
@@ -416,6 +748,13 @@ class PopoverCard(QFrame):
         header_layout.addSpacing(6)
         header_layout.addWidget(self.close_btn)
 
+        # Subtle neon scanning beam for live reasoning/query progress
+        self.glow_bar = ThinkingGlowBar(self, height=3)
+
+        # Dedicated futuristic thinking card shown while model is computing
+        self.thinking_card = ThinkingAnimationCard(self)
+        self.thinking_card.setVisible(False)
+
         # Response area (supports Markdown & code blocks)
         self.response_browser = QTextBrowser(self)
         self.response_browser.setObjectName("ResponseBrowser")
@@ -429,6 +768,8 @@ class PopoverCard(QFrame):
         self.prompt_input.returnPressed.connect(self._on_submit_prompt)
 
         layout.addLayout(header_layout)
+        layout.addWidget(self.glow_bar)
+        layout.addWidget(self.thinking_card, stretch=1)
         layout.addWidget(self.response_browser, stretch=1)
         layout.addWidget(self.prompt_input)
 
@@ -463,6 +804,10 @@ class PopoverCard(QFrame):
         """Immediately wipes all conversation text, DOM content, and input buffers from RAM."""
         self._loading_timer.stop()
         self._render_timer.stop()
+        self.glow_bar.stop_animation()
+        self.thinking_card.stop_animation()
+        self.thinking_card.setVisible(False)
+        self.response_browser.setVisible(True)
         self._raw_markdown = ""
         self._last_render_len = 0
         self._loading_step = 0
@@ -491,44 +836,61 @@ class PopoverCard(QFrame):
 
     def _tick_loading(self) -> None:
         ui = get_ui_strings(self._language)
-        dots = "." * ((self._loading_step % 3) + 1)
+        spinner_frames = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
+        frame = spinner_frames[self._loading_step % len(spinner_frames)]
         self._loading_step += 1
+        elapsed = max(0.0, time.time() - getattr(self, "_start_time", time.time()))
         if self._thinking_tokens > 0:
-            self.status_label.setText(f"{ui['thinking']}{dots}")
+            self.status_label.setText(f"{frame} {ui['thinking']} ({elapsed:.1f}s)")
         else:
-            self.status_label.setText(f"{ui['analyzing']}{dots}")
+            self.status_label.setText(f"{frame} {ui['analyzing']} ({elapsed:.1f}s)")
 
     def start_loading(self, message: str = "") -> None:
-        """Starts the loading indicator before first tokens arrive."""
+        """Starts the loading indicator and displays the animated thinking card before first tokens arrive."""
         ui = get_ui_strings(self._language)
         self._raw_markdown = ""
         self._loading_step = 0
         self._thinking_tokens = 0
+        self._start_time = time.time()
         self.confidence_badge.clear()
         self.confidence_badge.setVisible(False)
-        self.status_label.setText(f"{ui['analyzing']}.")
-        if message:
-            self.response_browser.setHtml(render_styled_markdown_html(f"*{message}*"))
+        self.status_label.setText(f"⠋ {ui['analyzing']}…")
+
+        self.glow_bar.start_animation()
+        self.response_browser.setVisible(False)
+        self.thinking_card.start_animation(self._language, self._thinking_level)
+        self.thinking_card.setVisible(True)
+
+        self._loading_timer.start()
+
+    def start_followup_loading(self, prompt: str) -> None:
+        """Starts animated thinking indicators for a follow-up question while keeping previous chat visible."""
+        ui = get_ui_strings(self._language)
+        self.append_token(f"\n\n---\n**{ui['followup_prefix']}:** {prompt}\n\n")
+        self._loading_step = 0
+        self._thinking_tokens = 0
+        self._start_time = time.time()
+        self.status_label.setText(f"⠋ {ui['thinking']}…")
+        self.glow_bar.start_animation()
         self._loading_timer.start()
 
     def on_thinking_progress(self) -> None:
         """Updates status when the VLM is actively running visual reasoning tokens."""
         ui = get_ui_strings(self._language)
         self._thinking_tokens += 1
+        self.thinking_card.on_thinking_step(self._thinking_tokens)
         if self._thinking_tokens == 1:
-            self.status_label.setText(f"{ui['thinking']}…")
-            if not self._raw_markdown:
-                level_disp = get_thinking_level_display(self._thinking_level, self._language)
-                self.response_browser.setHtml(
-                    render_styled_markdown_html(
-                        ui["loading_thinking"].format(level=level_disp)
-                    )
-                )
+            self.status_label.setText(f"🧠 {ui['thinking']}…")
 
     def stop_loading(self, status_text: str = "") -> None:
         """Stops the loading indicator once streaming completes or pauses."""
         ui = get_ui_strings(self._language)
         self._loading_timer.stop()
+        if self.thinking_card.isVisible():
+            self.thinking_card.stop_animation()
+            self.thinking_card.setVisible(False)
+            self.response_browser.setVisible(True)
+        self.glow_bar.stop_animation()
         if self._render_timer.isActive() or self._last_render_len != len(self._raw_markdown):
             self._render_timer.stop()
             self._flush_pending_render()
@@ -549,6 +911,11 @@ class PopoverCard(QFrame):
     def set_markdown_content(self, markdown_text: str) -> None:
         """Replaces the displayed Markdown text using styled HTML rendering."""
         self._render_timer.stop()
+        if self.thinking_card.isVisible():
+            self.thinking_card.stop_animation()
+            self.thinking_card.setVisible(False)
+            self.response_browser.setVisible(True)
+        self.glow_bar.stop_animation()
         self._raw_markdown = markdown_text
         self._flush_pending_render()
 
@@ -557,6 +924,11 @@ class PopoverCard(QFrame):
         ui = get_ui_strings(self._language)
         if self._loading_timer.isActive():
             self._loading_timer.stop()
+        if self.thinking_card.isVisible():
+            self.thinking_card.stop_animation()
+            self.thinking_card.setVisible(False)
+            self.response_browser.setVisible(True)
+        self.glow_bar.stop_animation()
         self.status_label.setText(ui["streaming"])
         was_empty = not self._raw_markdown
         self._raw_markdown += token
@@ -734,6 +1106,14 @@ class SecretTopBar(QFrame):
         self.setCursor(Qt.CursorShape.ArrowCursor)
         self._raw_text = ""
         self._language = "cs"
+        self._is_loading: bool = False
+        self._start_time: float = 0.0
+        self._anim_step: int = 0
+        self._thinking_steps: int = 0
+        self._anim_timer = QTimer(self)
+        self._anim_timer.setInterval(65)
+        self._anim_timer.timeout.connect(self._tick_secret_loading)
+
         self.setMinimumWidth(540)
         self.setMaximumWidth(920)
         self._setup_style()
@@ -793,10 +1173,14 @@ class SecretTopBar(QFrame):
         )
 
     def _setup_ui(self) -> None:
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(16, 10, 14, 10)
-        layout.setSpacing(12)
-        layout.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+
+        row_layout = QHBoxLayout()
+        row_layout.setContentsMargins(16, 10, 14, 10)
+        row_layout.setSpacing(12)
+        row_layout.setAlignment(Qt.AlignmentFlag.AlignVCenter)
 
         self.content_label = QLabel("...", self)
         self.content_label.setObjectName("SecretContent")
@@ -822,8 +1206,13 @@ class SecretTopBar(QFrame):
         btn_layout.addWidget(self.copy_btn)
         btn_layout.addWidget(self.close_btn)
 
-        layout.addWidget(self.content_label, 1)
-        layout.addLayout(btn_layout)
+        row_layout.addWidget(self.content_label, 1)
+        row_layout.addLayout(btn_layout)
+
+        self._glow_bar = ThinkingGlowBar(self, height=2)
+
+        main_layout.addLayout(row_layout)
+        main_layout.addWidget(self._glow_bar)
 
     def set_locale(self, language: str) -> None:
         """Updates SecretTopBar button text and tooltips according to language."""
@@ -854,31 +1243,83 @@ class SecretTopBar(QFrame):
             new_x = (parent.width() - self.width()) // 2
             self.move(max(10, new_x), 14)
 
+    def _tick_secret_loading(self) -> None:
+        if not self._is_loading:
+            self._anim_timer.stop()
+            return
+        spinner_frames = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
+        frame = spinner_frames[self._anim_step % len(spinner_frames)]
+        self._anim_step += 1
+        elapsed = max(0.0, time.time() - self._start_time)
+        is_cs = self._language in ("cs", "sk")
+
+        if self._thinking_steps > 0:
+            txt = (
+                f"{frame} Hluboké uvažování · {self._thinking_steps} kroků ({elapsed:.1f}s)"
+                if is_cs
+                else f"{frame} Deep reasoning · {self._thinking_steps} steps ({elapsed:.1f}s)"
+            )
+        elif elapsed < 1.0:
+            txt = (
+                f"{frame} Snímání & analýza zadání ({elapsed:.1f}s)"
+                if is_cs
+                else f"{frame} Capturing & analyzing query ({elapsed:.1f}s)"
+            )
+        elif elapsed < 2.5:
+            txt = (
+                f"{frame} Multimodální syntéza ({elapsed:.1f}s)"
+                if is_cs
+                else f"{frame} Multimodal synthesis ({elapsed:.1f}s)"
+            )
+        else:
+            txt = (
+                f"{frame} Formulace přesné odpovědi ({elapsed:.1f}s)"
+                if is_cs
+                else f"{frame} Formulating precise response ({elapsed:.1f}s)"
+            )
+
+        self.content_label.setText(txt)
+        self.adjustSize()
+        self._recenter_on_screen()
+
     def on_thinking_progress(self) -> None:
         """Called when internal reasoning / thinking tokens are running."""
-        ui = get_ui_strings(self._language)
-        think_text = f"{ui.get('thinking', 'Přemýšlím')}…"
-        cur = self.content_label.text()
-        if not self._raw_text and cur != think_text:
-            self.content_label.setText(think_text)
-            self.adjustSize()
-            self._recenter_on_screen()
+        self._thinking_steps += 1
+        if self._is_loading:
+            self._tick_secret_loading()
 
     def start_loading(self, text: str = "Řeším...") -> None:
         self._raw_text = ""
-        self.content_label.setText(text)
+        self._is_loading = True
+        self._start_time = time.time()
+        self._anim_step = 0
+        self._thinking_steps = 0
+        self._glow_bar.start_animation()
+        self._tick_secret_loading()
+        if not self._anim_timer.isActive():
+            self._anim_timer.start(65)
+        self.adjustSize()
+        self._recenter_on_screen()
+
+    def stop_loading(self) -> None:
+        """Stops the loading spinner and neon glow bar once Secret Mode streaming finishes."""
+        self._is_loading = False
+        self._anim_timer.stop()
+        self._glow_bar.stop_animation()
+        if self._raw_text.strip():
+            cleaned_html = _format_secret_display(self._raw_text)
+            if cleaned_html:
+                self.content_label.setText(cleaned_html)
+        if self.layout() is not None:
+            self.layout().activate()
         self.adjustSize()
         self._recenter_on_screen()
 
     def append_token(self, token: str) -> None:
-        cur = self.content_label.text()
-        if (
-            cur.startswith("Řeším")
-            or cur.startswith("Solving")
-            or cur.startswith("Přemýšlím")
-            or cur.startswith("Thinking")
-            or cur == "..."
-        ):
+        if self._is_loading:
+            self._is_loading = False
+            self._anim_timer.stop()
+            self._glow_bar.stop_animation()
             self.content_label.setText("")
         self._raw_text += token
         cleaned_html = _format_secret_display(self._raw_text)
@@ -893,6 +1334,9 @@ class SecretTopBar(QFrame):
         self._recenter_on_screen()
 
     def set_content(self, text: str) -> None:
+        self._is_loading = False
+        self._anim_timer.stop()
+        self._glow_bar.stop_animation()
         self._raw_text = text
         self.content_label.setText(_format_secret_display(text))
         if self.layout() is not None:
@@ -901,6 +1345,9 @@ class SecretTopBar(QFrame):
         self._recenter_on_screen()
 
     def clear_sensitive_data(self) -> None:
+        self._is_loading = False
+        self._anim_timer.stop()
+        self._glow_bar.stop_animation()
         self._raw_text = ""
         self.content_label.setText("")
         self.hide()

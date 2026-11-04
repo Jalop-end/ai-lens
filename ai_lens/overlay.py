@@ -5,12 +5,13 @@ from __future__ import annotations
 import ctypes
 import gc
 import json
+import math
 import sys
 from pathlib import Path
 from typing import Any, Optional
 
 from PIL import Image
-from PyQt6.QtCore import QPointF, QRect, QRectF, Qt, pyqtSignal
+from PyQt6.QtCore import QPointF, QRect, QRectF, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import (
     QColor,
     QFont,
@@ -242,6 +243,64 @@ class OverlayWindow(QWidget):
         self.secret_top_bar.hide()
         self.secret_top_bar.closeRequested.connect(self.dismiss_overlay)
 
+        # Bounding Box reasoning pulse animation
+        self._is_inferring: bool = False
+        self._bbox_pulse_phase: float = 0.0
+        self._bbox_pulse_timer = QTimer(self)
+        self._bbox_pulse_timer.setInterval(35)  # ~28 FPS
+        self._bbox_pulse_timer.timeout.connect(self._on_bbox_pulse_tick)
+
+        # Hard 40-second inference watchdog ("pojistka 40 s")
+        self._watchdog_timer = QTimer(self)
+        self._watchdog_timer.setSingleShot(True)
+        self._watchdog_timer.timeout.connect(self._on_inference_watchdog_timeout)
+
+    def _on_bbox_pulse_tick(self) -> None:
+        if not self._is_inferring:
+            self._bbox_pulse_timer.stop()
+            return
+        self._bbox_pulse_phase += 0.08
+        if self._bbox_pulse_phase > 2.0 * math.pi:
+            self._bbox_pulse_phase -= 2.0 * math.pi
+        self.update()
+
+    def _on_inference_watchdog_timeout(self) -> None:
+        """Hard 40-second cutoff: cancels any active inference worker that exceeds 40 s."""
+        if not self._is_inferring and self._worker is None:
+            return
+        self._stop_active_worker()
+        self.update()
+        lang_code = normalize_language_code(str(self.config.get("language", "cs")))
+        is_cz_sk = lang_code in ("cs", "sk")
+
+        if self._is_secret_mode or self.secret_top_bar.isVisible():
+            if not self._current_reply_buffer.strip():
+                msg = (
+                    "Vypršel limit 40 s — dotaz byl automaticky ukončen."
+                    if is_cz_sk
+                    else "40 s limit reached — query automatically stopped."
+                )
+                self.secret_top_bar.set_content(msg)
+            else:
+                self.secret_top_bar.stop_loading()
+            return
+
+        if self._current_reply_buffer.strip():
+            badge = "Hotovo · 40.0 s (limit)" if is_cz_sk else "Done · 40.0 s (limit)"
+            self.popover.stop_loading(badge)
+        else:
+            badge = "Ukončeno (limit 40 s)" if is_cz_sk else "Stopped (40 s limit)"
+            msg = (
+                "**Časový limit 40 s vypršel**\n\n"
+                "Model neodpověděl do 40 sekund, proto byl dotaz automaticky ukončen. "
+                "Zkus to znovu nebo přepni na nižší úroveň přemýšlení."
+                if is_cz_sk
+                else "**40 s Time Limit Reached**\n\n"
+                     "The model did not finish within 40 seconds and was automatically stopped."
+            )
+            self.popover.stop_loading(badge)
+            self.popover.set_markdown_content(msg)
+
     def _force_win32_foreground(self) -> None:
         """
         Forces Windows 10/11 to place the overlay on top of all windows and grant focus,
@@ -284,6 +343,11 @@ class OverlayWindow(QWidget):
 
     def _stop_active_worker(self) -> None:
         """Cancels any running QThread inference worker, breaks open sockets, and scrubs its RAM buffers."""
+        self._is_inferring = False
+        if hasattr(self, "_watchdog_timer") and self._watchdog_timer.isActive():
+            self._watchdog_timer.stop()
+        if hasattr(self, "_bbox_pulse_timer") and self._bbox_pulse_timer.isActive():
+            self._bbox_pulse_timer.stop()
         if self._worker is not None:
             worker = self._worker
             self._worker = None
@@ -587,6 +651,10 @@ class OverlayWindow(QWidget):
         """
         self._stop_active_worker()
         self._current_reply_buffer = ""
+        self._is_inferring = True
+        self._bbox_pulse_phase = 0.0
+        self._bbox_pulse_timer.start()
+        self._watchdog_timer.start(40000)
 
         raw_model_name = str(self.config.get("model", "gemma4:latest"))
         ollama_host = str(self.config.get("ollama_host", "http://127.0.0.1:11434"))
@@ -623,11 +691,42 @@ class OverlayWindow(QWidget):
             is_secret_mode=True,
             parent=self,
         )
-        worker.tokenReceived.connect(self.secret_top_bar.append_token)
+        worker.tokenReceived.connect(self._on_secret_worker_token)
         worker.thinkingProgress.connect(self.secret_top_bar.on_thinking_progress)
-        worker.errorOccurred.connect(lambda err: self.secret_top_bar.set_content(err))
+        worker.finishedInference.connect(self._on_secret_worker_finished)
+        worker.errorOccurred.connect(self._on_secret_worker_error)
         self._worker = worker
         worker.start()
+
+    def _on_secret_worker_token(self, token: str) -> None:
+        """Receives a single streamed token in Secret Mode and updates SecretTopBar."""
+        self._current_reply_buffer += token
+        self.secret_top_bar.append_token(token)
+
+    def _on_secret_worker_finished(self, _elapsed: float) -> None:
+        """Ensures Secret Mode stops loading even if the stream ended with zero visible tokens."""
+        self._is_inferring = False
+        self._watchdog_timer.stop()
+        self._bbox_pulse_timer.stop()
+        self.update()
+        if not self._current_reply_buffer.strip():
+            lang_code = normalize_language_code(str(self.config.get("language", "cs")))
+            msg = (
+                "Model nevrátil žádnou odpověď — zkus výřez označit znovu."
+                if lang_code in ("cs", "sk")
+                else "Model returned no visible answer — please try selecting again."
+            )
+            self.secret_top_bar.set_content(msg)
+        else:
+            self.secret_top_bar.stop_loading()
+
+    def _on_secret_worker_error(self, err: str) -> None:
+        """Handles errors in Secret Mode and stops the watchdog timer."""
+        self._is_inferring = False
+        self._watchdog_timer.stop()
+        self._bbox_pulse_timer.stop()
+        self.update()
+        self.secret_top_bar.set_content(err)
 
     def _start_inference(
         self,
@@ -638,6 +737,10 @@ class OverlayWindow(QWidget):
         """Spawns VisionInferenceWorker in a separate QThread and wires streaming signals."""
         self._stop_active_worker()
         self._current_reply_buffer = ""
+        self._is_inferring = True
+        self._bbox_pulse_phase = 0.0
+        self._bbox_pulse_timer.start()
+        self._watchdog_timer.start(40000)
 
         raw_model_name = str(self.config.get("model", "gemma4:latest"))
         ollama_host = str(self.config.get("ollama_host", "http://127.0.0.1:11434"))
@@ -674,8 +777,7 @@ class OverlayWindow(QWidget):
                 )
             )
         else:
-            self.popover.append_token(f"\n\n---\n**{ui['followup_prefix']}:** {prompt}\n\n")
-            self.popover.status_label.setText(f"{ui['thinking']}…")
+            self.popover.start_followup_loading(prompt)
 
         worker = VisionInferenceWorker(
             image=cropped_image,
@@ -707,11 +809,24 @@ class OverlayWindow(QWidget):
 
     def _on_worker_finished(self, elapsed: float, prompt: str, is_followup: bool) -> None:
         """Updates localized status badge (including generation time) and stores conversation turn."""
+        self._is_inferring = False
+        self._watchdog_timer.stop()
+        self._bbox_pulse_timer.stop()
+        self.update()
         lang_code = normalize_language_code(str(self.config.get("language", "cs")))
         thinking_level = normalize_thinking_level(str(self.config.get("thinking_level", "medium")))
         tier_cfg = get_thinking_level_config(thinking_level)
         ui = get_ui_strings(lang_code)
         self.popover.stop_loading(ui["done_time"].format(elapsed=elapsed))
+        if not self._current_reply_buffer.strip():
+            empty_msg = (
+                "**Model nevrátil žádnou viditelnou odpověď**\n\n"
+                "Zkus prosím dotaz zopakovat nebo přepnout úroveň přemýšlení."
+                if lang_code in ("cs", "sk")
+                else "**Model returned no visible answer**\n\nPlease try again or switch the thinking level."
+            )
+            self.popover.set_markdown_content(empty_msg)
+            return
         if self._last_cropped_image is not None:
             if not is_followup:
                 b64_img = encode_pil_to_base64(
@@ -730,6 +845,10 @@ class OverlayWindow(QWidget):
 
     def _on_worker_error(self, error_msg: str) -> None:
         """Displays any VLM connection/inference error inside PopoverCard in the selected language."""
+        self._is_inferring = False
+        self._watchdog_timer.stop()
+        self._bbox_pulse_timer.stop()
+        self.update()
         lang_code = normalize_language_code(str(self.config.get("language", "cs")))
         ui = get_ui_strings(lang_code)
         err_header = (
@@ -791,11 +910,37 @@ class OverlayWindow(QWidget):
                 dim_path = outer_path.subtracted(inner_path)
                 painter.fillPath(dim_path, QColor(0, 0, 0, 105))
 
-                bbox_pen = QPen(QColor("#38BDF8"))
-                bbox_pen.setWidth(2)
-                painter.setPen(bbox_pen)
-                painter.setBrush(Qt.BrushStyle.NoBrush)
-                painter.drawRoundedRect(self._selected_bbox, 4.0, 4.0)
+                if self._is_inferring:
+                    pulse_alpha = int(180 + 70 * math.sin(self._bbox_pulse_phase))
+                    bbox_pen = QPen(QColor(56, 189, 248, pulse_alpha))
+                    bbox_pen.setWidth(2)
+                    painter.setPen(bbox_pen)
+                    painter.setBrush(Qt.BrushStyle.NoBrush)
+                    painter.drawRoundedRect(self._selected_bbox, 4.0, 4.0)
+
+                    # Futuristic glowing corner brackets ┌ ┐ └ ┘
+                    corner_pen = QPen(QColor(192, 132, 252, pulse_alpha))
+                    corner_pen.setWidth(3)
+                    painter.setPen(corner_pen)
+                    bx = self._selected_bbox.x()
+                    by = self._selected_bbox.y()
+                    bw = self._selected_bbox.width()
+                    bh = self._selected_bbox.height()
+                    c_len = min(18, max(6, min(bw, bh) // 4))
+                    painter.drawLine(bx, by, bx + c_len, by)
+                    painter.drawLine(bx, by, bx, by + c_len)
+                    painter.drawLine(bx + bw, by, bx + bw - c_len, by)
+                    painter.drawLine(bx + bw, by, bx + bw, by + c_len)
+                    painter.drawLine(bx, by + bh, bx + c_len, by + bh)
+                    painter.drawLine(bx, by + bh, bx, by + bh - c_len)
+                    painter.drawLine(bx + bw, by + bh, bx + bw - c_len, by + bh)
+                    painter.drawLine(bx + bw, by + bh, bx + bw, by + bh - c_len)
+                else:
+                    bbox_pen = QPen(QColor("#38BDF8"))
+                    bbox_pen.setWidth(2)
+                    painter.setPen(bbox_pen)
+                    painter.setBrush(Qt.BrushStyle.NoBrush)
+                    painter.drawRoundedRect(self._selected_bbox, 4.0, 4.0)
             else:
                 painter.fillRect(self.rect(), QColor(10, 15, 28, 45))
 
