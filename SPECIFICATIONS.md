@@ -40,7 +40,7 @@ Komplexní technická dokumentace desktopové aplikace **AI Lens**, přehled pod
 | **Běžná spotřeba RAM (Standby)** | **45 – 65 MB** | V paměti běží pouze lehký Win32/POSIX listener a zelená mini-tečka. |
 | **Podporované platformy** | **Windows 10/11, macOS, Linux** | Nativní Win32 zprávy i POSIX signály (`SIGUSR1`, `SIGUSR2`, `SIGTERM`). |
 | **Lokální inference (Výchozí)** | **Ollama (`127.0.0.1:11434`)** | 100% offline, GPU akcelerace nebo odlehčené CPU profily. |
-| **Cloudová inference (Volitelná)**| **Google Gemini API** | Modely 2.5 Flash, 3.1 Pro, 3.5 Flash s ochranou Billing Guard. |
+| **Cloudová inference (Volitelná)**| **Google Gemini API** | Modely 3.5 Flash, 3.1 Pro, 3.5 Flash-Lite s ochranou Billing Guard. |
 | **Ukládání dat na disk** | **0 bajtů (Zero Disk Retention)** | Snímky, výřezy ani API klíče se **nikdy nezapisují na disk**. |
 | **Zabezpečení Gemini API klíče** | **100% Volatile RAM** | Zadáno v terminálu, žije pouze v RAM, okamžitý výmaz při ukončení. |
 
@@ -83,7 +83,7 @@ flowchart LR
         direction TB
         CROP --> ROUTE{"Směrovač enginu"}
         ROUTE -->|"Lokální Ollama"| LOCAL["VLM model (GPU/CPU)<br/>Low / Medium / High"]
-        ROUTE -->|"Google Gemini"| CLOUD["Gemini 2.5 / 3.x Flash<br/>+ Billing Guard Fallback"]
+        ROUTE -->|"Google Gemini"| CLOUD["Gemini 3.5 Flash & 3.1 Pro<br/>+ Billing Guard Fallback"]
     end
 
     subgraph S4 ["4. Zobrazení & Výmaz paměti"]
@@ -186,7 +186,7 @@ Spuštěním přes `.\ai-lens.bat start with Gemini` (nebo `./ai-lens.sh start w
 
 | Model ID | Předplatné Google | Specializace a role | Režim uvažování |
 |---|---|---|---|
-| **`gemini-2.5-flash`** *(Doporučeno)* | **Free i Paid** | Špičkový multimodální model s bleskovou odezvou a podporou reasoning. | Dynamický thinking budget |
+| **`gemini-3.5-flash`** *(Doporučeno)* | **Free i Paid** | Špičkový multimodální model s bleskovou odezvou nové generace a podporou reasoning. | Fast reasoning (`low` / `high`) |
 | **`gemini-3.5-flash-lite`** | **Free i Paid** | Nejrychlejší a nejlehčí model s nejvyšší propustností dotazů. | Přímá rychlá inference |
 | **`gemini-3.1-pro`** | **Pouze Paid (Billing)** | Vlajkový model pro náročný kód, hlubokou logiku, matematiku a vědu. | Rozšířené myšlení (+0.5–1.0s) |
 | **`gemini-3.5-flash`** | **Pouze Paid (Billing)** | Pokročilá inteligence a multimodální syntéza s vysokou rychlostí. | Rozšířené myšlení (+0.5–1.0s) |

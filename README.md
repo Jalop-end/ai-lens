@@ -125,18 +125,16 @@ AI Lens prompts whether you have a Gemini Pro / paid API subscription (`[y/N]`) 
 
 | Model ID | Tier Availability | Role / Specialization | Reasoning Mode |
 |---|---|---|---|
-| **`gemini-2.5-flash`** *(Recommended)* | **Free & Gemini Pro / Paid** | Next-gen lightning-fast multimodal model. High accuracy, instant response. | Dynamic thinking budget |
-| **`gemini-3.1-pro`** | **Gemini Pro / Paid** | Flagship Pro model for complex code, advanced mathematics, logic, and deep analysis. | Pro reasoning (`low` / `high`) |
-| **`gemini-3.5-flash`** | **Free & Gemini Pro / Paid** | High-intelligence next-gen multimodal model balancing frontier accuracy and speed. | Fast reasoning |
+| **`gemini-3.5-flash`** *(Recommended)* | **Free & Gemini Pro / Paid** | Next-generation multimodal model balancing frontier intelligence with fast real-time response. | Fast reasoning (`thinkingLevel: low/high`) |
+| **`gemini-3.1-pro`** | **Gemini Pro / Paid** | Flagship Pro model for complex code, advanced mathematics, logic, and deep analysis. | Pro reasoning (`thinkingBudget: 2048–4096`) |
 | **`gemini-3.5-flash-lite`** | **Free & Gemini Pro / Paid** | Ultra-lightweight model with lowest latency and highest request throughput. | Snappy low-latency inference |
-| **`gemini-2.5-pro`** | **Gemini Pro / Paid** | Stable high-precision Pro reasoning model for demanding STEM and analytical tasks. | Deep thinking budget |
 | **`gemini-3.8-flash`** | *(Currently Disabled)* | *Shown as out of working due to upstream preview rate-limits.* | Disabled in selector |
-| **`custom`** | **Free & Gemini Pro / Paid** | Enter any valid Google Gemini model identifier manually. | Dynamically configured |
+| **`custom`** | **Free & Gemini Pro / Paid** | Enter any valid Google Gemini model identifier manually (e.g. `gemini-3.1-pro`, `gemini-3.5-flash`). | Dynamically configured |
 
 > [!IMPORTANT]
 > **Smart Access & Quota Guard (Zero-Quota-Waste Startup + Seamless Runtime Fallback):**
-> - Startup verifies your API key and model catalog via `GET /v1beta/models` (**consuming 0 RPM / 0 token quota**), keeping your selected model (such as `gemini-3.1-pro`) active immediately.
-> - If a request during active use hits a temporary rate limit (`429`) or an unsupported model tier (`403`/`404`), AI Lens retries cleanly or answers seamlessly via the highest-capability available fallback model (`gemini-2.5-pro` → `gemini-3.5-flash` → `gemini-2.5-flash`) without crashing or permanently downgrading your chosen Pro model on transient rate limits.
+> - Startup verifies your API key and model catalog via `GET /v1beta/models` (**consuming 0 RPM / 0 token quota**), keeping your selected model (such as `gemini-3.1-pro` or `gemini-3.5-flash`) active immediately.
+> - If a request during active use hits a temporary rate limit (`429`) or an unsupported model tier (`403`/`404`), AI Lens retries cleanly or answers seamlessly via the highest-capability available fallback model (`gemini-3.5-flash` → `gemini-3.5-flash-lite`) without crashing or permanently downgrading your chosen Pro model on transient rate limits.
 
 #### 2. Strict RAM-Only API Key Security & Masked Input
 - **Masked Console Paste (`*`):** Supports `Ctrl+V` and right-click pasting with asterisk masking for both classic **`AIza...`** (39-char) and modern **`AQ....`** (53-char) Google Gemini API keys, automatically stripping invisible browser/clipboard formatting characters while rejecting malformed non-ASCII input.
@@ -293,7 +291,7 @@ flowchart LR
         direction TB
         CROP --> ROUTE{"Engine Router"}
         ROUTE -->|"Local Ollama"| LOCAL["Ollama VLM (GPU/CPU)<br/>Low / Med / High"]
-        ROUTE -->|"Google Gemini"| CLOUD["Gemini 2.5 / 3.x Pro & Flash<br/>+ Smart Quota Guard"]
+        ROUTE -->|"Google Gemini"| CLOUD["Gemini 3.5 Flash & 3.1 Pro<br/>+ Smart Quota Guard"]
     end
 
     subgraph S4 ["4. Display & RAM Wipe"]
@@ -327,7 +325,7 @@ flowchart LR
    - The cropped region is encoded in memory as a compressed JPEG base64 buffer without touching disk.
 4. **Step 4: AI Brain Processing & Reasoning**
    - **Local VLM (Ollama):** Applies system prompt guards against prompt injection, bounds KV-cache allocation, and dynamically configures thinking budgets.
-   - **Google Gemini API:** Injects the volatile RAM-only API key via `x-goog-api-key`, dynamically resolves live `/v1beta/models` endpoints (`gemini-3.1-pro`, `gemini-3.5-flash`, `gemini-3.5-flash-lite`, `gemini-2.5-pro`, `gemini-2.5-flash`), configures quota-friendly thinking budgets, and runs Smart Access & Quota Guard.
+   - **Google Gemini API:** Injects the volatile RAM-only API key via `x-goog-api-key`, dynamically resolves live `/v1beta/models` endpoints (`gemini-3.5-flash`, `gemini-3.1-pro`, `gemini-3.5-flash-lite`, `gemini-flash-latest`), configures quota-friendly thinking budgets, and runs Smart Access & Quota Guard.
    - Emits tokens asynchronously via dedicated background threads (`QThread`) with live progress reporting.
 5. **Step 5: High-Precision Formatting & Typography**
    - Answers in bold 16px text (`#E5E7EB`), citations in italic serif font, LaTeX equations converted into natural chat math (e.g. `11 % × 0.81 = 8.91 %`), and multiple-choice options marked with `✓` and `✗`.
@@ -343,7 +341,7 @@ flowchart LR
 
 ### Typical Speed & Latency Benchmarks
 
-| Pipeline Stage | Local GPU (RTX 3060 / 4060) | Local CPU (8–16 Cores) | Cloud (Google Gemini 2.5 Flash) |
+| Pipeline Stage | Local GPU (RTX 3060 / 4060) | Local CPU (8–16 Cores) | Cloud (Google Gemini 3.5 Flash) |
 |---|---|---|---|
 | **Screen Capture & Freeze** | **< 15 ms** | **< 15 ms** | **< 15 ms** |
 | **Selection & Crop to RAM** | **< 5 ms** | **< 5 ms** | **< 5 ms** |
