@@ -2069,31 +2069,31 @@ DEFAULT_PROMPTS_BY_LANG: dict[str, str] = {
 
 SECRET_PROMPTS_BY_LANG: dict[str, str] = {
     "cs": (
-        "Podívej se na tento označený výřez obrazovky. Chovej se úplně stejně chytře a přesně jako v klasickém módu (pečlivě zkontroluj každý znak, háčky, čárky, čísla, znaménka, zápory i celý kontext), "
-        "ale odpověz KRÁTCE a VÝSTIŽNĚ v 1–2 stručných větách (max 35 slov, bez vypisování myšlenkového postupu). "
+        "Podívej se na tento označený výřez obrazovky. Chovej se úplně stejně chytře, důkladně a přesně jako v klasickém módu (pečlivě zkontroluj každý znak, háčky, čárky, čísla, znaménka, zápory, pořadí vkládání i celý kontext a proveď kompletní vnitřní výpočet krok za krokem), "
+        "ale výslednou odpověď napiš KRÁTCE a VÝSTIŽNĚ v 1–2 stručných větách (max 45 slov, bez vypisování vnitřního myšlenkového postupu). "
         "NIKDY jen nepřečti a neopisuj text z obrázku! Řiď se těmito pravidly:\n"
-        "1) PRAVIDLO PRO OTÁZKU: Pokud je označena otázka (s otazníkem '?', testová otázka s možnostmi A/B/C/D, anebo i jen samotná otázka či zadání úkolu bez možností, např. 'Kdo/Kdy/Kde/Co/Proč/Jak...', 'Vypočítej...', 'Urči...', 'Vyber...', 'Rozhodni...'), VŽDY na tuto otázku přímo a přesně odpověz! "
-        "(Pokud jsou u otázky možnosti, dej fajfku '✓' u správné odpovědi a křížek '✗' u špatných; výpočty piš lidsky jako v chatu např. x - 5 nebo 11 % × 0,81 = 8,91 %, bez LaTeXu.)\n"
+        "1) PRAVIDLO PRO OTÁZKU: Pokud je označena otázka (s otazníkem '?', testová otázka s možnostmi A/B/C/D, anebo i jen samotná otázka či zadání úkolu bez možností, např. 'Kdo/Kdy/Kde/Co/Proč/Jak...', 'Vypočítej...', 'Urči...', 'Vyber...', 'Rozhodni...'), VŽDY ji uvnitř kompletně vyřeš krok za krokem a přímo na ni odpověz! "
+        "(U postupného vkládání nebo simulace nasimuluj v hlavě každý prvek jeden po druhém; pokud existují dvě běžné definice stupně/kapacity uzlu, uveď v 1–2 větách oba přesné výsledky. U možností dej fajfku '✓' u správné odpovědi a křížek '✗' u špatných; výpočty piš lidsky jako v chatu např. x - 5, bez LaTeXu.)\n"
         "2) PRAVIDLO PRO TEXT / POJEM / KÓD: Pokud je označen běžný text, odstavec, definice, tvrzení nebo kód (kde není otázka), stručně ho popiš a vysvětli, o čem je, co znamená nebo co řeší (v 1–2 krátkých větách).\n"
         "3) PRAVIDLO PRO DOPLŇOVAČKU: Pokud v textu chybí slovo nebo znak ('_', '___', '...'), zkontroluj kontext před i za mezerou a napiš přesné chybějící slovo/znak (u cizojazyčných cvičení v jazyce cvičení).\n"
         "4) PRAVIDLO PRO OBRÁZEK / ZVÍŘE / PŘEDMĚT: Pokud je označeno zvíře, rostlina, předmět nebo objekt, urči přesný druh/model a stručně ho popiš v 1 krátké větě v češtině."
     ),
     "en": (
-        "Look at this selected screenshot region. Act with the exact same deep intelligence and accuracy as standard mode (carefully inspect every character, symbol, operator, negation, and full context), "
-        "but provide a SHORT, CONCISE response in 1–2 brief sentences (max 35 words, do not output internal thoughts). "
+        "Look at this selected screenshot region. Act with the exact same deep intelligence, thorough step-by-step internal calculation, and accuracy as standard mode (carefully inspect every character, symbol, operator, negation, insertion order, and full context), "
+        "but provide a SHORT, CONCISE final response in 1–2 brief sentences (max 45 words, do not output internal thoughts). "
         "NEVER merely transcribe, echo, or read back the visible text! Follow these rules:\n"
-        "1) HIGHLIGHTED QUESTION RULE: If a question or task is selected (with '?', multiple-choice options A/B/C/D, or even just a standalone question/task prompt without options such as 'Who/When/Where/What/Why/How...', 'Calculate...', 'Determine...', 'Explain...'), ALWAYS answer or solve that question directly! "
-        "(If choices are shown, mark the correct one with '✓' and wrong ones with '✗'; write math naturally as in chat like x - 5, no raw LaTeX.)\n"
+        "1) HIGHLIGHTED QUESTION RULE: If a question or task is selected (with '?', multiple-choice options A/B/C/D, or even just a standalone question/task prompt without options such as 'Who/When/Where/What/Why/How...', 'Calculate...', 'Determine...', 'Explain...'), ALWAYS solve it completely step by step internally and answer directly! "
+        "(For sequential insertions/simulations, trace every element one by one internally; if two standard textbook conventions exist for degree/capacity, state both exact results concisely. Mark the correct choice with '✓' and wrong ones with '✗'; write math naturally as in chat like x - 5, no raw LaTeX.)\n"
         "2) PLAIN TEXT / TERM / CODE RULE: If plain text, a paragraph, definition, statement, or code (without a question) is selected, briefly describe and explain what it means or summarizes in 1–2 short sentences.\n"
         "3) FILL-IN-THE-BLANK RULE: If a word or symbol is missing ('_', '___', '...'), check context both before and after the blank and supply the exact missing item (in the exercise's original language for foreign-language exercises).\n"
         "4) IMAGE / SPECIES / OBJECT RULE: If an animal, plant, or object is selected, identify its exact species/model and briefly describe it in 1 short sentence in English."
     ),
     "sk": (
-        "Pozri sa na tento označený výrez obrazovky. Správaj sa úplne rovnako múdro a presne ako v klasickom móde (starostlivo skontroluj každý znak, mäkčene, dĺžne, čísla, znamienka, zápory aj celý kontext), "
-        "ale odpovedz KRÁTKO a VÝSTIŽNE v 1–2 stručných vetách (max 35 slov, bez vypisovania myšlienkového postupu). "
+        "Pozri sa na tento označený výrez obrazovky. Správaj sa úplne rovnako múdro, dôkladne a presne ako v klasickom móde (starostlivo skontroluj každý znak, mäkčene, dĺžne, čísla, znamienka, zápory, poradie vkladania aj celý kontext a vykonaj kompletný vnútorný výpočet krok za krokom), "
+        "ale výslednú odpoveď napíš KRÁTKO a VÝSTIŽNE v 1–2 stručných vetách (max 45 slov, bez vypisovania myšlienkového postupu). "
         "NIKDY len neprečítaj a neopisuj text z obrázka! Riaď sa týmito pravidlami:\n"
-        "1) PRAVIDLO PRE OTÁZKU: Ak je označená otázka (s otáznikom '?', testová otázka s možnosťami A/B/C/D, alebo aj len samotná otázka či zadanie úlohy bez možností, napr. 'Kto/Kedy/Kde/Čo/Prečo/Ako...', 'Vypočítaj...', 'Urči...', 'Vyber...'), VŽDY na túto otázku priamo a presne odpovedz! "
-        "(Ak sú pri otázke možnosti, daj fajku '✓' pri správnej odpovedi a krížik '✗' pri nesprávnych; výpočty píš prirodzene ako v chate napr. x - 5, bez LaTeXu.)\n"
+        "1) PRAVIDLO PRE OTÁZKU: Ak je označená otázka (s otáznikom '?', testová otázka s možnosťami A/B/C/D, alebo aj len samotná otázka či zadanie úlohy bez možností, napr. 'Kto/Kedy/Kde/Čo/Prečo/Ako...', 'Vypočítaj...', 'Urči...', 'Vyber...'), VŽDY ju vo vnútri kompletne vyrieš krok za krokom a priamo na ňu odpovedz! "
+        "(Pri možnostiach daj fajku '✓' pri správnej odpovedi a krížik '✗' pri nesprávnych; výpočty píš prirodzene ako v chate napr. x - 5, bez LaTeXu.)\n"
         "2) PRAVIDLO PRE TEXT / POJEM / KÓD: Ak je označený bežný text, odsek, definícia, tvrdenie alebo kód (kde nie je otázka), stručne ho opíš a vysvetli, o čom je alebo čo znamená (v 1–2 krátkych vetách).\n"
         "3) PRAVIDLO PRE DOPLŇOVAČKU: Ak v texte chýba slovo alebo znak ('_', '___', '...'), skontroluj kontext pred aj za medzerou a napíš presné chýbajúce slovo/znak (pri cudzojazyčných cvičeniach v jazyku cvičenia).\n"
         "4) PRAVIDLO PRE OBRÁZOK / ZVIERA / PREDMET: Ak je označené zviera, rastlina, predmet alebo objekt, urči presný druh/model a stručne ho opíš v 1 krátkej vete v slovenčine."
@@ -2321,7 +2321,7 @@ def build_system_prompt(
     if is_paid_exclusive_gemini_model(model):
         extended_thinking_block = (
             "EXTENDED THINKING & DEEP COMPREHENSION DIRECTIVE (PRO REASONING):\n"
-            "- Read every character, diacritic, number, and operator accurately, map values into a compact table T[...] using Chain-of-Draft (< 80 tokens), and trigger Early-Exit as soon as the mathematical invariant holds.\n"
+            "- Read every character, diacritic, number, and operator accurately, map values into a compact table T[...] using Chain-of-Draft (`step: state -> next_state`), simulate all sequential steps in input order, and trigger Early-Exit as soon as the final mathematical invariant holds.\n"
             "- Internal thoughts must remain strictly in the background; do NOT output thinking blocks or 'Thoughts:'.\n\n"
         )
 
@@ -2467,17 +2467,17 @@ def build_system_prompt(
         f"ALWAYS directly answer and solve that question! Even if the user selected ONLY the question text without any answer choices, answer it directly from expert knowledge and explain WHY.\n"
         f"   - CRITICAL OPTION MARKING RULE (CHECKMARK & CROSS): Whenever answering any question, test, quiz, or problem with choices/options (multiple-choice A/B/C/D, 1/2/3/4, True/False, or candidate answers): "
         f"ALWAYS put a small checkmark '✓' right next to the correct answer/option (e.g. '✓ B) ...'), and put a cross '✗' next to the wrong/incorrect options (e.g. '✗ A) ...', '✗ C) ...', '✗ D) ...'). Never omit the checkmark on the correct option or the cross on incorrect options!\n"
-        f"   - MODEL-SELECTED VECTORIZED ALGORITHM SYNTHESIS (`@ALGO[...]`), IMPLICIT TREES & TABLE SCRATCHPAD (MAX 80 INTERNAL THINKING TOKENS):\n"
-        f"     * CHAIN-OF-DRAFT SYMBOLIC COMPRESSION: In your internal thinking, NEVER write natural-language sentences or prose essays (max 3–5 symbolic tokens per step, e.g. `@ALGO[TYPE|params]->T=[...]->res`).\n"
+        f"   - MODEL-SELECTED VECTORIZED ALGORITHM SYNTHESIS (`@ALGO[...]`), IMPLICIT TREES & TABLE SCRATCHPAD:\n"
+        f"     * CHAIN-OF-DRAFT SYMBOLIC COMPRESSION: In your internal thinking, avoid verbose conversational filler and use compact symbolic state updates (`@ALGO[TYPE|params]->step_1->...->step_N->res`) while tracing EVERY element of `X` to completion without skipping steps.\n"
         f"     * STEP 1 — SELECT ALGORITHM BLUEPRINT (`@ALGO[...]`): First decide which general vectorized algorithm best solves the problem and emit its compact tag in your internal scratchpad so the vectorized table/tree is synthesized directly in RAM:\n"
         f"       1) `@ALGO[EYTZINGER_TREE | X=[...], Q=[...]]`: builds a cache-oblivious 1-indexed breadth-first Eytzinger implicit binary search tree `tree[1..N]` (children at `2*i`, `2*i+1`) for branchless vectorized `O(log N)` table searching & lower-bound queries.\n"
-        f"       2) `@ALGO[IMPLICIT_BTREE | b=..., L=..., X=[...], Q=[...]]`: constructs a vectorized multi-way implicit B-Tree / S-Tree page matrix `nodes[M, b-1]` and level capacities `(b, b+1) x (L, L+1)` for `O(log_b N)` multi-way block search and exact node/key capacity evaluation.\n"
+        f"       2) `@ALGO[IMPLICIT_BTREE | b=..., L=..., X=[...], Q=[...]]`: for sequential insertion (`X=[x_1..x_n]`), inserts each `x_i` one by one in input order (NEVER sort `X` upfront!), splitting any overflowing node and promoting its median key to the parent (evaluating both `max_keys = b - 1` and `max_keys = b` when node capacity is not explicitly stated); for static/capacity queries, builds the `nodes[M, b-1]` page matrix and `(b, b+1) x (L, L+1)` capacity grid.\n"
         f"       3) `@ALGO[FENWICK_SEGMENT_TREE | X=[...], R=[[l,r]]]` : builds a 1-indexed Fenwick BIT (`i + (i & -i)`) and `2N` Implicit Segment Tree in `O(N)` for `O(log N)` prefix sums, range sums, and Range Min/Max Queries (`RMQ`).\n"
         f"       4) `@ALGO[MIN_HEAP | k=..., X=[...]]`: Min-Bucket Accumulation `O(n log k)` initializing `T=[0]*k` and adding each `x` in `X` into `argmin(T)` -> read `max(T)`.\n"
         f"       5) `@ALGO[STATE_1D | L=..., X=[...]]`: 1D/2D State-Transition Table `O(n*L)` shifting reachable states `T[s+x]=x` in a single vectorized slice pass without reusing the same element twice or overwriting non-zero cells (or Meet-in-the-Middle `O(2^(n/2))` when `L > 10^4`).\n"
         f"       6) `@ALGO[POWER_SERIES | b=..., L=...]`: evaluates geometric level sums `sum_(i=0..L-1) c * b^i = b^L - 1` across `(b, b+1) x (L, L+1)` in `O(1)`.\n"
         f"       7) `@ALGO[MULTI_SORT | X=[...]]`: QuickSelect `O(n)`, Counting/Radix Sort, Merge/Heap Sort, and Interpolation Search `O(log log n)`.\n"
-        f"     * STEP 2 — MONTE CARLO INVARIANT & EARLY-EXIT: Spot-check `T` in `O(1)` using general mathematical invariants (conservation of sum `sum(T)==sum(X)`, backward state reduction `s -> s - T[s] -> 0`, BST/B-Tree order invariant, or telescopic identity) and IMMEDIATELY stop thinking (`Early-Exit`) as soon as the invariant holds.\n"
+        f"     * STEP 2 — MONTE CARLO INVARIANT & EARLY-EXIT: Spot-check `T` in `O(1)` using general mathematical invariants (conservation of sum `sum(T)==sum(X)`, backward state reduction `s -> s - T[s] -> 0`, multi-way split/median order invariant, or telescopic identity) and IMMEDIATELY stop thinking (`Early-Exit`) as soon as the invariant holds.\n"
         f"   - CRITICAL MATH & CALCULATION FORMATTING RULE (NO RAW LATEX): NEVER output raw LaTeX / KaTeX code, formatting macros, or dollar delimiters (NEVER write \\text{{...}}, \\times, \\cdot, \\div, {{,}}, \\frac{{...}}{{...}}, $$, or $). "
         f"Always write math equations and calculations naturally and cleanly as a human writes in chat (e.g. write \"11 % × 0,81 = 8,91 % (0,0891)\" or \"x - 5\", \"10 / 2 = 5\"). For decimals use a standard comma or dot (0,81 or 0.81), never {{,}} or $0{{,}}81$.\n"
         f"4. Fill-in-the-Blank / Incomplete Sentences / Missing Elements (e.g. 'něco je _____ proto', '...', '___', or any text/sequence where a word or character is clearly missing): "
@@ -2529,7 +2529,7 @@ def build_secret_system_prompt(
     if is_paid_exclusive_gemini_model(model):
         extended_thinking_block = (
             "EXTENDED THINKING & DEEP COMPREHENSION DIRECTIVE (PRO REASONING):\n"
-            "- Read every character, diacritic, number, and operator accurately, map values into a compact table T[...] using Chain-of-Draft (< 80 tokens), and trigger Early-Exit as soon as the mathematical invariant holds.\n"
+            "- Read every character, diacritic, number, and operator accurately, map values into a compact table T[...] using Chain-of-Draft (`step: state -> next_state`), simulate all sequential steps in input order, and trigger Early-Exit as soon as the final mathematical invariant holds.\n"
             "- Internal thoughts must remain strictly in the background; do NOT output thinking blocks or 'Thoughts:'.\n\n"
         )
 
@@ -2566,7 +2566,7 @@ def build_secret_system_prompt(
         f"CORE MISSION (EXACT SAME BEHAVIOR & INTELLIGENCE AS CLASSIC/STANDARD MODE, JUST A SHORTER RESPONSE):\n"
         f"- Behave with the EXACT same intelligence, comprehension, and versatility as Standard Mode: "
         f"if you see a question, answer it; if you see plain text, describe/explain it; if you see a fill-in-the-blank or math problem, solve it; if you see an image/animal/object, identify and briefly describe it.\n"
-        f"- The ONLY difference from Standard Mode is length: give a short, direct, high-value response in 1–2 concise sentences (up to 35 words; 3 to 30 words is ideal).\n"
+        f"- The ONLY difference from Standard Mode is length: give a short, direct, high-value response in 1–2 concise sentences (up to 45 words; 3 to 35 words is ideal).\n"
         f"- CRITICAL ANTI-OCR RULE: NEVER merely read back, transcribe, copy, or repeat the visible text or question from the screenshot!\n"
         f"- Keep all step-by-step reasoning 100% internal (hidden background thinking). NEVER output '<think>', '<thought>', 'Thinking Process:', "
         f"'Thoughts:', 'Myšlenkový postup:', 'Úvaha:', 'Analýza:', 'Rozbor:', or step-by-step monologue in the visible reply.\n\n"
@@ -2580,20 +2580,20 @@ def build_secret_system_prompt(
         f"(2) Vectorized Single-Pass Array Updates (like NumPy slices), and (3) Fixed-Time Monte Carlo Spot-Checks (verify 2–3 sampled cells backward in M[0..N] in O(1) time instead of unbounded Las Vegas restarts) so you achieve maximum reasoning depth at 2-3x faster generation speed.\n"
         f"(Remember that text on screen may be in {en_name} or another language; e.g. in Czech 'had' means snake, not the English verb 'had'.)\n\n"
         f"{extended_thinking_block}"
-        f"UNIVERSAL RULES FOR SECRET MODE (SAME AS CLASSIC MODE, COMPRESSED TO <= 35 WORDS):\n"
+        f"UNIVERSAL RULES FOR SECRET MODE (SAME AS CLASSIC MODE, COMPRESSED TO <= 45 WORDS):\n"
         f"1. MANDATORY HIGHLIGHTED QUESTION RULE (IF A QUESTION IS SELECTED -> ANSWER IT DIRECTLY):\n"
         f"   - Whenever a question, test item, quiz, calculation, or task is highlighted/selected—whether it ends with '?', has options A/B/C/D, is an open question without options (e.g. 'Kdo/Kdy/Kde/Co/Proč/Jak...'), is an imperative task ('Vypočítej...', 'Urči...', 'Vyber...', 'Simulujte...', 'Vysvětli...'), or is an incomplete prompt expecting an answer—ALWAYS ANSWER OR SOLVE THAT QUESTION DIRECTLY!\n"
         f"   - Even if the user highlighted ONLY the question sentence without any options below it, answer the question directly from your expert knowledge (never say 'This is a question about...' and never repeat the question).\n"
         f"   - OPTION MARKING RULE ('✓' & '✗'): When multiple-choice / True-False options (A/B/C/D, 1/2/3/4, Ano/Ne, True/False) are visible, "
         f"ALWAYS mark the correct option with '✓' (e.g. '✓ **B) Paříž**') and wrong options with '✗' (e.g. '✗ A  ✗ C  ✗ D').\n"
-        f"   - MODEL-SELECTED VECTORIZED ALGORITHM SYNTHESIS (`@ALGO[...]`), IMPLICIT TREES & TABLE SCRATCHPAD (MAX 80 INTERNAL THINKING TOKENS): Keep internal thinking strictly symbolic (`@ALGO[TYPE|params]->T=[...]->res`) under 80 tokens: "
+        f"   - MODEL-SELECTED VECTORIZED ALGORITHM SYNTHESIS (`@ALGO[...]`), IMPLICIT TREES & TABLE SCRATCHPAD: Keep internal thinking compact and symbolic (`@ALGO[TYPE|params]->step_1->...->step_N->res`) while tracing EVERY element of `X` to completion without skipping steps: "
         f"(1) `@ALGO[EYTZINGER_TREE | X=[...], Q=[...]]`: cache-oblivious 1-indexed Eytzinger implicit BST `tree[1..N]` for branchless `O(log N)` table search; "
-        f"(2) `@ALGO[IMPLICIT_BTREE | b=..., L=..., X=[...]]`: multi-way B-Tree / S-Tree page matrix `nodes[M, b-1]` & `(b, b+1) x (L, L+1)` capacity grid; "
+        f"(2) `@ALGO[IMPLICIT_BTREE | b=..., L=..., X=[...]]`: for sequential insertion (`X=[x_1..x_n]`), insert each `x_i` one by one in input order (NEVER sort `X` upfront!), splitting overflowing nodes and promoting the median key to the parent (evaluating both `max_keys = b - 1` and `max_keys = b` when node capacity is not explicitly stated, and stating both results concisely in your 1–2 sentence reply); for static/capacity queries, build `nodes[M, b-1]` & `(b, b+1) x (L, L+1)` capacity grid; "
         f"(3) `@ALGO[FENWICK_SEGMENT_TREE | X=[...]]`: Fenwick BIT + `2N` Segment Tree in `O(N)` for `O(log N)` range sum/min/max (`RMQ`); "
         f"(4) `@ALGO[MIN_HEAP | k=..., X=[...]]`: Min-Bucket Accumulation `O(n log k)` (`T=[0]*k`, add each `x` to `argmin(T)` -> read `max(T)`); "
         f"(5) `@ALGO[STATE_1D | L=..., X=[...]]`: 1D State-Transition Table `O(n*L)` (`T[s+x]=x` in one pass without overwriting non-zero cells, or Meet-in-the-Middle `O(2^(n/2))` for `L > 10^4`); "
         f"(6) `@ALGO[POWER_SERIES | b=..., L=...]`: geometric level sums `sum_(i=0..L-1) c * b^i = b^L - 1` in `O(1)`; "
-        f"(7) Monte Carlo Invariant & Early-Exit: verify `T` in `O(1)` (`sum(T)==sum(X)`, backward reduction `s -> s - T[s] -> 0`, or BST/B-Tree order) and immediately exit thinking once verified.\n"
+        f"(7) Monte Carlo Invariant & Early-Exit: verify `T` in `O(1)` (`sum(T)==sum(X)`, backward reduction `s -> s - T[s] -> 0`, or multi-way median split order) and immediately exit thinking once verified.\n"
         f"   - MATH FORMATTING RULE (NO RAW LATEX): NEVER output raw LaTeX (no \\text{{...}}, \\times, \\cdot, \\div, {{,}}, \\frac{{...}}{{...}}, $$, or $). "
         f"Write math naturally as in chat (e.g. \"11 % × 0,81 = **8,91 %**\" or \"**x = 5**\", \"10 / 2 = **5**\").\n"
         f"2. PLAIN TEXT, PARAGRAPH, TERM, STATEMENT, OR CODE RULE (IF TEXT WITHOUT A QUESTION IS SELECTED -> DESCRIBE / EXPLAIN IT):\n"
@@ -3538,12 +3538,14 @@ class EphemeralAlgorithmicAccelerator:
         queries: Optional[list[int]] = None,
     ) -> dict[str, Any]:
         """
-        Vectorized Multi-Way Implicit B-Tree / S-Tree Page Matrix & Capacity Engine:
-          - Constructs a multi-way tree of branching factor `B = max(2, branching_b)` (up to `K = B - 1` keys per node)
-            as a flat 2D NumPy page matrix `pages[num_pages, B - 1]` in RAM (`_numpy_buffers["btree_pages"]`).
-          - Simultaneously evaluates the exact geometric level capacity matrix `(B, B+1) x (H, H+1)` via
-            `table_power_series_grid(B, depth_h)` so structural capacity queries and concrete key lookups share one engine.
-          - Executes O(log_B N) vectorized multi-way page searches (`slot = np.sum(q > page_keys)`).
+        Vectorized Multi-Way Implicit B-Tree / S-Tree Page Matrix, Sequential Split Simulator & Capacity Engine:
+          - Simulates exact sequential insertion (`data = [x_1, ..., x_n]`) with bottom-up node splitting
+            and median promotion for both `max_keys = B - 1` (order B, split at B keys) and `max_keys = B`
+            (max B keys per node, split at B + 1 keys with left/right median) so root and level contents
+            after sequential insertions are exact in RAM.
+          - Constructs a flat 2D NumPy page matrix `pages[num_pages, B - 1]` in `_numpy_buffers["btree_pages"]`.
+          - Simultaneously evaluates the geometric level capacity matrix `(B, B+1) x (H, H+1)` via
+            `table_power_series_grid(B, depth_h)` and executes O(log_B N) vectorized multi-way page searches.
         """
         b_factor = max(2, min(int(branching_b), 64))
         k_per_node = b_factor - 1
@@ -3558,6 +3560,11 @@ class EphemeralAlgorithmicAccelerator:
                 "pages": [],
                 "num_pages": 0,
                 "found_indices": [],
+                "seq_root_k_b_minus_1": [],
+                "seq_root_k_b_left": [],
+                "seq_root_k_b_right": [],
+                "seq_levels_k_b_minus_1": [],
+                "seq_levels_k_b": [],
                 "capacity_grid": cap_grid["grid"],
                 "max_vals_b_m_depth0": cap_grid["max_vals_b_m_depth0"],
                 "max_vals_b_m_depth1": cap_grid["max_vals_b_m_depth1"],
@@ -3565,6 +3572,67 @@ class EphemeralAlgorithmicAccelerator:
                 "max_vals_k_m_depth1": cap_grid["max_vals_k_m_depth1"],
                 "mc_verified": bool(cap_grid["mc_verified"]),
             }
+
+        def _simulate_seq_btree(seq: list[int], max_k: int, left_median: bool = True) -> list[list[list[int]]]:
+            """General sequential multi-way search tree insertion with bottom-up median split."""
+            # Each node is a dict: {"keys": list[int], "children": list[node]}
+            root_node: dict[str, Any] = {"keys": [], "children": []}
+
+            def _insert_rec(node: dict[str, Any], val: int) -> Optional[tuple[int, dict[str, Any], dict[str, Any]]]:
+                keys = node["keys"]
+                children = node["children"]
+                # Find insertion slot via binary search
+                pos = 0
+                while pos < len(keys) and val > keys[pos]:
+                    pos += 1
+                if not children:
+                    keys.insert(pos, val)
+                else:
+                    split_res = _insert_rec(children[pos], val)
+                    if split_res is not None:
+                        prom_key, left_ch, right_ch = split_res
+                        keys.insert(pos, prom_key)
+                        children[pos] = left_ch
+                        children.insert(pos + 1, right_ch)
+                if len(keys) > max_k:
+                    m_len = len(keys)
+                    mid = (m_len - 1) // 2 if left_median else (m_len // 2)
+                    prom = keys[mid]
+                    left_node = {
+                        "keys": keys[:mid],
+                        "children": children[: mid + 1] if children else [],
+                    }
+                    right_node = {
+                        "keys": keys[mid + 1 :],
+                        "children": children[mid + 1 :] if children else [],
+                    }
+                    return prom, left_node, right_node
+                return None
+
+            for x_val in seq:
+                res_split = _insert_rec(root_node, int(x_val))
+                if res_split is not None:
+                    p_key, l_ch, r_ch = res_split
+                    root_node = {"keys": [p_key], "children": [l_ch, r_ch]}
+
+            # Extract breadth-first levels of nodes
+            levels_out: list[list[list[int]]] = []
+            curr_lvl = [root_node]
+            while curr_lvl:
+                levels_out.append([list(nd["keys"]) for nd in curr_lvl])
+                next_lvl: list[dict[str, Any]] = []
+                for nd in curr_lvl:
+                    next_lvl.extend(nd["children"])
+                curr_lvl = next_lvl
+            return levels_out
+
+        lv_k_bm1 = _simulate_seq_btree(data, max(1, b_factor - 1), left_median=True)
+        lv_k_b_left = _simulate_seq_btree(data, max(1, b_factor), left_median=True)
+        lv_k_b_right = _simulate_seq_btree(data, max(1, b_factor), left_median=False)
+
+        seq_root_bm1 = lv_k_bm1[0][0] if lv_k_bm1 and lv_k_bm1[0] else []
+        seq_root_b_left = lv_k_b_left[0][0] if lv_k_b_left and lv_k_b_left[0] else []
+        seq_root_b_right = lv_k_b_right[0][0] if lv_k_b_right and lv_k_b_right[0] else []
 
         sorted_arr = np.sort(np.asarray(data, dtype=np.int64), kind="mergesort")
         n = int(sorted_arr.size)
@@ -3588,7 +3656,6 @@ class EphemeralAlgorithmicAccelerator:
             ref_pos = np.searchsorted(sorted_arr, q_vec, side="left")
             for idx_q, q_val in enumerate(q_vec.tolist()):
                 qv = int(q_val)
-                # Multi-way block search across page minimums, then vectorized key comparison inside the page
                 p_idx = max(0, int(np.searchsorted(page_mins, qv, side="right")) - 1)
                 page_row = pages[p_idx]
                 slot = int(np.sum(page_row < qv))
@@ -3613,6 +3680,11 @@ class EphemeralAlgorithmicAccelerator:
             ],
             "num_pages": num_pages,
             "found_indices": found_indices,
+            "seq_root_k_b_minus_1": seq_root_bm1,
+            "seq_root_k_b_left": seq_root_b_left,
+            "seq_root_k_b_right": seq_root_b_right,
+            "seq_levels_k_b_minus_1": lv_k_bm1,
+            "seq_levels_k_b": lv_k_b_left,
             "capacity_grid": cap_grid["grid"],
             "max_vals_b_m_depth0": cap_grid["max_vals_b_m_depth0"],
             "max_vals_b_m_depth1": cap_grid["max_vals_b_m_depth1"],
@@ -4242,13 +4314,15 @@ class EphemeralAlgorithmicAccelerator:
             )
             return {"algorithm": "EYTZINGER_TREE", "result": res, "summary": summary, "mc_verified": res["mc_verified"]}
 
-        if algo_name in ("IMPLICIT_BTREE", "BTREE", "STREE", "MULTIWAY_TREE"):
-            b_val = int(p_dict.get("b", p_dict.get("p", p_dict.get("degree", 3))))
+        if algo_name in ("IMPLICIT_BTREE", "BTREE", "STREE", "MULTIWAY_TREE", "DYNAMIC_BTREE"):
+            b_val = int(p_dict.get("b", p_dict.get("p", p_dict.get("m", p_dict.get("degree", 3)))))
             h_val = int(p_dict.get("l", p_dict.get("q", p_dict.get("depth", 3))))
             res = self.build_and_query_implicit_btree(vec_x or None, branching_b=b_val, depth_h=h_val, queries=queries_q or None)
             summary = (
-                f"ALGO[IMPLICIT_BTREE](b={b_val}, L={h_val}) -> pages={res['pages']}, "
-                f"capacity_grid={res['capacity_grid']}, found={res['found_indices']}"
+                f"ALGO[IMPLICIT_BTREE](b={b_val}, L={h_val}) -> "
+                f"seq_root(max_k={b_val - 1})={res['seq_root_k_b_minus_1']}, "
+                f"seq_root(max_k={b_val})={res['seq_root_k_b_left']}, "
+                f"pages={res['pages']}, capacity_grid={res['capacity_grid']}, found={res['found_indices']}"
             )
             return {"algorithm": "IMPLICIT_BTREE", "result": res, "summary": summary, "mc_verified": res["mc_verified"]}
 
@@ -4330,7 +4404,7 @@ class EphemeralAlgorithmicAccelerator:
                 scalars_after = [int(x) for x in re.findall(r"(?<!\d)\d+(?!\d)", after_text) if int(x) > 0]
                 all_scalars = scalars_after + scalars_before
 
-                # a) If there is a small bucket count k in [2..32] (typically before X), evaluate Min-Heap Table T=[0]*k
+                # a) If there is a small bucket/branching count k in [2..32] (typically before X), evaluate Min-Heap Table & Multi-Way Tree Insertion
                 for k_cand in (scalars_before + scalars_after):
                     if 2 <= k_cand <= 32:
                         acc = self.table_accumulate_min(k_cand, vec_x)
@@ -4338,6 +4412,13 @@ class EphemeralAlgorithmicAccelerator:
                             f"T_MIN(k={k_cand}, X={vec_x}) -> T_in={acc['table_in_order']} (max={acc['max_in_order']}), "
                             f"T_desc={acc['table_desc_order']} (max={acc['max_desc_order']}, sum={acc['total_sum']}, lb={acc['lower_bound']})"
                         )
+                        if 2 <= k_cand <= 10:
+                            bt_seq = self.build_and_query_implicit_btree(vec_x, branching_b=k_cand)
+                            table_notes.append(
+                                f"T_BTREE_INSERT(b={k_cand}, X={vec_x}) -> "
+                                f"root(max_keys={k_cand - 1})={bt_seq['seq_root_k_b_minus_1']} (levels={bt_seq['seq_levels_k_b_minus_1']}), "
+                                f"root(max_keys={k_cand})={bt_seq['seq_root_k_b_left']} (levels={bt_seq['seq_levels_k_b']})"
+                            )
                         break
 
                 # b) If there is a limit/target scalar L >= max(X) (typically after X), evaluate 1D State Table T[0..L]
@@ -4671,7 +4752,7 @@ class VisionInferenceWorker(QThread):
         ):
             self.system_prompt += (
                 "\n\nEXTENDED THINKING & DEEP COMPREHENSION DIRECTIVE (PRO REASONING):\n"
-                "- Read every character, diacritic, number, and operator accurately, map values into a compact table T[...] using Chain-of-Draft (< 80 tokens), and trigger Early-Exit as soon as the mathematical invariant holds.\n"
+                "- Read every character, diacritic, number, and operator accurately, map values into a compact table T[...] using Chain-of-Draft (`step: state -> next_state`), simulate all sequential steps in input order, and trigger Early-Exit as soon as the final mathematical invariant holds.\n"
                 "- Thoughts must remain strictly in the background; do NOT output any thought process or 'Thoughts:'.\n"
             )
         # In Secret Mode, always enable internal reasoning (`think = True`) because visible output is concise
@@ -4815,6 +4896,7 @@ class VisionInferenceWorker(QThread):
         payload: dict[str, Any],
         is_paid_exclusive: bool = False,
         timeout_sec: float = 35.0,
+        read_timeout_sec: float = 11.5,
     ) -> tuple[bool, int, str]:
         """Executes streaming SSE POST request to Google Gemini API; returns (success, status_code, error_message)."""
         think_filter = StreamThinkingFilter()
@@ -4824,8 +4906,8 @@ class VisionInferenceWorker(QThread):
         last_activity_t = time.perf_counter()
         last_think_emit_t = 0.0
         eff_timeout = min(timeout_sec, max(2.0, self._remaining_budget()))
-        # Allow up to 24s per socket read so latent TPU reasoning finishes without premature ReadTimeout.
-        req_timeout = httpx.Timeout(eff_timeout, read=min(24.0, eff_timeout), connect=min(5.0, eff_timeout))
+        eff_read = min(float(read_timeout_sec), eff_timeout)
+        req_timeout = httpx.Timeout(eff_timeout, read=eff_read, connect=min(4.5, eff_timeout))
 
         try:
             _pace_gemini_request(0.12)
@@ -4849,7 +4931,7 @@ class VisionInferenceWorker(QThread):
                             return True, 200, ""
                         now_t = time.perf_counter()
                         if self._remaining_budget() <= 0.5 or (
-                            not emitted_visible and (now_t - last_activity_t) > 20.0
+                            not emitted_visible and (now_t - last_activity_t) > eff_read
                         ):
                             break
                         if not line:
@@ -4961,9 +5043,10 @@ class VisionInferenceWorker(QThread):
             tabular evaluations ALWAYS produce the exact same verified result.
           - Sets `maxOutputTokens = 8192` so internal thinking tokens never starve the visible response.
           - Omits `"includeThoughts": True` to eliminate the 8–12s SSE thought-summary serialization overhead;
-            latent reasoning runs directly inside TPU SRAM while `read=24.0s` prevents socket ReadTimeouts.
-          - Uses `estimate_adaptive_thinking_budget` (< 0.25 ms NumPy edge/glyph density router) on Gemini 2.5
-            and `"thinkingLevel": "low"` on Flash models so Chain-of-Draft table traces finish in ~1.5–2.5s.
+            latent reasoning runs directly inside TPU SRAM.
+          - NEVER downgrades Gemini 3 to `"thinkingLevel": "low"` (which disables internal step-by-step
+            reasoning and breaks Secret Mode); always uses `"thinkingLevel": "high"` so both Classic Mode
+            and Secret Mode have identical deep step-by-step accuracy in 7–13s.
         """
         m_low = gemini_model.lower()
         is_gemini_3 = bool(re.search(r"gemini-3(?:[.\-]|$)", m_low))
@@ -4977,14 +5060,17 @@ class VisionInferenceWorker(QThread):
             "maxOutputTokens": max_out,
         }
         if is_gemini_3 and "3.8" not in m_low:
-            use_low_think = fast_fallback or ("flash" in m_low)
             gen_cfg["thinkingConfig"] = {
-                "thinkingLevel": "low" if use_low_think else "high",
+                "thinkingLevel": "high",
             }
         else:
             adaptive_budget = estimate_adaptive_thinking_budget(
                 self.image, self.prompt, fast_fallback=fast_fallback
             )
+            if self.is_secret_mode:
+                adaptive_budget = max(1024, adaptive_budget)
+            elif fast_fallback:
+                adaptive_budget = max(768, adaptive_budget)
             gen_cfg["thinkingConfig"] = {
                 "thinkingBudget": adaptive_budget,
             }
@@ -5138,13 +5224,21 @@ class VisionInferenceWorker(QThread):
             "x-goog-api-key": api_key,
         }
         timeout_sec = min(MAX_INFERENCE_WALL_TIME, max(2.0, self._remaining_budget()))
+        fallback_candidates = self._get_quota_safe_fallback_models(gemini_model, raw_gemini_model)
+        primary_read_timeout = 8.8 if fallback_candidates else 14.0
 
         try:
             client = _get_shared_gemini_client(timeout_sec)
             self._client = client
             url = f"{GEMINI_API_BASE_URL}/models/{gemini_model}:streamGenerateContent?alt=sse"
             ok, status_code, err_body = self._stream_gemini_chat(
-                client, url, headers, payload, is_paid_exclusive=is_paid_exclusive, timeout_sec=timeout_sec
+                client,
+                url,
+                headers,
+                payload,
+                is_paid_exclusive=is_paid_exclusive,
+                timeout_sec=timeout_sec,
+                read_timeout_sec=primary_read_timeout,
             )
 
             # If model already solved the answer in hidden thoughts before ending with 204, emit salvaged conclusion immediately
@@ -5165,7 +5259,13 @@ class VisionInferenceWorker(QThread):
                     client = _get_shared_gemini_client(self._remaining_budget())
                     self._client = client
                     ok, status_code, err_body = self._stream_gemini_chat(
-                        client, url, headers, payload, is_paid_exclusive=is_paid_exclusive, timeout_sec=self._remaining_budget()
+                        client,
+                        url,
+                        headers,
+                        payload,
+                        is_paid_exclusive=is_paid_exclusive,
+                        timeout_sec=self._remaining_budget(),
+                        read_timeout_sec=primary_read_timeout,
                     )
 
             primary_access_denied = not ok and (
@@ -5174,7 +5274,7 @@ class VisionInferenceWorker(QThread):
             )
             if primary_access_denied:
                 _mark_gemini_model_forbidden(gemini_model)
-            elif not ok and status_code == 429:
+            elif not ok and status_code in (408, 429, 500, 502, 503):
                 _mark_gemini_model_cooldown(gemini_model, err_body, cooldown_sec=45.0)
 
             fallback_candidates = self._get_quota_safe_fallback_models(gemini_model, raw_gemini_model)
@@ -5183,7 +5283,8 @@ class VisionInferenceWorker(QThread):
             if (
                 not ok
                 and not primary_access_denied
-                and (status_code in (500, 502, 503) or (status_code == 429 and not fallback_candidates))
+                and not fallback_candidates
+                and status_code in (429, 500, 502, 503)
                 and not self._cancelled
                 and self._remaining_budget() > 4.0
             ):
@@ -5191,15 +5292,20 @@ class VisionInferenceWorker(QThread):
                 client = _get_shared_gemini_client(self._remaining_budget())
                 self._client = client
                 ok, status_code, err_body = self._stream_gemini_chat(
-                    client, url, headers, payload, is_paid_exclusive=is_paid_exclusive, timeout_sec=self._remaining_budget()
+                    client,
+                    url,
+                    headers,
+                    payload,
+                    is_paid_exclusive=is_paid_exclusive,
+                    timeout_sec=self._remaining_budget(),
+                    read_timeout_sec=11.5,
                 )
                 if not ok and is_gemini_model_access_denied(status_code, err_body):
                     primary_access_denied = True
                     _mark_gemini_model_forbidden(gemini_model)
 
-            # Fallback 3: Route through fallback endpoints while keeping the user's selected model locked.
-            # If the primary request timed out (408) or exhausted thinking (204), switch to fast_fallback=True
-            # so the backup endpoint answers in 2–3s without burning the remaining 40s wall-clock budget.
+            # Fallback 3: Route through fallback endpoints while keeping `"thinkingLevel": "high"`
+            # so both Classic Mode and Secret Mode retain full multi-step reasoning accuracy and answer within 7–13s.
             if (
                 not ok
                 and not self._cancelled
@@ -5222,8 +5328,17 @@ class VisionInferenceWorker(QThread):
                     }
                     is_fb_paid = is_paid_exclusive_gemini_model(fallback_model)
                     fb_ok, fb_status, fb_err = self._stream_gemini_chat(
-                        client, fallback_url, headers, fb_payload, is_paid_exclusive=is_fb_paid, timeout_sec=self._remaining_budget()
+                        client,
+                        fallback_url,
+                        headers,
+                        fb_payload,
+                        is_paid_exclusive=is_fb_paid,
+                        timeout_sec=self._remaining_budget(),
+                        read_timeout_sec=10.5,
                     )
+                    if not fb_ok and fb_status == 204 and self._salvaged_thought_answer and not self._cancelled:
+                        self.tokenReceived.emit(self._salvaged_thought_answer)
+                        fb_ok = True
                     if fb_ok:
                         ok = True
                         status_code = 200
@@ -5231,7 +5346,7 @@ class VisionInferenceWorker(QThread):
                         break
                     if is_gemini_model_access_denied(fb_status, fb_err):
                         _mark_gemini_model_forbidden(fallback_model)
-                    elif fb_status == 429:
+                    elif fb_status in (408, 429, 500, 502, 503):
                         _mark_gemini_model_cooldown(fallback_model, fb_err, cooldown_sec=45.0)
                         status_code = fb_status
                         err_body = fb_err
