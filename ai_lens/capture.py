@@ -86,12 +86,17 @@ def compute_bounding_box(
     points: Sequence[QPointF | tuple[float, float]],
     screen_width: int,
     screen_height: int,
-    padding: int = 4,
+    padding: int = 18,
 ) -> QRect:
     """
-    Computes the Bounding Box [xmin - p, ymin - p, xmax + p, ymax + p]
-    from a sequence of lasso points in logical screen coordinates, clamped to screen bounds.
-    Fits closely around the user's drawn contour with tight padding.
+    Computes the smart Bounding Box [xmin - p, ymin - p, xmax + p, ymax + p]
+    from a sequence of lasso/sweep points in logical screen coordinates, unified with
+    Secret Mode's selection geometry:
+      - Expands horizontal single-line sweeps/underlines (`raw_w >= 12 and raw_h < 38`)
+        vertically (`cy ± 19.0`) so tall capitals, diacritics (háčky/čárky), exponents,
+        and descenders are never sliced off.
+      - Applies protective glyph-safe padding (`pad = max(18, padding)`) around the selection
+        before `auto_trim_uniform_background_numpy` trims redundant blank margins.
     """
     if not points:
         return QRect()
@@ -111,13 +116,24 @@ def compute_bounding_box(
     raw_xmax = max(xs)
     raw_ymax = max(ys)
 
-    # Tight padding directly around the drawn outline
-    pad = max(0, padding)
+    raw_w = raw_xmax - raw_xmin
+    raw_h = raw_ymax - raw_ymin
+    if raw_w < 8 and raw_h < 8:
+        return QRect()
 
-    x_min = max(0, int(raw_xmin) - pad)
-    y_min = max(0, int(raw_ymin) - pad)
-    x_max = min(screen_width, int(raw_xmax) + pad)
-    y_max = min(screen_height, int(raw_ymax) + pad)
+    # Single-line horizontal sweep / underline / flat loop: expand vertically around center
+    if raw_w >= 12 and raw_h < 38:
+        cy = (raw_ymin + raw_ymax) / 2.0
+        raw_ymin = cy - 19.0
+        raw_ymax = cy + 19.0
+
+    # Protective glyph-safe padding (same 18px safety border as Secret Mode)
+    pad = max(18, int(padding))
+
+    x_min = max(0, int(round(raw_xmin)) - pad)
+    y_min = max(0, int(round(raw_ymin)) - pad)
+    x_max = min(screen_width, int(round(raw_xmax)) + pad)
+    y_max = min(screen_height, int(round(raw_ymax)) + pad)
 
     width = max(1, x_max - x_min)
     height = max(1, y_max - y_min)

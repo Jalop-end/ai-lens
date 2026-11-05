@@ -616,14 +616,14 @@ class OverlayWindow(QWidget):
                 self.update()
                 return
             else:
-                padding = max(8, int(self.config.get("padding", 4)))
+                padding = max(18, int(self.config.get("padding", 18)))
                 bbox = compute_bounding_box(
                     points=self._lasso_points,
                     screen_width=self.width(),
                     screen_height=self.height(),
                     padding=padding,
                 )
-                if bbox.width() < 16 and bbox.height() < 16:
+                if bbox.isNull() or (bbox.width() < 12 and bbox.height() < 12):
                     self.reset_selection()
                     return
 
