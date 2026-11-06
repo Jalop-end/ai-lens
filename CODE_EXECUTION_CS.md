@@ -33,9 +33,11 @@ Při úspěšném výsledku nástroje zobrazí:
 > Výpočet dokončen, připravuji odpověď
 
 Při chybě nástroje informuje o selhání. Model může v rámci stejného požadavku
-opravit program; konečný text se pustí až po úspěšném posledním výsledku,
-spárovaných voláních a řádném dokončení odpovědi. Stavy fungují v běžném
-popoveru i v SecretTopBar.
+opravit program. Po úspěšném výsledku nástroje a spárování volání se text
+zobrazuje průběžně, nikoli až po dokončení celého generování. Do řádného
+ukončení odpovědi jde o průběžný výstup: pokud model spustí další výpočet nebo
+generování selže, dosavadní průběžná odpověď se stáhne z UI. Stavy i stažení
+fungují v běžném popoveru a v SecretTopBar.
 
 Úspěšné spuštění programu není matematický důkaz správnosti. Výstup proto
 obsahuje upozornění, že výsledek z Pythonu není nezávisle ověřený. Instrukce
@@ -102,7 +104,9 @@ zůstává jejich stávající konfigurace zachována.
 
 ## Ověření
 
-Lokálně prošlo 150 testovacích metod, z toho 28 nových v této etapě. Testy
+Při zavedení Code Execution prošlo 150 testovacích metod. Navazující opravu
+streamování a jednoznačných DP tabulek popisuje [DP a rychlost](DP_STREAMING_CS.md).
+Testy
 používají simulované HTTP streamy, skutečné metody workeru a headless Qt
 widgety. Kontrolují úspěch, neúspěch, opravu programu, neúplné odpovědi, ID
 volání, High, stavové zprávy, obnovení UI, ignorování starých workerů a společný

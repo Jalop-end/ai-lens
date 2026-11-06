@@ -16,8 +16,8 @@ With a single hotkey (**`Alt + F8`** / **`Ctrl + Alt + Shift + G`**), Secret Qui
 
 ## Calculation paths and limits
 
-Supported sequential BST/B-tree insertion uses the deterministic local tree
-solver. Other calculations can use Gemini's managed Code Execution on a
+Supported sequential BST/B-tree insertion and explicitly defined 0/1 DP tables
+use deterministic local solvers. Other calculations can use Gemini's managed Code Execution on a
 compatible API endpoint; generated Python is not executed on your computer.
 High reasoning remains enabled. Ordinary requests retain the 40-second budget;
 an observed Code Execution event enables a total 60-second budget measured from
@@ -29,6 +29,9 @@ The generic execution path is Gemini-only; Ollama has no new arbitrary-code
 execution capability. Live-model accuracy and latency have not been benchmarked
 for this change. See [tree solver notes](SOLVER_REPAIR_CS.md) and
 [managed execution, status messages and deadlines](CODE_EXECUTION_CS.md).
+The [DP semantics and streaming notes](DP_STREAMING_CS.md) explain why a
+predecessor array is not an optimization array and how answers stream after
+successful tool execution without waiting for the entire response.
 
 ---
 

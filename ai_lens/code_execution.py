@@ -9,8 +9,8 @@ This routing overrides older hidden-scratchpad and simulated NumPy instructions.
 Keep High reasoning. First interpret the task: preserve input order, operations,
 domains, units, and algorithm conventions. Never replace sequential insertion
 with sorting or a balanced construction. Clarify missing essential conventions.
-1. For the supported empty BST/B-tree insertion tasks use the @TREE_SOLVER
-contract above. Do not call code_execution for these supported tasks.
+1. For the supported empty BST/B-tree insertion and explicit 0/1 DP table tasks,
+use the local solver contracts above. Do not call code_execution for these tasks.
 2. For other mathematical or algorithmic calculations that benefit from actual
 execution, use the provided code_execution tool. Examples: equations, matrices,
 combinatorics, dynamic programming, graphs, algorithm simulations and numerical
@@ -29,6 +29,8 @@ fails or conventions are unclear, say so; never pretend a failed run verified
 the answer. Do not print code, internal protocol or pretend progress messages.
 The application shows actual tool activity itself. Return text results and
 textual structures; this client does not display generated files or images.
+Answer the requested field first. If the user asks for five cells or one number,
+return those values, not the full table or a long explanation unless requested.
 """
 
 
@@ -86,13 +88,21 @@ class CodeExecutionState:
             return True
         return False
 
+    @property
+    def ready_to_stream(self):
+        return self.used and not self.invalid and not self.pending and self.outcome == "OUTCOME_OK"
+
     def buffer(self, text):
+        if not self.ready_to_stream:
+            return False
         self.size += len(text)
         if self.size > MAX_TEXT:
             self.invalid = True
             self.parts.clear()
+            return False
         elif not self.invalid:
             self.parts.append(text)
+            return True
 
     def final_text(self, complete):
         if not complete or self.invalid or self.pending or self.outcome != "OUTCOME_OK":

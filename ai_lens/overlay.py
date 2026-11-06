@@ -318,6 +318,16 @@ class OverlayWindow(QWidget):
         target = self.secret_top_bar if self._is_secret_mode else self.popover
         target.on_execution_status(text)
 
+    def _on_answer_reset(self, worker: VisionInferenceWorker) -> None:
+        """Retract a provisional tool answer if the model retries or is interrupted."""
+        if self._worker is not worker or not self._is_inferring:
+            return
+        self._current_reply_buffer = ""
+        if self._is_secret_mode:
+            self.secret_top_bar.set_content("")
+        else:
+            self.popover.set_markdown_content("")
+
     def _force_win32_foreground(self) -> None:
         """
         Forces Windows 10/11 to place the overlay on top of all windows and grant focus,
@@ -374,6 +384,7 @@ class OverlayWindow(QWidget):
                 worker.tokenReceived.disconnect()
                 worker.thinkingProgress.disconnect()
                 worker.executionStatus.disconnect()
+                worker.answerReset.disconnect()
                 worker.finishedInference.disconnect()
                 worker.errorOccurred.disconnect()
             except Exception:
@@ -712,6 +723,7 @@ class OverlayWindow(QWidget):
         worker.tokenReceived.connect(self._on_secret_worker_token)
         worker.thinkingProgress.connect(self.secret_top_bar.on_thinking_progress)
         worker.executionStatus.connect(lambda text, w=worker: self._on_execution_status(w, text))
+        worker.answerReset.connect(lambda w=worker: self._on_answer_reset(w))
         worker.finishedInference.connect(self._on_secret_worker_finished)
         worker.errorOccurred.connect(self._on_secret_worker_error)
         self._worker = worker
@@ -813,6 +825,7 @@ class OverlayWindow(QWidget):
         worker.tokenReceived.connect(self._on_worker_token)
         worker.thinkingProgress.connect(self.popover.on_thinking_progress)
         worker.executionStatus.connect(lambda text, w=worker: self._on_execution_status(w, text))
+        worker.answerReset.connect(lambda w=worker: self._on_answer_reset(w))
         worker.finishedInference.connect(
             lambda elapsed, p=prompt, f=is_followup: self._on_worker_finished(elapsed, p, f)
         )

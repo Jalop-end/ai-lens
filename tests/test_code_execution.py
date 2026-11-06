@@ -109,8 +109,10 @@ class WorkerCodeTests(unittest.TestCase):
     def setUp(self):
         self.w = VisionInferenceWorker(None, "", model="gemini-3.5-flash", language="cs")
         self.tokens, self.stages = [], []
+        self.resets = []
         self.w.tokenReceived.connect(self.tokens.append)
         self.w.executionStatus.connect(self.stages.append)
+        self.w.answerReset.connect(lambda: (self.resets.append(True), self.tokens.clear()))
 
     def tearDown(self):
         self.w.clear_memory()
@@ -139,10 +141,37 @@ class WorkerCodeTests(unittest.TestCase):
         self.assertEqual(answer[1], 422)
         self.assertNotIn("WRONG ANSWER", "".join(self.tokens))
 
-    def test_interrupted_generation_suppresses_answer(self):
+    def test_interrupted_generation_retracts_provisional_answer(self):
         answer = self.run_stream([code(), result(), {"text": "INCOMPLETE"}], "MAX_TOKENS")
         self.assertEqual(answer[1], 422)
         self.assertNotIn("INCOMPLETE", "".join(self.tokens))
+        self.assertEqual(len(self.resets), 1)
+
+    def test_text_visible_before_generation_finishes(self):
+        owner = self
+        class ObservedStream(httpx.SyncByteStream):
+            def __iter__(self):
+                for p in [code(), result(), {"text": "První část"}, {"text": ", pokračování"}]:
+                    chunk = {"candidates": [{"content": {"parts": [p]}}]}
+                    yield ("data: " + json.dumps(chunk) + "\n\n").encode()
+                owner.assertEqual("".join(owner.tokens), "První část, pokračování")
+                yield b'data: {"candidates":[{"finishReason":"STOP"}]}\n\n'
+        with httpx.Client(transport=httpx.MockTransport(
+                lambda req: httpx.Response(200, stream=ObservedStream()))) as client:
+            with patch("ai_lens.vision_engine._pace_gemini_request"):
+                answer = self.w._stream_gemini_chat(client, "https://test.invalid", {}, {"tools": [{}]})
+        self.assertTrue(answer[0])
+        self.assertEqual("".join(self.tokens).count("První část"), 1)
+
+    def test_retry_replaces_previous_provisional_answer(self):
+        answer = self.run_stream([
+            code(), result(), {"text": "First tentative answer"},
+            code("print(5)"), result(), {"text": "Corrected answer"},
+        ])
+        self.assertTrue(answer[0])
+        self.assertNotIn("First tentative", "".join(self.tokens))
+        self.assertIn("Corrected answer", "".join(self.tokens))
+        self.assertEqual(len(self.resets), 1)
 
     def test_no_host_execution(self):
         with tempfile.TemporaryDirectory() as d:
@@ -277,6 +306,9 @@ class StatusWidgetTests(unittest.TestCase):
             self.assertIn("Python", widget.status_label.text())
             widget.start_loading()
             self.assertEqual(widget._execution_status, "")
+            widget.set_markdown_content("An earlier answer")
+            widget.set_markdown_content("")
+            self.assertEqual(widget.response_browser.toPlainText(), "")
         finally:
             widget.close()
 
@@ -320,6 +352,19 @@ class StatusWidgetTests(unittest.TestCase):
         self.overlay_method("_on_execution_status")(controller, worker, "Python")
         controller._watchdog_timer.start.assert_called_once_with(21500)
         controller.popover.on_execution_status.assert_called_once_with("Python")
+
+    def test_retract_current_answer_only(self):
+        controller, worker = Mock(), Mock()
+        controller._worker = worker
+        controller._is_inferring = True
+        controller._is_secret_mode = False
+        controller._current_reply_buffer = "Provisional"
+        self.overlay_method("_on_answer_reset")(controller, worker)
+        self.assertEqual(controller._current_reply_buffer, "")
+        controller.popover.set_markdown_content.assert_called_once_with("")
+        controller.popover.reset_mock()
+        self.overlay_method("_on_answer_reset")(controller, Mock())
+        controller.popover.set_markdown_content.assert_not_called()
 
 
 if __name__ == "__main__":

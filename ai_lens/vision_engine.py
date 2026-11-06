@@ -27,6 +27,7 @@ from ai_lens.isolated_solver import LatestOnly, Limits, SolverService, solve
 from ai_lens.solver_engine import (
     SOLVER_INSTRUCTION, TreeOutputGate, failure, parse_legacy_params, solve_tree,
 )
+from ai_lens.dp_solver import solve_dp
 from ai_lens.code_execution import (
     CODE_EXECUTION_INSTRUCTION, CODE_SECONDS, NORMAL_SECONDS,
     CodeExecutionState, status_text,
@@ -3066,127 +3067,25 @@ class EphemeralAlgorithmicAccelerator:
         return val
 
     def table_state_transition_1d(
-        self,
-        values: list[int],
-        limit: int,
-        tail_count: int = 5,
-        preserve_first: bool = True,
-        mc_samples: int = 4096,
+        self, values: list[int], limit: int, tail_count: int = 5,
+        preserve_first: bool = True, mc_samples: int = 4096,
     ) -> dict[str, Any]:
-        """
-        General Vectorized NumPy 1D State-Transition Table `T[0..L]` with Monte Carlo Backward Traceability:
-          - Stage 1 (NumPy Tabulation): Starts with `T[0..L] = 0` and for each input value `x` in `values`,
-            shifts reachable states `T[s + x] = x` in a single vectorized slice pass while storing intermediate
-            row snapshots in `_numpy_buffers["table_1d_steps"]`.
-          - Stage 2 (Monte Carlo Backward State Reduction + Vectorized Random Sampling):
-            Probes the final `tail_count` cells and random interior cells backward (`s -> s - T[s] -> ... -> 0`)
-            using O(1) frequency counts (`np.bincount`) and cross-checks against `mc_samples` random binary masks.
-        """
-        clean_w = [int(w) for w in values if int(w) > 0]
-        W = max(1, min(int(limit), 10000))
-        n = len(clean_w)
-
-        cache_key = (tuple(clean_w), W, int(tail_count), bool(preserve_first))
-        memo_bucket = self._memo_tables.setdefault("table_1d_state", {})
-        if cache_key in memo_bucket:
-            return memo_bucket[cache_key]
-
-        dp = np.zeros(W + 1, dtype=np.int64)
-        steps = np.zeros((n + 1, W + 1), dtype=np.int64)
-        self._numpy_buffers["table_1d"] = dp
-        self._numpy_buffers["table_1d_steps"] = steps
-
-        for idx, w in enumerate(clean_w):
-            if w <= W:
-                prev_state = steps[idx]
-                prev_reachable = prev_state[:-w] > 0
-                prev_reachable = prev_reachable.copy()
-                prev_reachable[0] = True
-
-                target_slice = dp[w:]
-                if preserve_first:
-                    update_mask = prev_reachable & (target_slice == 0)
-                else:
-                    update_mask = prev_reachable
-                target_slice[update_mask] = w
-            steps[idx + 1] = dp
-
-        # Fixed-Time Monte Carlo Verification 1: Backward State Reduction on live table `dp`
-        rng = np.random.default_rng(seed=42)
-        tail_start = max(1, W - max(1, tail_count) + 1)
-        probe_indices = list(range(tail_start, W + 1))
-        nonzero_interior = np.where(dp[1:tail_start] > 0)[0] + 1
-        if nonzero_interior.size > 0:
-            sample_sz = min(4, int(nonzero_interior.size))
-            sampled = rng.choice(nonzero_interior, size=sample_sz, replace=False)
-            probe_indices.extend(int(x) for x in sampled)
-
-        mc_invariant_ok = True
-        max_item_w = max(clean_w, default=0)
-        avail_counts = np.bincount(np.asarray(clean_w, dtype=np.int64), minlength=max(W, max_item_w) + 1)
-        self._numpy_buffers["table_1d_counts"] = avail_counts
-        for s_idx in probe_indices:
-            val = int(dp[s_idx])
-            if val == 0:
-                continue
-            curr = s_idx
-            work_counts = avail_counts.copy()
-            trace_ok = True
-            steps_guard = 0
-            while curr > 0 and steps_guard <= n:
-                steps_guard += 1
-                step_w = int(dp[curr])
-                if step_w <= 0 or step_w > curr or step_w >= work_counts.size or int(work_counts[step_w]) <= 0:
-                    trace_ok = False
-                    break
-                work_counts[step_w] -= 1
-                curr -= step_w
-            if curr != 0 or not trace_ok:
-                mc_invariant_ok = False
-                repaired = 0
-                for r_idx in range(1, n + 1):
-                    cand_w = clean_w[r_idx - 1]
-                    if cand_w == s_idx or (cand_w < s_idx and steps[r_idx - 1, s_idx - cand_w] > 0):
-                        repaired = cand_w
-                        if preserve_first:
-                            break
-                dp[s_idx] = repaired
-
-        # Fixed-Time Monte Carlo Verification 2: Vectorized NumPy Random Subset Sampling (pure SIMD ufunc)
-        mc_sampling_ok = True
-        if 0 < n <= 24:
-            eff_samples = min(int(mc_samples), 1 << min(n, 8))
-            w_vec = np.asarray(clean_w, dtype=np.int64)
-            masks = rng.integers(0, 2, size=(eff_samples, n), dtype=np.int64)
-            self._numpy_buffers["mc_masks"] = masks
-            sampled_sums = np.sum(masks * w_vec, axis=1)
-            valid_sums = np.unique(sampled_sums[(sampled_sums > 0) & (sampled_sums <= W)])
-            if valid_sums.size > 0 and not bool(np.all(dp[valid_sums] > 0)):
-                mc_sampling_ok = False
-                for v_sum in valid_sums:
-                    if dp[int(v_sum)] == 0:
-                        for r_idx in range(1, n + 1):
-                            cand_w = clean_w[r_idx - 1]
-                            if cand_w == v_sum or (cand_w < v_sum and steps[r_idx - 1, int(v_sum) - cand_w] > 0):
-                                dp[int(v_sum)] = cand_w
-                                break
-
-        k_tail = max(1, min(int(tail_count), W))
-        last_k = [int(x) for x in dp[W - k_tail + 1 : W + 1].tolist()]
-        result = {
-            "values": clean_w,
-            "weights": clean_w,
-            "limit": W,
-            "target": W,
-            "table": [int(x) for x in dp.tolist()],
-            "dp": [int(x) for x in dp.tolist()],
-            "last_k": last_k,
-            "last_k_csv": ", ".join(str(x) for x in last_k),
-            "last_k_compact": "".join(str(x) for x in last_k),
-            "mc_verified": bool(mc_invariant_ok and mc_sampling_ok),
-        }
-        memo_bucket[cache_key] = result
-        return result
+        """Compatibility: predecessor WEIGHTS, exact 0/1 updates, not optimization."""
+        if type(preserve_first) is not bool:
+            raise ValueError("preserve_first must be a boolean")
+        answer = solve_dp({"algorithm": "KNAPSACK_01_TABLE", "params": {
+            "weights": values, "capacity": limit, "tail_count": tail_count,
+            "cell_meaning": "last_weight",
+            "update_policy": "first" if preserve_first else "overwrite",
+        }})
+        if answer["status"] != "ok":
+            raise ValueError(answer["error"])
+        r = answer["result"]
+        return {**r, "values": values.copy(), "limit": limit, "target": limit,
+                "table": r["dp"], "last_k_csv": ", ".join(map(str, r["last_k"])),
+                "last_k_compact": "".join(map(str, r["last_k"])),
+                "mc_verified": answer["mc_verified"],
+                "verification": answer["verification"]}
 
     solve_and_verify_dp_table = table_state_transition_1d
 
@@ -4492,6 +4391,9 @@ class EphemeralAlgorithmicAccelerator:
                 raise ValueError("Conflicting inline and explicit parameters")
             p_dict.update(parsed)
 
+        if algo_name == "KNAPSACK_01_TABLE":
+            return solve_dp({"algorithm": algo_name, "params": p_dict})
+
         if algo_name in ("BST", "BST_INSERT", "BTREE_INSERT"):
             tree_params = dict(p_dict)
             values = tree_params.pop("x", tree_params.pop("data", tree_params.get("values", None)))
@@ -4881,6 +4783,7 @@ class VisionInferenceWorker(QThread):
     tokenReceived = pyqtSignal(str)
     thinkingProgress = pyqtSignal()
     executionStatus = pyqtSignal(str)
+    answerReset = pyqtSignal()
     finishedInference = pyqtSignal(float)  # elapsed seconds
     errorOccurred = pyqtSignal(str)
 
@@ -5136,6 +5039,7 @@ class VisionInferenceWorker(QThread):
         coalescer = TokenStreamCoalescer(output_gate.push)
         completed = False
         code_state = CodeExecutionState(self._on_code_stage)
+        code_streamed = False
         emitted_visible = False
         last_activity_t = time.perf_counter()
         last_think_emit_t = 0.0
@@ -5163,11 +5067,15 @@ class VisionInferenceWorker(QThread):
 
                     for line in response.iter_lines():
                         if self._cancelled:
+                            if code_streamed:
+                                self.answerReset.emit()
                             output_gate.discard()
                             coalescer.flush()
                             output_gate.finish(complete=False)
                             return True, 200, ""
                         if self._timed_out:
+                            if code_streamed:
+                                self.answerReset.emit()
                             output_gate.discard()
                             return False, 408, "TOTAL_DEADLINE_EXCEEDED"
                         now_t = time.perf_counter()
@@ -5192,6 +5100,8 @@ class VisionInferenceWorker(QThread):
                             continue
 
                         if "error" in chunk:
+                            if code_streamed:
+                                self.answerReset.emit()
                             coalescer.flush()
                             output_gate.finish(complete=False)
                             err_obj = chunk["error"]
@@ -5205,7 +5115,13 @@ class VisionInferenceWorker(QThread):
                             content = cand.get("content") or {}
                             parts = content.get("parts") or []
                             for part in parts:
+                                if "executableCode" in part and code_streamed:
+                                    self.answerReset.emit()
+                                    code_streamed = False
                                 if code_state.observe(part):
+                                    if not code_state.ready_to_stream and code_streamed:
+                                        self.answerReset.emit()
+                                        code_streamed = False
                                     coalescer.flush()
                                     continue
                                 if part.get("thought"):
@@ -5216,7 +5132,12 @@ class VisionInferenceWorker(QThread):
                                     raw_token = part.get("text", "")
                                     if raw_token:
                                         if code_state.used:
-                                            code_state.buffer(raw_token)
+                                            if code_state.buffer(raw_token):
+                                                self.tokenReceived.emit(raw_token)
+                                                code_streamed = True
+                                            elif code_streamed and code_state.invalid:
+                                                self.answerReset.emit()
+                                                code_streamed = False
                                             continue
                                         clean_token, is_thinking = think_filter.filter_chunk(raw_token)
                                         if is_thinking and (now_t - last_think_emit_t) >= 0.15:
@@ -5231,10 +5152,13 @@ class VisionInferenceWorker(QThread):
                         final_text = code_state.final_text(
                             completed and not self._cancelled and self._remaining_budget() > 0)
                         if final_text is None:
+                            if code_streamed:
+                                self.answerReset.emit()
                             output_gate.discard()
                             return False, (408 if self._remaining_budget() <= 0 else 422), "CODE_EXECUTION_UNVERIFIED"
                         # Managed code is not the deterministic local tree solver.
-                        self.tokenReceived.emit(final_text)
+                        if not code_streamed:
+                            self.tokenReceived.emit(final_text)
                         self.tokenReceived.emit(
                             "\n\nVýsledek z běhu Pythonu; nejde o nezávisle ověřené řešení."
                             if self.language in ("cs", "sk") else
@@ -5258,6 +5182,8 @@ class VisionInferenceWorker(QThread):
             return True, 200, ""
         except Exception as exc:
             if self._timed_out or code_state.used:
+                if code_streamed:
+                    self.answerReset.emit()
                 output_gate.discard()
                 return False, (408 if self._remaining_budget() <= 0 else 422), "CODE_EXECUTION_INTERRUPTED"
             if self._cancelled:

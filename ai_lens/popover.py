@@ -936,6 +936,11 @@ class PopoverCard(QFrame):
             self.response_browser.setVisible(True)
         self.glow_bar.stop_animation()
         self._raw_markdown = markdown_text
+        if not markdown_text:
+            self.response_browser.clear()
+            self.confidence_badge.setVisible(False)
+            self._last_render_len = 0
+            return
         self._flush_pending_render()
 
     def append_token(self, token: str) -> None:
