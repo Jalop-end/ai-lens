@@ -501,6 +501,7 @@ class ThinkingAnimationCard(QFrame):
         self._start_time: float = 0.0
         self._phase: float = 0.0
         self._thinking_steps: int = 0
+        self._execution_status = ""
         self._timer = QTimer(self)
         self._timer.setInterval(33)  # ~30 FPS
         self._timer.timeout.connect(self._on_tick)
@@ -563,6 +564,7 @@ class ThinkingAnimationCard(QFrame):
         self._start_time = time.time()
         self._phase = 0.0
         self._thinking_steps = 0
+        self._execution_status = ""
         self._on_tick()
         if not self._timer.isActive():
             self._timer.start()
@@ -573,13 +575,20 @@ class ThinkingAnimationCard(QFrame):
     def on_thinking_step(self, count: int) -> None:
         self._thinking_steps = count
 
+    def on_execution_status(self, text: str) -> None:
+        self._execution_status = text
+        self._on_tick()
+
     def _on_tick(self) -> None:
         self._phase += 0.06
         self.orb.set_phase(self._phase)
         elapsed = max(0.0, time.time() - self._start_time)
 
         is_cs = self._language in ("cs", "sk")
-        if self._thinking_steps > 0:
+        if self._execution_status:
+            headline = "Výpočetní nástroj" if is_cs else "Calculation tool"
+            phase = self._execution_status
+        elif self._thinking_steps > 0:
             headline = "Aktivní řetězec myšlenek" if is_cs else "Active Chain of Thought"
             phase = (
                 f"Model interně simuluje logiku a ověřuje data… ({self._thinking_steps} kroků)"
@@ -840,7 +849,9 @@ class PopoverCard(QFrame):
         frame = spinner_frames[self._loading_step % len(spinner_frames)]
         self._loading_step += 1
         elapsed = max(0.0, time.time() - getattr(self, "_start_time", time.time()))
-        if self._thinking_tokens > 0:
+        if getattr(self, "_execution_status", ""):
+            self.status_label.setText(f"{self._execution_status} ({elapsed:.1f}s)")
+        elif self._thinking_tokens > 0:
             self.status_label.setText(f"{frame} {ui['thinking']} ({elapsed:.1f}s)")
         else:
             self.status_label.setText(f"{frame} {ui['analyzing']} ({elapsed:.1f}s)")
@@ -851,6 +862,7 @@ class PopoverCard(QFrame):
         self._raw_markdown = ""
         self._loading_step = 0
         self._thinking_tokens = 0
+        self._execution_status = ""
         self._start_time = time.time()
         self.confidence_badge.clear()
         self.confidence_badge.setVisible(False)
@@ -869,6 +881,7 @@ class PopoverCard(QFrame):
         self.append_token(f"\n\n---\n**{ui['followup_prefix']}:** {prompt}\n\n")
         self._loading_step = 0
         self._thinking_tokens = 0
+        self._execution_status = ""
         self._start_time = time.time()
         self.status_label.setText(f"⠋ {ui['thinking']}…")
         self.glow_bar.start_animation()
@@ -879,8 +892,14 @@ class PopoverCard(QFrame):
         ui = get_ui_strings(self._language)
         self._thinking_tokens += 1
         self.thinking_card.on_thinking_step(self._thinking_tokens)
-        if self._thinking_tokens == 1:
+        if self._thinking_tokens == 1 and not getattr(self, "_execution_status", ""):
             self.status_label.setText(f"🧠 {ui['thinking']}…")
+
+    def on_execution_status(self, text: str) -> None:
+        self._execution_status = text
+        self.thinking_card.on_execution_status(text)
+        self.status_label.setText(text)
+        self._loading_timer.start()
 
     def stop_loading(self, status_text: str = "") -> None:
         """Stops the loading indicator once streaming completes or pauses."""
@@ -1253,7 +1272,9 @@ class SecretTopBar(QFrame):
         elapsed = max(0.0, time.time() - self._start_time)
         is_cs = self._language in ("cs", "sk")
 
-        if self._thinking_steps > 0:
+        if getattr(self, "_execution_status", ""):
+            txt = f"{self._execution_status} ({elapsed:.1f}s)"
+        elif self._thinking_steps > 0:
             txt = (
                 f"{frame} Hluboké uvažování · {self._thinking_steps} kroků ({elapsed:.1f}s)"
                 if is_cs
@@ -1288,12 +1309,19 @@ class SecretTopBar(QFrame):
         if self._is_loading:
             self._tick_secret_loading()
 
+    def on_execution_status(self, text: str) -> None:
+        self._execution_status = text
+        self._is_loading = True
+        self._tick_secret_loading()
+        self._anim_timer.start(65)
+
     def start_loading(self, text: str = "Řeším...") -> None:
         self._raw_text = ""
         self._is_loading = True
         self._start_time = time.time()
         self._anim_step = 0
         self._thinking_steps = 0
+        self._execution_status = ""
         self._glow_bar.start_animation()
         self._tick_secret_loading()
         if not self._anim_timer.isActive():

@@ -265,8 +265,12 @@ class OverlayWindow(QWidget):
         self.update()
 
     def _on_inference_watchdog_timeout(self) -> None:
-        """Hard 40-second cutoff: cancels any active inference worker that exceeds 40 s."""
+        """Use the worker's total budget; tool activity never adds 60 extra seconds."""
         if not self._is_inferring and self._worker is None:
+            return
+        limit = self._worker.inference_limit if self._worker is not None else 40.0
+        if self._worker is not None and self._worker._remaining_budget() > 0:
+            self._watchdog_timer.start(max(1, int(self._worker._remaining_budget() * 1000)))
             return
         self._stop_active_worker()
         self.update()
@@ -276,30 +280,43 @@ class OverlayWindow(QWidget):
         if self._is_secret_mode or self.secret_top_bar.isVisible():
             if not self._current_reply_buffer.strip():
                 msg = (
-                    "Vypršel limit 40 s — dotaz byl automaticky ukončen."
+                    f"Vypršel limit {limit:.0f} s; dotaz byl automaticky ukončen."
                     if is_cz_sk
-                    else "40 s limit reached — query automatically stopped."
+                    else f"{limit:.0f} s limit reached; query automatically stopped."
                 )
                 self.secret_top_bar.set_content(msg)
             else:
-                self.secret_top_bar.stop_loading()
+                self.secret_top_bar.set_content(
+                    self._current_reply_buffer + (
+                        "\n\nOdpověď je neúplná (časový limit)." if is_cz_sk else
+                        "\n\nResponse incomplete (time limit)."))
             return
 
         if self._current_reply_buffer.strip():
-            badge = "Hotovo · 40.0 s (limit)" if is_cz_sk else "Done · 40.0 s (limit)"
+            badge = f"Nedokončeno · limit {limit:.0f} s" if is_cz_sk else f"Incomplete · {limit:.0f} s limit"
             self.popover.stop_loading(badge)
         else:
-            badge = "Ukončeno (limit 40 s)" if is_cz_sk else "Stopped (40 s limit)"
+            badge = f"Ukončeno (limit {limit:.0f} s)" if is_cz_sk else f"Stopped ({limit:.0f} s limit)"
             msg = (
-                "**Časový limit 40 s vypršel**\n\n"
-                "Model neodpověděl do 40 sekund, proto byl dotaz automaticky ukončen. "
-                "Zkus to znovu nebo přepni na nižší úroveň přemýšlení."
+                f"**Časový limit {limit:.0f} s vypršel**\n\n"
+                "Dotaz byl ukončen. Zkus menší nebo čitelnější výřez; High zůstává zachováno."
                 if is_cz_sk
-                else "**40 s Time Limit Reached**\n\n"
-                     "The model did not finish within 40 seconds and was automatically stopped."
+                else f"**{limit:.0f} s Time Limit Reached**\n\n"
+                     "The request was stopped. High remains unchanged."
             )
             self.popover.stop_loading(badge)
             self.popover.set_markdown_content(msg)
+
+    def _on_execution_status(self, worker: VisionInferenceWorker, text: str) -> None:
+        if self._worker is not worker or not self._is_inferring:
+            return
+        remaining = worker._remaining_budget()
+        if remaining <= 0:
+            self._on_inference_watchdog_timeout()
+            return
+        self._watchdog_timer.start(max(1, int(remaining * 1000)))
+        target = self.secret_top_bar if self._is_secret_mode else self.popover
+        target.on_execution_status(text)
 
     def _force_win32_foreground(self) -> None:
         """
@@ -356,6 +373,7 @@ class OverlayWindow(QWidget):
                 worker.clear_memory()
                 worker.tokenReceived.disconnect()
                 worker.thinkingProgress.disconnect()
+                worker.executionStatus.disconnect()
                 worker.finishedInference.disconnect()
                 worker.errorOccurred.disconnect()
             except Exception:
@@ -693,6 +711,7 @@ class OverlayWindow(QWidget):
         )
         worker.tokenReceived.connect(self._on_secret_worker_token)
         worker.thinkingProgress.connect(self.secret_top_bar.on_thinking_progress)
+        worker.executionStatus.connect(lambda text, w=worker: self._on_execution_status(w, text))
         worker.finishedInference.connect(self._on_secret_worker_finished)
         worker.errorOccurred.connect(self._on_secret_worker_error)
         self._worker = worker
@@ -793,6 +812,7 @@ class OverlayWindow(QWidget):
         )
         worker.tokenReceived.connect(self._on_worker_token)
         worker.thinkingProgress.connect(self.popover.on_thinking_progress)
+        worker.executionStatus.connect(lambda text, w=worker: self._on_execution_status(w, text))
         worker.finishedInference.connect(
             lambda elapsed, p=prompt, f=is_followup: self._on_worker_finished(elapsed, p, f)
         )
@@ -1079,4 +1099,3 @@ def run_overlay_mvp(
 
 if __name__ == "__main__":
     run_overlay_mvp()
-

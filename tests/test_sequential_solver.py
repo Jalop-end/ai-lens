@@ -366,6 +366,7 @@ class MockedVisionPipeline(unittest.TestCase):
         for payload in stream_payloads + captured:
             self.assertEqual(payload["generationConfig"]["thinkingConfig"]["thinkingLevel"], "high")
             self.assertIn(SOLVER_INSTRUCTION, payload["systemInstruction"]["parts"][0]["text"])
+            self.assertEqual(payload["tools"], [{"codeExecution": {}}])
         self.assertIn("Kořen: 3", "".join(self.emitted))
 
     def test_unfinished_thought_not_salvaged(self):

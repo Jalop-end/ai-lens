@@ -14,6 +14,22 @@
 
 With a single hotkey (**`Alt + F8`** / **`Ctrl + Alt + Shift + G`**), Secret Quick-Answer Mode (**`Ctrl + Alt + Shift + Q`**), or clicking the discrete green indicator dot, your screen is instantly frozen (< 15 ms). Circle any area or highlight text to receive real-time streaming answers, quiz solutions, code analysis, or translations—with sub-5s response streaming, NumPy-accelerated preprocessing, unified High-reasoning depth, and zero data retention.
 
+## Calculation paths and limits
+
+Supported sequential BST/B-tree insertion uses the deterministic local tree
+solver. Other calculations can use Gemini's managed Code Execution on a
+compatible API endpoint; generated Python is not executed on your computer.
+High reasoning remains enabled. Ordinary requests retain the 40-second budget;
+an observed Code Execution event enables a total 60-second budget measured from
+the original request start, not 60 additional seconds.
+
+Both UI modes display actual tool events. Successful code execution is not a
+guarantee of a mathematically correct answer or a correct screenshot transcription.
+The generic execution path is Gemini-only; Ollama has no new arbitrary-code
+execution capability. Live-model accuracy and latency have not been benchmarked
+for this change. See [tree solver notes](SOLVER_REPAIR_CS.md) and
+[managed execution, status messages and deadlines](CODE_EXECUTION_CS.md).
+
 ---
 
 ## 📑 Table of Contents

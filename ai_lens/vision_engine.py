@@ -27,6 +27,10 @@ from ai_lens.isolated_solver import LatestOnly, Limits, SolverService, solve
 from ai_lens.solver_engine import (
     SOLVER_INSTRUCTION, TreeOutputGate, failure, parse_legacy_params, solve_tree,
 )
+from ai_lens.code_execution import (
+    CODE_EXECUTION_INSTRUCTION, CODE_SECONDS, NORMAL_SECONDS,
+    CodeExecutionState, status_text,
+)
 
 DEFAULT_GEMINI_MODEL = "gemini-3.5-flash"
 GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
@@ -2938,7 +2942,7 @@ def warmup_local_model(
     return False
 
 
-MAX_INFERENCE_WALL_TIME: float = 40.0
+MAX_INFERENCE_WALL_TIME: float = NORMAL_SECONDS
 
 
 def _extract_algo_tags_balanced(text: str) -> list[tuple[str, str]]:
@@ -4876,6 +4880,7 @@ class VisionInferenceWorker(QThread):
 
     tokenReceived = pyqtSignal(str)
     thinkingProgress = pyqtSignal()
+    executionStatus = pyqtSignal(str)
     finishedInference = pyqtSignal(float)  # elapsed seconds
     errorOccurred = pyqtSignal(str)
 
@@ -4922,6 +4927,8 @@ class VisionInferenceWorker(QThread):
             )
         )
         self.system_prompt += "\n\n" + SOLVER_INSTRUCTION
+        if self.compute_device == "gemini":
+            self.system_prompt += "\n\n" + CODE_EXECUTION_INSTRUCTION
         if (
             (self.compute_device == "gemini" or has_volatile_gemini_api_key())
             and is_paid_exclusive_gemini_model(self.model)
@@ -4952,16 +4959,48 @@ class VisionInferenceWorker(QThread):
         self.ephemeral_accelerator = EphemeralAlgorithmicAccelerator()
         self._client: Optional[httpx.Client] = None
         self._active_response: Optional[httpx.Response] = None
+        self._code_execution_used = False
+        self._timed_out = False
+        self._deadline_stop = threading.Event()
+
+    @property
+    def inference_limit(self) -> float:
+        return CODE_SECONDS if self._code_execution_used else NORMAL_SECONDS
+
+    def _on_code_stage(self, stage: str) -> None:
+        if self._cancelled or self._timed_out or self._remaining_budget() <= 0:
+            return
+        self._code_execution_used = True
+        self.executionStatus.emit(status_text(stage, self.language))
+
+    def _deadline_watch(self) -> None:
+        """Interrupt a stalled connection as well as an actively streaming one."""
+        while not self._deadline_stop.is_set():
+            remaining = self._remaining_budget()
+            if remaining <= 0:
+                self._timed_out = True
+                response = self._active_response
+                if response is not None:
+                    try:
+                        response.close()
+                    except Exception:
+                        pass
+                return
+            if self._deadline_stop.wait(min(0.1, remaining)):
+                return
 
     def _remaining_budget(self) -> float:
-        """Returns remaining seconds before the hard 40-second wall-clock timeout."""
+        """One total budget from request start, never 60 additional seconds."""
+        if self._timed_out:
+            return 0.0
         if self._t0 <= 0.0:
-            return MAX_INFERENCE_WALL_TIME
-        return max(0.0, MAX_INFERENCE_WALL_TIME - (time.perf_counter() - self._t0))
+            return self.inference_limit
+        return max(0.0, self.inference_limit - (time.perf_counter() - self._t0))
 
     def cancel(self) -> None:
         """Signals the streaming loop to abort cleanly and resets any active solver job or HTTP connection."""
         self._cancelled = True
+        self._deadline_stop.set()
         self._gate.invalidate()
         if self._active_solver_job is not None:
             try:
@@ -5096,11 +5135,14 @@ class VisionInferenceWorker(QThread):
         output_gate = TreeOutputGate(self.tokenReceived.emit, self.language, self.is_secret_mode)
         coalescer = TokenStreamCoalescer(output_gate.push)
         completed = False
+        code_state = CodeExecutionState(self._on_code_stage)
         emitted_visible = False
         last_activity_t = time.perf_counter()
         last_think_emit_t = 0.0
         eff_timeout = min(timeout_sec, max(2.0, self._remaining_budget()))
-        eff_read = min(float(read_timeout_sec), eff_timeout)
+        # Managed execution can pause output while computing. A separate total
+        # deadline controls this request; do not restart it after an 8.8 s gap.
+        eff_read = CODE_SECONDS if payload.get("tools") else min(float(read_timeout_sec), eff_timeout)
         req_timeout = httpx.Timeout(eff_timeout, read=eff_read, connect=min(4.5, eff_timeout))
 
         try:
@@ -5125,8 +5167,11 @@ class VisionInferenceWorker(QThread):
                             coalescer.flush()
                             output_gate.finish(complete=False)
                             return True, 200, ""
+                        if self._timed_out:
+                            output_gate.discard()
+                            return False, 408, "TOTAL_DEADLINE_EXCEEDED"
                         now_t = time.perf_counter()
-                        if self._remaining_budget() <= 0.5 or (
+                        if self._remaining_budget() <= 0.0 or (
                             not emitted_visible and (now_t - last_activity_t) > eff_read
                         ):
                             break
@@ -5160,6 +5205,9 @@ class VisionInferenceWorker(QThread):
                             content = cand.get("content") or {}
                             parts = content.get("parts") or []
                             for part in parts:
+                                if code_state.observe(part):
+                                    coalescer.flush()
+                                    continue
                                 if part.get("thought"):
                                     if (now_t - last_think_emit_t) >= 0.15:
                                         last_think_emit_t = now_t
@@ -5167,6 +5215,9 @@ class VisionInferenceWorker(QThread):
                                 else:
                                     raw_token = part.get("text", "")
                                     if raw_token:
+                                        if code_state.used:
+                                            code_state.buffer(raw_token)
+                                            continue
                                         clean_token, is_thinking = think_filter.filter_chunk(raw_token)
                                         if is_thinking and (now_t - last_think_emit_t) >= 0.15:
                                             last_think_emit_t = now_t
@@ -5176,6 +5227,20 @@ class VisionInferenceWorker(QThread):
                                                 emitted_visible = True
                                             coalescer.push(clean_token)
 
+                    if code_state.used:
+                        final_text = code_state.final_text(
+                            completed and not self._cancelled and self._remaining_budget() > 0)
+                        if final_text is None:
+                            output_gate.discard()
+                            return False, (408 if self._remaining_budget() <= 0 else 422), "CODE_EXECUTION_UNVERIFIED"
+                        # Managed code is not the deterministic local tree solver.
+                        self.tokenReceived.emit(final_text)
+                        self.tokenReceived.emit(
+                            "\n\nVýsledek z běhu Pythonu; nejde o nezávisle ověřené řešení."
+                            if self.language in ("cs", "sk") else
+                            "\n\nResult from Python execution; not independently verified.")
+                        output_gate.discard()
+                        return True, 200, ""
                     remaining = think_filter.flush()
                     if remaining:
                         if remaining.strip():
@@ -5192,6 +5257,9 @@ class VisionInferenceWorker(QThread):
 
             return True, 200, ""
         except Exception as exc:
+            if self._timed_out or code_state.used:
+                output_gate.discard()
+                return False, (408 if self._remaining_budget() <= 0 else 422), "CODE_EXECUTION_INTERRUPTED"
             if self._cancelled:
                 output_gate.discard()
             coalescer.flush()
@@ -5385,6 +5453,7 @@ class VisionInferenceWorker(QThread):
         payload: dict[str, Any] = {
             "contents": contents,
             "generationConfig": gen_cfg,
+            "tools": [{"codeExecution": {}}],
         }
         if self.system_prompt:
             payload["systemInstruction"] = {
@@ -5412,6 +5481,33 @@ class VisionInferenceWorker(QThread):
                 timeout_sec=timeout_sec,
                 read_timeout_sec=primary_read_timeout,
             )
+
+            # Preserve ordinary answers on endpoints that explicitly reject this
+            # optional tool. Never interpret arbitrary 400s as tool unavailability.
+            normalized_error = re.sub(r"[\s_-]+", "", err_body.lower())
+            if (not ok and status_code == 400 and not self._cancelled
+                    and not self._code_execution_used and self._remaining_budget() > 3.5
+                    and "codeexecution" in normalized_error
+                    and any(term in normalized_error for term in
+                            ("notsupported", "unsupported", "notavailable", "unknown"))):
+                payload.pop("tools", None)
+                payload["systemInstruction"] = {"parts": [{"text":
+                    self.system_prompt.replace(CODE_EXECUTION_INSTRUCTION, "") +
+                    "\nCode Execution is unavailable on this endpoint. Use the local "
+                    "TREE_SOLVER for its supported tasks. For other calculations "
+                    "state that no Python execution is available; do not claim "
+                    "to have executed or verified code. Ordinary prose is unaffected."
+                }]}
+                self.executionStatus.emit(
+                    "Python není na tomto modelu dostupný; pokračuji bez něj."
+                    if self.language in ("cs", "sk") else
+                    "Python is unavailable on this model; continuing without it.")
+                ok, status_code, err_body = self._stream_gemini_chat(
+                    client, url, headers, payload,
+                    is_paid_exclusive=is_paid_exclusive,
+                    timeout_sec=self._remaining_budget(),
+                    read_timeout_sec=primary_read_timeout,
+                )
 
             # If model already solved the answer in hidden thoughts before ending with 204, emit salvaged conclusion immediately
             if not ok and status_code == 204 and self._salvaged_thought_answer and not self._cancelled:
@@ -5484,6 +5580,7 @@ class VisionInferenceWorker(QThread):
                 not ok
                 and not self._cancelled
                 and self._remaining_budget() > 3.5
+                and not self._code_execution_used
                 and (primary_access_denied or status_code in (204, 400, 403, 404, 408, 429, 500, 502, 503))
             ):
                 orig_err_code = status_code if status_code != 200 else 400
@@ -5536,7 +5633,7 @@ class VisionInferenceWorker(QThread):
                     err_body = orig_err_body
 
             # Fallback 4: Standard non-streaming generateContent ONLY for transport/protocol glitches (never after 429/403/404)
-            if not ok and not self._cancelled and status_code not in (401, 403, 404, 429) and self._remaining_budget() > 3.0:
+            if not ok and not self._cancelled and not self._code_execution_used and status_code not in (401, 403, 404, 422, 429) and self._remaining_budget() > 3.0:
                 non_stream_url = f"{GEMINI_API_BASE_URL}/models/{gemini_model}:generateContent"
                 try:
                     _pace_gemini_request(0.42)
@@ -5552,19 +5649,39 @@ class VisionInferenceWorker(QThread):
                         fb_think_filter = StreamThinkingFilter()
                         fb_gate = TreeOutputGate(self.tokenReceived.emit, self.language, self.is_secret_mode)
                         emitted_fb = 0
+                        fb_code = CodeExecutionState(self._on_code_stage)
                         candidates = data.get("candidates") or []
                         for cand in candidates[:1]:
                             parts = (cand.get("content") or {}).get("parts") or []
                             for part in parts:
+                                if fb_code.observe(part):
+                                    continue
                                 if not part.get("thought"):
                                     txt = part.get("text", "")
                                     if txt:
+                                        if fb_code.used:
+                                            fb_code.buffer(txt)
+                                            continue
                                         clean_txt, _ = fb_think_filter.filter_chunk(txt)
                                         clean_txt += fb_think_filter.flush()
                                         if clean_txt:
                                             emitted_fb += len(clean_txt)
                                             fb_gate.push(clean_txt)
-                        fb_gate.finish(complete=bool(candidates) and candidates[0].get("finishReason") == "STOP")
+                        complete_fb = bool(candidates) and candidates[0].get("finishReason") == "STOP" and self._remaining_budget() > 0
+                        if fb_code.used:
+                            fb_gate.discard()
+                            text = fb_code.final_text(complete_fb)
+                            if text:
+                                self.tokenReceived.emit(text + (
+                                    "\n\nVýsledek z běhu Pythonu; nejde o nezávisle ověřené řešení."
+                                    if self.language in ("cs", "sk") else
+                                    "\n\nResult from Python execution; not independently verified."))
+                                emitted_fb += len(text)
+                            else:
+                                status_code, err_body = 422, "CODE_EXECUTION_UNVERIFIED"
+                                emitted_fb = 0
+                        else:
+                            fb_gate.finish(complete=complete_fb)
                         if emitted_fb > 0:
                             ok = True
                     else:
@@ -5581,9 +5698,15 @@ class VisionInferenceWorker(QThread):
             if not ok and not self._cancelled:
                 if status_code == 408 or self._remaining_budget() <= 0.0:
                     user_friendly_err = (
-                        "Vypršel časový limit odpovědi (40 s). Zkus kratší nebo čitelnější výřez; úroveň High zůstává zachována."
+                        f"Vypršel časový limit odpovědi ({self.inference_limit:.0f} s). Zkus kratší nebo čitelnější výřez; High zůstává zachováno."
                         if self.language in ("cs", "sk")
-                        else "Response time limit exceeded (40 s). Try a smaller or clearer crop; High remains unchanged."
+                        else f"Response time limit exceeded ({self.inference_limit:.0f} s). High remains unchanged."
+                    )
+                elif status_code == 422:
+                    user_friendly_err = (
+                        "Výpočet v Pythonu nebyl úspěšně dokončen. Výsledek není ověřen; upřesni zadání."
+                        if self.language in ("cs", "sk") else
+                        "Python calculation did not complete successfully. Result not verified; clarify the task."
                     )
                 elif status_code == 429 or is_gemini_model_access_denied(status_code, err_body):
                     user_friendly_err = (
@@ -5634,6 +5757,11 @@ class VisionInferenceWorker(QThread):
     def run(self) -> None:
         t0 = time.perf_counter()
         self._t0 = t0
+        self._deadline_stop.clear()
+        self._timed_out = False
+        self._code_execution_used = False
+        deadline_thread = threading.Thread(target=self._deadline_watch, name="inference-deadline", daemon=True)
+        deadline_thread.start()
         self._salvaged_thought_answer = ""
         self._request_id = f"worker_{int(time.time() * 1000)}_{os.getpid()}"
         self._ticket = self._gate.select(self._request_id)
@@ -5747,6 +5875,7 @@ class VisionInferenceWorker(QThread):
             if not self._cancelled:
                 self.errorOccurred.emit(f"{ui['err_title']}: {exc}")
         finally:
+            self._deadline_stop.set()
             self._active_response = None
             self._client = None
             b64_img = ""
