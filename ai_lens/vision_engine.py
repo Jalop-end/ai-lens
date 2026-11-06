@@ -24,6 +24,9 @@ from PIL import Image, ImageFilter
 from PyQt6.QtCore import QThread, pyqtSignal
 
 from ai_lens.isolated_solver import LatestOnly, Limits, SolverService, solve
+from ai_lens.solver_engine import (
+    SOLVER_INSTRUCTION, TreeOutputGate, failure, parse_legacy_params, solve_tree,
+)
 
 DEFAULT_GEMINI_MODEL = "gemini-3.5-flash"
 GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
@@ -4437,6 +4440,15 @@ class EphemeralAlgorithmicAccelerator:
     solve_and_verify_multiprocessor_schedule = table_accumulate_min
 
     def synthesize_and_execute_algorithm(
+        self, algo_spec: str, params: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
+        """Public fail-closed boundary for explicit algorithm requests."""
+        try:
+            return self._execute_explicit_algorithm(algo_spec, params)
+        except (ValueError, TypeError, KeyError, OverflowError, RecursionError) as exc:
+            return failure("invalid_input", str(exc), str(algo_spec)[:80])
+
+    def _execute_explicit_algorithm(
         self,
         algo_spec: str,
         params: Optional[dict[str, Any]] = None,
@@ -4471,30 +4483,33 @@ class EphemeralAlgorithmicAccelerator:
             body = ""
 
         if body:
-            # Extract nested edge lists like edges=[[0,1,4],[0,2,1]]
-            edges_m = re.search(r"edges\s*=\s*(\[\[.*?\]\])", body, re.IGNORECASE)
-            if edges_m:
-                try:
-                    p_dict["edges"] = json.loads(edges_m.group(1))
-                except Exception:
-                    pass
-            body_no_edges = re.sub(r"edges\s*=\s*\[\[.*?\]\]", "", body, flags=re.IGNORECASE)
-            # Extract vector parameters like X=[1,2,3], Q=[4,5]
-            for vec_m in re.finditer(r"([A-Za-z_]\w*)\s*=\s*\[([^\]]*)\]", body_no_edges):
-                k_name = vec_m.group(1).strip().lower()
-                nums = [int(x) for x in re.findall(r"-?\d+", vec_m.group(2))]
-                p_dict[k_name] = nums
-            # Extract scalar parameters like k=3, b=3, L=28, n=4, source=0
-            body_no_vecs = re.sub(r"[A-Za-z_]\w*\s*=\s*\[[^\]]*\]", "", body_no_edges)
-            for sc_m in re.finditer(r"([A-Za-z_]\w*)\s*=\s*(-?\d+)", body_no_vecs):
-                k_name = sc_m.group(1).strip().lower()
-                p_dict[k_name] = int(sc_m.group(2))
-            directed_m = re.search(r"directed\s*=\s*(true|false)", body, re.IGNORECASE)
-            if directed_m:
-                p_dict["directed"] = directed_m.group(1).lower() == "true"
+            parsed = parse_legacy_params(body)
+            if set(parsed) & set(p_dict):
+                raise ValueError("Conflicting inline and explicit parameters")
+            p_dict.update(parsed)
+
+        if algo_name in ("BST", "BST_INSERT", "BTREE_INSERT"):
+            tree_params = dict(p_dict)
+            values = tree_params.pop("x", tree_params.pop("data", tree_params.get("values", None)))
+            tree_params["values"] = values
+            if "duplicate_policy" not in tree_params:
+                if isinstance(values, list) and all(type(v) is int for v in values) and len(set(values)) == len(values):
+                    tree_params["duplicate_policy"] = "reject"
+            return solve_tree({"algorithm": "BST_INSERT" if algo_name == "BST" else algo_name,
+                               "params": tree_params})
+
+        if algo_name in ("BINARY_TREE", "IMPLICIT_BTREE", "BTREE", "STREE", "MULTIWAY_TREE", "DYNAMIC_BTREE"):
+            return failure("unsupported", "Specify BST_INSERT or BTREE_INSERT with explicit insertion conventions", algo_name)
 
         vec_x = list(p_dict.get("x", p_dict.get("data", p_dict.get("values", []))))
         queries_q = list(p_dict.get("q", p_dict.get("queries", [])))
+        if any(type(v) is not int for v in vec_x + queries_q):
+            raise ValueError("This legacy operation accepts integer values only; no rounding performed")
+        for key in ("n", "vertices", "nodes", "source", "src", "s", "b", "p", "m", "degree", "l", "depth", "k", "cells", "limit", "target", "tail"):
+            if key in p_dict and type(p_dict[key]) is not int:
+                raise ValueError(f"{key} must be an integer")
+        if "directed" in p_dict and type(p_dict["directed"]) is not bool:
+            raise ValueError("directed must be a boolean")
 
         # 1. Isolated Subprocess Graph Operations:
         if algo_name in ("DIJKSTRA", "BELLMAN_FORD", "BFS", "DFS", "TOPOLOGICAL_SORT"):
@@ -4554,7 +4569,7 @@ class EphemeralAlgorithmicAccelerator:
                 }
 
         # 2. In-RAM Vectorized Tree & Tabulation Engines:
-        if algo_name in ("EYTZINGER_TREE", "EYTZINGER", "BST", "BINARY_TREE"):
+        if algo_name in ("EYTZINGER_TREE", "EYTZINGER", "EYTZINGER_BUILD"):
             res = self.build_and_query_eytzinger_tree(vec_x, queries=queries_q or None)
             summary = (
                 f"ALGO[EYTZINGER_TREE](N={len(vec_x)}) -> root={res['root']}, height={res['height']}, "
@@ -4562,23 +4577,20 @@ class EphemeralAlgorithmicAccelerator:
             )
             return {"algorithm": "EYTZINGER_TREE", "result": res, "summary": summary, "mc_verified": res["mc_verified"]}
 
-        if algo_name in ("IMPLICIT_BTREE", "BTREE", "STREE", "MULTIWAY_TREE", "DYNAMIC_BTREE"):
-            b_val = int(p_dict.get("b", p_dict.get("p", p_dict.get("m", p_dict.get("degree", 3)))))
-            h_val = int(p_dict.get("l", p_dict.get("q", p_dict.get("depth", 3))))
-            res = self.build_and_query_implicit_btree(vec_x or None, branching_b=b_val, depth_h=h_val, queries=queries_q or None)
-            summary = (
-                f"ALGO[IMPLICIT_BTREE](b={b_val}, L={h_val}) -> "
-                f"seq_root(max_k={b_val - 1})={res['seq_root_k_b_minus_1']}, "
-                f"seq_root(max_k={b_val})={res['seq_root_k_b_left']}, "
-                f"pages={res['pages']}, capacity_grid={res['capacity_grid']}, found={res['found_indices']}"
-            )
-            return {"algorithm": "IMPLICIT_BTREE", "result": res, "summary": summary, "mc_verified": res["mc_verified"]}
-
         if algo_name in ("FENWICK_SEGMENT_TREE", "FENWICK_TREE", "SEGMENT_TREE", "RMQ"):
-            res = self.build_and_query_fenwick_segment_tree(vec_x)
+            ranges = p_dict.get("r", p_dict.get("range_queries"))
+            if ranges is not None:
+                if not isinstance(ranges, list) or not ranges:
+                    raise ValueError("range_queries must be a nonempty list")
+                for pair in ranges:
+                    if (not isinstance(pair, (list, tuple)) or len(pair) != 2
+                            or any(type(i) is not int for i in pair)
+                            or not 0 <= pair[0] <= pair[1] < len(vec_x)):
+                        raise ValueError("Invalid 0-based inclusive interval")
+            res = self.build_and_query_fenwick_segment_tree(vec_x, range_queries=ranges)
             summary = (
                 f"ALGO[FENWICK_SEGMENT_TREE](N={len(vec_x)}) -> sum={res['global_sum']}, "
-                f"min={res['global_min']}, max={res['global_max']}, bit={res['fenwick_bit']}"
+                f"min={res['global_min']}, max={res['global_max']}, ranges={res['range_results']}"
             )
             return {"algorithm": "FENWICK_SEGMENT_TREE", "result": res, "summary": summary, "mc_verified": res["mc_verified"]}
 
@@ -4608,134 +4620,39 @@ class EphemeralAlgorithmicAccelerator:
             summary = f"ALGO[POWER_SERIES](b={b_val}, L={l_val}) -> grid={res['grid']}"
             return {"algorithm": "POWER_SERIES", "result": res, "summary": summary, "mc_verified": res["mc_verified"]}
 
-        # Default fallback: MULTI_SORT + EYTZINGER_TREE
+        if algo_name not in ("MULTI_SORT", "SORT"):
+            return failure("unsupported", "Unknown algorithm; no substitute calculation performed", algo_name)
         res = self.multi_sort_and_select(vec_x)
         summary = f"ALGO[MULTI_SORT](X={vec_x}) -> sorted={res['sorted']}"
         return {"algorithm": "MULTI_SORT", "result": res, "summary": summary, "mc_verified": res["mc_verified"]}
 
     def inspect_and_accelerate_text(self, text: str, is_secret_mode: bool = False, lang: str = "cs") -> Optional[str]:
-        """
-        Domain-Agnostic Ephemeral Table & Vectorized Tree Scratchpad Evaluator:
-          1. If the model emitted an `@ALGO[TYPE | ...]` or `@SOLVER[...]` algorithm blueprint selector in its symbolic
-             Chain-of-Draft trace, synthesizes and executes that exact algorithm (routing graph operations to isolated_solver).
-          2. Extracts numeric vectors `X = [x_1, ..., x_n]` and scalar parameters `(k, L, p, q)` from any
-             input text or trace, builds vectorized implicit trees (`build_and_query_eytzinger_tree`,
-             `build_and_query_implicit_btree`, `build_and_query_fenwick_segment_tree`) and tables
-             (`table_accumulate_min`, `table_state_transition_1d`, `table_power_series_grid`) in RAM,
-             verifies invariants via Monte Carlo (< 1 ms), and returns the verified values.
-        """
-        if not text or len(text) < 6:
+        """Execute explicit requests only. Never infer algorithms from arbitrary numbers."""
+        if not text or len(text) > 32768:
             return None
-
-        table_notes: list[str] = []
-
-        # 0. Model-Selected Algorithm Blueprint (`@ALGO[TYPE | ...]` or `@SOLVER[...]`):
-        algo_tags = _extract_algo_tags_balanced(text)
-        for full_tag, _ in algo_tags:
-            syn = self.synthesize_and_execute_algorithm(full_tag)
-            if syn.get("summary"):
-                table_notes.append(str(syn["summary"]))
-
-        # Check for explicit JSON solver request payload inside text
-        json_blocks = _extract_json_solver_blocks(text)
-        for jb in json_blocks:
+        notes = []
+        requests = [tag for tag, _ in _extract_algo_tags_balanced(text)]
+        for tag in requests[:4]:
+            result = self.synthesize_and_execute_algorithm(tag)
+            if result.get("mc_verified") and result.get("summary"):
+                notes.append(str(result["summary"]))
+        for block in _extract_json_solver_blocks(text)[:max(0, 4 - len(requests))]:
             try:
-                candidate = json.loads(jb)
-                if isinstance(candidate, dict) and "algorithm" in candidate and "params" in candidate:
-                    if "request_id" not in candidate:
-                        candidate["request_id"] = f"text_{int(time.monotonic() * 1000)}"
-                    service = get_shared_solver_service()
-                    job = service.submit(candidate)
-                    ans = job.future.result(timeout=service.limits.wall_seconds + 0.5)
-                    if ans.get("status") == "OK" and ans.get("result"):
-                        table_notes.append(f"SOLVER[{candidate['algorithm']}] -> {ans['result']}")
-            except Exception:
-                pass
-
-        # 1. General Vector + Scalar Table & Implicit Tree Evaluation:
-        # Look for any comma/conjunction-separated integer sequence X of length >= 3
-        vec_matches = list(
-            re.finditer(r"(?<!\d)(\d+(?:\s*(?:,|\ba\b|\band\b)\s*\d+){2,})(?!\d)", text, re.IGNORECASE)
-        )
-        if vec_matches:
-            # Pick the longest numeric vector X in the text
-            best_vec_m = max(vec_matches, key=lambda m: len(re.findall(r"\d+", m.group(1))))
-            vec_x = [int(x) for x in re.findall(r"\d+", best_vec_m.group(1)) if int(x) > 0]
-            if len(vec_x) >= 3:
-                # Extract standalone scalar integers outside the vector span
-                before_text = text[: best_vec_m.start()]
-                after_text = text[best_vec_m.end() :]
-                scalars_before = [int(x) for x in re.findall(r"(?<!\d)\d+(?!\d)", before_text) if int(x) > 0]
-                scalars_after = [int(x) for x in re.findall(r"(?<!\d)\d+(?!\d)", after_text) if int(x) > 0]
-                all_scalars = scalars_after + scalars_before
-
-                # a) If there is a small bucket/branching count k in [2..32] (typically before X), evaluate Min-Heap Table & Multi-Way Tree Insertion
-                for k_cand in (scalars_before + scalars_after):
-                    if 2 <= k_cand <= 32:
-                        acc = self.table_accumulate_min(k_cand, vec_x)
-                        table_notes.append(
-                            f"T_MIN(k={k_cand}, X={vec_x}) -> T_in={acc['table_in_order']} (max={acc['max_in_order']}), "
-                            f"T_desc={acc['table_desc_order']} (max={acc['max_desc_order']}, sum={acc['total_sum']}, lb={acc['lower_bound']})"
-                        )
-                        if 2 <= k_cand <= 10:
-                            bt_seq = self.build_and_query_implicit_btree(vec_x, branching_b=k_cand)
-                            table_notes.append(
-                                f"T_BTREE_INSERT(b={k_cand}, X={vec_x}) -> "
-                                f"root(max_keys={k_cand - 1})={bt_seq['seq_root_k_b_minus_1']} (levels={bt_seq['seq_levels_k_b_minus_1']}), "
-                                f"root(max_keys={k_cand})={bt_seq['seq_root_k_b_left']} (levels={bt_seq['seq_levels_k_b']})"
-                            )
-                        break
-
-                # b) If there is a limit/target scalar L >= max(X) (typically after X), evaluate 1D State Table T[0..L]
-                for l_cand in all_scalars:
-                    if max(vec_x) <= l_cand <= 5000 and l_cand < sum(vec_x):
-                        tail_k = 5
-                        for s_c in scalars_after:
-                            if s_c != l_cand and 1 <= s_c <= 15:
-                                tail_k = s_c
-                                break
-                        st = self.table_state_transition_1d(vec_x, l_cand, tail_count=tail_k)
-                        table_notes.append(
-                            f"T_1D(X={vec_x}, L={l_cand}) -> T[{l_cand - tail_k + 1}..{l_cand}]={st['last_k']} "
-                            f"(csv='{st['last_k_csv']}', compact='{st['last_k_compact']}')"
-                        )
-                        break
-
-                # c) Construct Vectorized Eytzinger Implicit BST + Fenwick/Segment Tree for fast table search & RMQ
-                eytz = self.build_and_query_eytzinger_tree(vec_x, queries=all_scalars[:4] if all_scalars else None)
-                seg = self.build_and_query_fenwick_segment_tree(vec_x)
-                table_notes.append(
-                    f"T_EYTZINGER(X) -> sorted={eytz['sorted']}, root={eytz['root']}, tree={eytz['eytzinger_tree']}, "
-                    f"sum={seg['global_sum']}, min={seg['global_min']}, max={seg['global_max']}"
-                )
-
-        # 2. General 2-Parameter Implicit B-Tree & Power-Series Grid Evaluation:
-        # When no vector X was found, check if text contains 2 small integer parameters (p, q) in [2..16] x [1..10]
-        if not table_notes:
-            small_ints = [int(x) for x in re.findall(r"(?<!\d)\d+(?!\d)", text) if 1 <= int(x) <= 16]
-            if len(small_ints) >= 2:
-                p_val, q_val = small_ints[0], small_ints[1]
-                if 2 <= p_val <= 16 and 1 <= q_val <= 10:
-                    bt = self.build_and_query_implicit_btree(None, branching_b=p_val, depth_h=q_val)
-                    ps = self.table_power_series_grid(p_val, q_val)
-                    table_notes.append(
-                        f"T_BTREE_SERIES(b={p_val}, L={q_val}) -> "
-                        f"grid=[[b^(L+1)-1={bt['max_vals_b_m_depth0']}, b^L-1={bt['max_vals_b_m_depth1']}], "
-                        f"[(b+1)^(L+1)-1={bt['max_vals_k_m_depth0']}, (b+1)^L-1={bt['max_vals_k_m_depth1']}]], "
-                        f"levels_0..L={ps['level_vals_b_m_depth0']}, levels_1..L={ps['level_vals_b_m_depth1']}"
-                    )
-
-        if not table_notes:
+                request = json.loads(block)
+                result = self.synthesize_and_execute_algorithm(request["algorithm"], request["params"])
+                if result.get("mc_verified") and result.get("summary"):
+                    notes.append(f"SOLVER[{result['algorithm']}] -> {result['summary']}")
+            except (ValueError, TypeError, KeyError):
+                continue
+        if not notes:
             return None
-
-        out_str = " | ".join(table_notes)
-        if out_str not in self._verified_conclusions:
-            self._verified_conclusions.append(out_str)
-        return out_str
+        summary = " | ".join(notes)
+        self._verified_conclusions.append(summary)
+        return summary
 
     @property
     def latest_verified_conclusion(self) -> str:
-        """Returns the most recent NumPy + Monte Carlo verified conclusion, if any."""
+        """Returns the latest explicit result whose operation-specific checks passed."""
         return self._verified_conclusions[-1] if self._verified_conclusions else ""
 
     def clear(self) -> None:
@@ -4904,16 +4821,10 @@ class StreamThinkingFilter:
         return out, is_thinking or self.in_think
 
     def flush(self) -> str:
-        """Returns any un-emitted text in the buffer (or salvages conclusion if <think> was never closed)."""
+        """Flush visible text only; incomplete reasoning is never a final answer."""
         if self.in_think:
-            full_thought = (self.thought_backup + self.buf).strip()
             self.buf = ""
             self.thought_backup = ""
-            if not self.emitted_visible and full_thought:
-                salvaged = _extract_conclusion_from_thought(full_thought)
-                if salvaged:
-                    self.emitted_visible = True
-                    return salvaged
             return ""
         out = self.buf
         self.buf = ""
@@ -5010,6 +4921,7 @@ class VisionInferenceWorker(QThread):
                 else build_system_prompt(self.language, self.thinking_level, self.compute_device, self.model)
             )
         )
+        self.system_prompt += "\n\n" + SOLVER_INSTRUCTION
         if (
             (self.compute_device == "gemini" or has_volatile_gemini_api_key())
             and is_paid_exclusive_gemini_model(self.model)
@@ -5093,9 +5005,10 @@ class VisionInferenceWorker(QThread):
     ) -> tuple[bool, str]:
         """Executes streaming POST request to local Ollama; returns (success, error_message)."""
         think_filter = StreamThinkingFilter()
-        coalescer = TokenStreamCoalescer(self.tokenReceived.emit)
+        output_gate = TreeOutputGate(self.tokenReceived.emit, self.language, self.is_secret_mode)
+        coalescer = TokenStreamCoalescer(output_gate.push)
+        completed = False
         emitted_visible = False
-        ollama_thoughts: list[str] = []
         last_think_emit_t = 0.0
         eff_timeout = min(timeout_sec, max(2.0, self._remaining_budget()))
         req_timeout = httpx.Timeout(eff_timeout, connect=min(5.0, eff_timeout))
@@ -5108,8 +5021,11 @@ class VisionInferenceWorker(QThread):
 
                 for line in response.iter_lines():
                     if self._cancelled or self._remaining_budget() <= 0.0:
-                        self._cancelled = True
+                        was_cancelled = self._cancelled
+                        if was_cancelled:
+                            output_gate.discard()
                         coalescer.flush()
+                        output_gate.finish(complete=False)
                         return True, ""
                     if not line:
                         continue
@@ -5120,6 +5036,7 @@ class VisionInferenceWorker(QThread):
 
                     if "error" in chunk:
                         coalescer.flush()
+                        output_gate.finish(complete=False)
                         return False, str(chunk["error"])
 
                     msg = chunk.get("message") or {}
@@ -5140,10 +5057,9 @@ class VisionInferenceWorker(QThread):
                         if (now_p - last_think_emit_t) >= 0.15:
                             last_think_emit_t = now_p
                             self.thinkingProgress.emit()
-                        if isinstance(msg.get("thinking"), str):
-                            ollama_thoughts.append(msg["thinking"])
 
                     if chunk.get("done", False):
+                        completed = chunk.get("done_reason", "stop") == "stop"
                         break
 
                 remaining = think_filter.flush()
@@ -5152,25 +5068,15 @@ class VisionInferenceWorker(QThread):
                         emitted_visible = True
                     coalescer.push(remaining)
                 coalescer.flush()
+                output_gate.finish(complete=completed and not self._cancelled)
             finally:
                 self._active_response = None
-
-        if ollama_thoughts:
-            self.ephemeral_accelerator.inspect_and_accelerate_text(
-                "".join(ollama_thoughts), is_secret_mode=self.is_secret_mode, lang=self.language
-            )
+                if self._cancelled:
+                    output_gate.discard()
+                output_gate.finish(complete=False)
 
         if not self._cancelled and not emitted_visible:
-            salvaged = ""
-            if ollama_thoughts:
-                salvaged = (
-                    self.ephemeral_accelerator.latest_verified_conclusion
-                    or _extract_conclusion_from_thought("".join(ollama_thoughts))
-                )
-            if salvaged:
-                self._salvaged_thought_answer = salvaged
-            else:
-                self.ephemeral_accelerator.clear()
+            self.ephemeral_accelerator.clear()
             return False, "EMPTY_VISIBLE_OUTPUT_AFTER_THINKING"
 
         return True, ""
@@ -5187,9 +5093,10 @@ class VisionInferenceWorker(QThread):
     ) -> tuple[bool, int, str]:
         """Executes streaming SSE POST request to Google Gemini API; returns (success, status_code, error_message)."""
         think_filter = StreamThinkingFilter()
-        coalescer = TokenStreamCoalescer(self.tokenReceived.emit)
+        output_gate = TreeOutputGate(self.tokenReceived.emit, self.language, self.is_secret_mode)
+        coalescer = TokenStreamCoalescer(output_gate.push)
+        completed = False
         emitted_visible = False
-        thought_texts: list[str] = []
         last_activity_t = time.perf_counter()
         last_think_emit_t = 0.0
         eff_timeout = min(timeout_sec, max(2.0, self._remaining_budget()))
@@ -5214,7 +5121,9 @@ class VisionInferenceWorker(QThread):
 
                     for line in response.iter_lines():
                         if self._cancelled:
+                            output_gate.discard()
                             coalescer.flush()
+                            output_gate.finish(complete=False)
                             return True, 200, ""
                         now_t = time.perf_counter()
                         if self._remaining_budget() <= 0.5 or (
@@ -5239,12 +5148,15 @@ class VisionInferenceWorker(QThread):
 
                         if "error" in chunk:
                             coalescer.flush()
+                            output_gate.finish(complete=False)
                             err_obj = chunk["error"]
                             msg = err_obj.get("message", str(err_obj)) if isinstance(err_obj, dict) else str(err_obj)
                             return False, 400, msg
 
                         candidates = chunk.get("candidates") or []
-                        for cand in candidates:
+                        for cand in candidates[:1]:
+                            if "finishReason" in cand:
+                                completed = cand["finishReason"] == "STOP"
                             content = cand.get("content") or {}
                             parts = content.get("parts") or []
                             for part in parts:
@@ -5252,9 +5164,6 @@ class VisionInferenceWorker(QThread):
                                     if (now_t - last_think_emit_t) >= 0.15:
                                         last_think_emit_t = now_t
                                         self.thinkingProgress.emit()
-                                    t_txt = part.get("text", "")
-                                    if t_txt:
-                                        thought_texts.append(t_txt)
                                 else:
                                     raw_token = part.get("text", "")
                                     if raw_token:
@@ -5273,30 +5182,20 @@ class VisionInferenceWorker(QThread):
                             emitted_visible = True
                         coalescer.push(remaining)
                     coalescer.flush()
+                    output_gate.finish(complete=completed and not self._cancelled)
                 finally:
                     self._active_response = None
 
-            if thought_texts:
-                self.ephemeral_accelerator.inspect_and_accelerate_text(
-                    "".join(thought_texts), is_secret_mode=self.is_secret_mode, lang=self.language
-                )
-
             if not self._cancelled and not emitted_visible:
-                salvaged = ""
-                if thought_texts:
-                    salvaged = (
-                        self.ephemeral_accelerator.latest_verified_conclusion
-                        or _extract_conclusion_from_thought("".join(thought_texts))
-                    )
-                if salvaged:
-                    self._salvaged_thought_answer = salvaged
-                else:
-                    self.ephemeral_accelerator.clear()
+                self.ephemeral_accelerator.clear()
                 return False, 204, "EMPTY_VISIBLE_OUTPUT_AFTER_THINKING"
 
             return True, 200, ""
         except Exception as exc:
+            if self._cancelled:
+                output_gate.discard()
             coalescer.flush()
+            output_gate.finish(complete=False)
             if self._cancelled:
                 return True, 200, ""
             if emitted_visible:
@@ -5304,23 +5203,11 @@ class VisionInferenceWorker(QThread):
                 # instead of re-asking another endpoint (which would duplicate text on screen).
                 try:
                     tail = think_filter.flush()
-                    if tail:
+                    if tail and output_gate.mode == "text":
                         self.tokenReceived.emit(tail)
                 except Exception:
                     pass
                 return True, 200, ""
-            if thought_texts:
-                self.ephemeral_accelerator.inspect_and_accelerate_text(
-                    "".join(thought_texts), is_secret_mode=self.is_secret_mode, lang=self.language
-                )
-                salvaged = (
-                    self.ephemeral_accelerator.latest_verified_conclusion
-                    or _extract_conclusion_from_thought("".join(thought_texts))
-                )
-                if salvaged:
-                    self._salvaged_thought_answer = salvaged
-                    return False, 204, "EMPTY_VISIBLE_OUTPUT_AFTER_THINKING"
-
             self.ephemeral_accelerator.clear()
             _close_shared_http_clients()
             if isinstance(exc, (httpx.ReadTimeout, httpx.ConnectTimeout, httpx.PoolTimeout)):
@@ -5457,12 +5344,6 @@ class VisionInferenceWorker(QThread):
             if self.prompt and self.prompt.strip()
             else (get_secret_prompt(self.language) if self.is_secret_mode else get_default_prompt(self.language))
         )
-        pre_verified = self.ephemeral_accelerator.inspect_and_accelerate_text(
-            prompt_text, is_secret_mode=self.is_secret_mode, lang=self.language
-        )
-        if pre_verified:
-            prompt_text = f"{prompt_text}\n\n[RAM EPHEMERAL ACCELERATOR VERIFIED RESULT: {pre_verified}]"
-
         contents: list[dict[str, Any]] = []
         if not self.history:
             contents.append(
@@ -5537,12 +5418,14 @@ class VisionInferenceWorker(QThread):
                 self.tokenReceived.emit(self._salvaged_thought_answer)
                 ok = True
 
-            # Fallback 1: If a custom endpoint rejects `thinkingConfig` with HTTP 400, retry without `thinkingConfig`.
+            # Never silently remove an explicitly requested High thinking level.
+            # Compatibility fallback remains available only for other configurations.
             if (
                 not ok
                 and not self._cancelled
                 and status_code == 400
                 and "thinkingConfig" in payload.get("generationConfig", {})
+                and payload["generationConfig"]["thinkingConfig"].get("thinkingLevel") != "high"
                 and self._remaining_budget() > 3.5
             ):
                 if not any(k in err_body.lower() for k in ("api_key_invalid", "api key not valid", "invalid api key")):
@@ -5613,6 +5496,10 @@ class VisionInferenceWorker(QThread):
                     self._client = client
                     fallback_url = f"{GEMINI_API_BASE_URL}/models/{fallback_model}:streamGenerateContent?alt=sse"
                     fb_gen_cfg = self._build_gemini_generation_config(fallback_model, fast_fallback=use_fast_fb)
+                    if (gen_cfg.get("thinkingConfig", {}).get("thinkingLevel") == "high"
+                            and fb_gen_cfg.get("thinkingConfig", {}).get("thinkingLevel") != "high"):
+                        # Do not replace an explicit High request by an unknown/budget-only profile.
+                        continue
                     fb_payload = {
                         **payload,
                         "generationConfig": fb_gen_cfg,
@@ -5663,9 +5550,10 @@ class VisionInferenceWorker(QThread):
                     if resp.status_code == 200:
                         data = resp.json()
                         fb_think_filter = StreamThinkingFilter()
+                        fb_gate = TreeOutputGate(self.tokenReceived.emit, self.language, self.is_secret_mode)
                         emitted_fb = 0
                         candidates = data.get("candidates") or []
-                        for cand in candidates:
+                        for cand in candidates[:1]:
                             parts = (cand.get("content") or {}).get("parts") or []
                             for part in parts:
                                 if not part.get("thought"):
@@ -5675,7 +5563,8 @@ class VisionInferenceWorker(QThread):
                                         clean_txt += fb_think_filter.flush()
                                         if clean_txt:
                                             emitted_fb += len(clean_txt)
-                                            self.tokenReceived.emit(clean_txt)
+                                            fb_gate.push(clean_txt)
+                        fb_gate.finish(complete=bool(candidates) and candidates[0].get("finishReason") == "STOP")
                         if emitted_fb > 0:
                             ok = True
                     else:
@@ -5692,9 +5581,9 @@ class VisionInferenceWorker(QThread):
             if not ok and not self._cancelled:
                 if status_code == 408 or self._remaining_budget() <= 0.0:
                     user_friendly_err = (
-                        "Vypršel časový limit odpovědi (40 s). Dotaz byl automaticky ukončen — zkus nižší úroveň přemýšlení nebo kratší výřez."
+                        "Vypršel časový limit odpovědi (40 s). Zkus kratší nebo čitelnější výřez; úroveň High zůstává zachována."
                         if self.language in ("cs", "sk")
-                        else "Response time limit exceeded (40 s). Query was automatically terminated — try a lower thinking level."
+                        else "Response time limit exceeded (40 s). Try a smaller or clearer crop; High remains unchanged."
                     )
                 elif status_code == 429 or is_gemini_model_access_denied(status_code, err_body):
                     user_friendly_err = (
@@ -5769,11 +5658,6 @@ class VisionInferenceWorker(QThread):
                 return
 
             ollama_prompt = self.prompt
-            pre_verified = self.ephemeral_accelerator.inspect_and_accelerate_text(
-                ollama_prompt, is_secret_mode=self.is_secret_mode, lang=self.language
-            )
-            if pre_verified:
-                ollama_prompt = f"{ollama_prompt}\n\n[RAM EPHEMERAL ACCELERATOR VERIFIED RESULT: {pre_verified}]"
 
             if self.system_prompt:
                 messages.append(

@@ -266,7 +266,7 @@ class ProcessTests(unittest.TestCase):
         def blocked(value,policy,event):
             entered.set();release.wait(2)
             return response(value,'CANCELLED')
-        with patch('isolated_solver.client.solve',side_effect=blocked):
+        with patch('ai_lens.isolated_solver.client.solve',side_effect=blocked):
             service=SolverService(max_workers=1,max_pending=1)
             first=service.submit(req())
             self.assertTrue(entered.wait(1))
@@ -281,7 +281,7 @@ class ProcessTests(unittest.TestCase):
         def blocked(value,policy,event):
             entered.set();release.wait(2)
             return response(value,'OK',result={'n':value['params']['n']},quality='EXACT')
-        with patch('isolated_solver.client.solve',side_effect=blocked):
+        with patch('ai_lens.isolated_solver.client.solve',side_effect=blocked):
             service=SolverService(max_workers=1)
             value=req();job=service.submit(value)
             self.assertTrue(entered.wait(1));value['params']['n']=100
