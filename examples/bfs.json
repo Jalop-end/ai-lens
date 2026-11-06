@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "request_id": "bfs-example",
+  "algorithm": "BFS",
+  "params": {
+    "n": 4,
+    "edges": [
+      [
+        0,
+        1
+      ],
+      [
+        1,
+        2
+      ]
+    ],
+    "source": 0
+  }
+}

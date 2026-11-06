@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "request_id": "negative_cycle-example",
+  "algorithm": "BELLMAN_FORD",
+  "params": {
+    "n": 2,
+    "edges": [
+      [
+        0,
+        1,
+        -1
+      ],
+      [
+        1,
+        0,
+        0
+      ]
+    ],
+    "source": 0
+  }
+}

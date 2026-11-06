@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "request_id": "topological_sort-example",
+  "algorithm": "TOPOLOGICAL_SORT",
+  "params": {
+    "n": 4,
+    "edges": [
+      [
+        0,
+        2
+      ],
+      [
+        1,
+        2
+      ],
+      [
+        2,
+        3
+      ]
+    ]
+  }
+}

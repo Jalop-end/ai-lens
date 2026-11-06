@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "request_id": "dfs-example",
+  "algorithm": "DFS",
+  "params": {
+    "n": 4,
+    "edges": [
+      [
+        0,
+        1
+      ],
+      [
+        1,
+        2
+      ],
+      [
+        0,
+        2
+      ]
+    ],
+    "source": 0
+  }
+}

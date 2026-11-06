@@ -23,6 +23,8 @@ import numpy as np
 from PIL import Image, ImageFilter
 from PyQt6.QtCore import QThread, pyqtSignal
 
+from ai_lens.isolated_solver import LatestOnly, Limits, SolverService, solve
+
 DEFAULT_GEMINI_MODEL = "gemini-3.5-flash"
 GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 
@@ -79,9 +81,39 @@ def _get_shared_ollama_client(timeout_sec: float = 180.0) -> httpx.Client:
         return _SHARED_OLLAMA_CLIENT
 
 
+_SHARED_SOLVER_SERVICE: Optional[SolverService] = None
+_SOLVER_SERVICE_LOCK = threading.Lock()
+
+
+def get_shared_solver_service() -> SolverService:
+    """Returns the persistent, bounded SolverService for off-GUI mathematical & graph evaluations."""
+    global _SHARED_SOLVER_SERVICE
+    with _SOLVER_SERVICE_LOCK:
+        if _SHARED_SOLVER_SERVICE is None or getattr(_SHARED_SOLVER_SERVICE, "_closed", False):
+            limits = Limits(require_memory=sys.platform.startswith("linux"))
+            _SHARED_SOLVER_SERVICE = SolverService(max_workers=2, max_pending=4, limits=limits)
+        return _SHARED_SOLVER_SERVICE
+
+
+def close_shared_solver_service() -> None:
+    """Cleanly closes the background solver worker pool on application exit."""
+    global _SHARED_SOLVER_SERVICE
+    with _SOLVER_SERVICE_LOCK:
+        if _SHARED_SOLVER_SERVICE is not None:
+            try:
+                _SHARED_SOLVER_SERVICE.close(wait=False)
+            except Exception:
+                pass
+            _SHARED_SOLVER_SERVICE = None
+
+
+atexit.register(close_shared_solver_service)
+
+
 def _close_shared_http_clients() -> None:
-    """Cleanly closes persistent HTTP connection pools on shutdown or key wipe."""
+    """Cleanly closes persistent HTTP connection pools and background solver on shutdown or key wipe."""
     global _SHARED_GEMINI_CLIENT, _SHARED_OLLAMA_CLIENT
+    close_shared_solver_service()
     with _GEMINI_STATE_LOCK:
         for client in (_SHARED_GEMINI_CLIENT, _SHARED_OLLAMA_CLIENT):
             if client is not None:
@@ -2477,6 +2509,11 @@ def build_system_prompt(
         f"       5) `@ALGO[STATE_1D | L=..., X=[...]]`: 1D/2D State-Transition Table `O(n*L)` shifting reachable states `T[s+x]=x` in a single vectorized slice pass without reusing the same element twice or overwriting non-zero cells (or Meet-in-the-Middle `O(2^(n/2))` when `L > 10^4`).\n"
         f"       6) `@ALGO[POWER_SERIES | b=..., L=...]`: evaluates geometric level sums `sum_(i=0..L-1) c * b^i = b^L - 1` across `(b, b+1) x (L, L+1)` in `O(1)`.\n"
         f"       7) `@ALGO[MULTI_SORT | X=[...]]`: QuickSelect `O(n)`, Counting/Radix Sort, Merge/Heap Sort, and Interpolation Search `O(log log n)`.\n"
+        f"       8) `@ALGO[DIJKSTRA | n=..., source=..., edges=[[u,v,w],...]]`: Single-Source Shortest Paths with non-negative integer weights executed in isolated solver with certificate verification.\n"
+        f"       9) `@ALGO[BELLMAN_FORD | n=..., source=..., edges=[[u,v,w],...]]`: Single-Source Shortest Paths with negative weights and reachable negative cycle detection.\n"
+        f"       10) `@ALGO[BFS | n=..., source=..., edges=[[u,v],...]]`: Breadth-First Search unweighted graph distances and predecessor tree.\n"
+        f"       11) `@ALGO[DFS | n=..., source=..., edges=[[u,v],...]]`: Depth-First Search discovery order, finish order, and structural tree invariants.\n"
+        f"       12) `@ALGO[TOPOLOGICAL_SORT | n=..., edges=[[u,v],...]]`: Topological Sort of directed acyclic graph (DAG) or directed cycle detection.\n"
         f"     * STEP 2 — MONTE CARLO INVARIANT & EARLY-EXIT: Spot-check `T` in `O(1)` using general mathematical invariants (conservation of sum `sum(T)==sum(X)`, backward state reduction `s -> s - T[s] -> 0`, multi-way split/median order invariant, or telescopic identity) and IMMEDIATELY stop thinking (`Early-Exit`) as soon as the invariant holds.\n"
         f"   - CRITICAL MATH & CALCULATION FORMATTING RULE (NO RAW LATEX): NEVER output raw LaTeX / KaTeX code, formatting macros, or dollar delimiters (NEVER write \\text{{...}}, \\times, \\cdot, \\div, {{,}}, \\frac{{...}}{{...}}, $$, or $). "
         f"Always write math equations and calculations naturally and cleanly as a human writes in chat (e.g. write \"11 % × 0,81 = 8,91 % (0,0891)\" or \"x - 5\", \"10 / 2 = 5\"). For decimals use a standard comma or dot (0,81 or 0.81), never {{,}} or $0{{,}}81$.\n"
@@ -2593,7 +2630,10 @@ def build_secret_system_prompt(
         f"(4) `@ALGO[MIN_HEAP | k=..., X=[...]]`: Min-Bucket Accumulation `O(n log k)` (`T=[0]*k`, add each `x` to `argmin(T)` -> read `max(T)`); "
         f"(5) `@ALGO[STATE_1D | L=..., X=[...]]`: 1D State-Transition Table `O(n*L)` (`T[s+x]=x` in one pass without overwriting non-zero cells, or Meet-in-the-Middle `O(2^(n/2))` for `L > 10^4`); "
         f"(6) `@ALGO[POWER_SERIES | b=..., L=...]`: geometric level sums `sum_(i=0..L-1) c * b^i = b^L - 1` in `O(1)`; "
-        f"(7) Monte Carlo Invariant & Early-Exit: verify `T` in `O(1)` (`sum(T)==sum(X)`, backward reduction `s -> s - T[s] -> 0`, or multi-way median split order) and immediately exit thinking once verified.\n"
+        f"(7) `@ALGO[DIJKSTRA | n=..., source=..., edges=[[u,v,w],...]]`: exact non-negative shortest paths via isolated solver; "
+        f"(8) `@ALGO[BELLMAN_FORD | n=..., source=..., edges=[...]]`: negative weight shortest paths & cycle detection; "
+        f"(9) `@ALGO[BFS]`, `@ALGO[DFS]`, `@ALGO[TOPOLOGICAL_SORT]`: graph traversals & DAG orderings; "
+        f"(10) Monte Carlo Invariant & Early-Exit: verify `T` in `O(1)` (`sum(T)==sum(X)`, backward reduction `s -> s - T[s] -> 0`, or multi-way median split order) and immediately exit thinking once verified.\n"
         f"   - MATH FORMATTING RULE (NO RAW LATEX): NEVER output raw LaTeX (no \\text{{...}}, \\times, \\cdot, \\div, {{,}}, \\frac{{...}}{{...}}, $$, or $). "
         f"Write math naturally as in chat (e.g. \"11 % × 0,81 = **8,91 %**\" or \"**x = 5**\", \"10 / 2 = **5**\").\n"
         f"2. PLAIN TEXT, PARAGRAPH, TERM, STATEMENT, OR CODE RULE (IF TEXT WITHOUT A QUESTION IS SELECTED -> DESCRIBE / EXPLAIN IT):\n"
@@ -2898,6 +2938,95 @@ def warmup_local_model(
 MAX_INFERENCE_WALL_TIME: float = 40.0
 
 
+def _extract_algo_tags_balanced(text: str) -> list[tuple[str, str]]:
+    """
+    Extracts balanced @ALGO[...] and @SOLVER[...] tags with support for arbitrary nested brackets
+    (e.g. edges=[[0, 1, 4], [0, 2, 1]]) without truncation.
+    Returns list of (full_tag, inner_body).
+    """
+    results: list[tuple[str, str]] = []
+    if not text:
+        return results
+    n_len = len(text)
+    idx = 0
+    prefixes = ("@ALGO[", "@SOLVER[")
+    while idx < n_len:
+        found_pos = -1
+        prefix_len = 0
+        for pfx in prefixes:
+            p = text.upper().find(pfx, idx)
+            if p != -1 and (found_pos == -1 or p < found_pos):
+                found_pos = p
+                prefix_len = len(pfx)
+        if found_pos == -1:
+            break
+        depth = 0
+        end_pos = -1
+        for i in range(found_pos + prefix_len - 1, n_len):
+            ch = text[i]
+            if ch == "[":
+                depth += 1
+            elif ch == "]":
+                depth -= 1
+                if depth == 0:
+                    end_pos = i
+                    break
+        if end_pos != -1:
+            full_match = text[found_pos : end_pos + 1]
+            inner = text[found_pos + prefix_len : end_pos]
+            results.append((full_match, inner))
+            idx = end_pos + 1
+        else:
+            idx = found_pos + prefix_len
+    return results
+
+
+def _extract_json_solver_blocks(text: str) -> list[str]:
+    """Extracts balanced JSON objects containing 'schema_version' even when params has nested dictionaries."""
+    results: list[str] = []
+    if not text or "schema_version" not in text:
+        return results
+    n_len = len(text)
+    idx = 0
+    marker = "schema_version"
+    while idx < n_len:
+        pos = text.find(marker, idx)
+        if pos == -1:
+            break
+        start = text.rfind("{", 0, pos)
+        if start == -1:
+            idx = pos + len(marker)
+            continue
+        depth = 0
+        end = -1
+        in_quote = False
+        escaped = False
+        for i in range(start, n_len):
+            ch = text[i]
+            if in_quote:
+                if escaped:
+                    escaped = False
+                elif ch == "\\":
+                    escaped = True
+                elif ch == '"':
+                    in_quote = False
+            elif ch == '"':
+                in_quote = True
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    end = i
+                    break
+        if end != -1:
+            results.append(text[start : end + 1])
+            idx = end + 1
+        else:
+            idx = pos + len(marker)
+    return results
+
+
 class EphemeralAlgorithmicAccelerator:
     """
     Universal Ephemeral in-RAM Table & Matrix Co-Processor (Domain-Agnostic):
@@ -3200,26 +3329,74 @@ class EphemeralAlgorithmicAccelerator:
         adj_matrix: list[list[float]],
     ) -> dict[str, Any]:
         """
-        Vectorized NumPy All-Pairs Shortest Path / Transitive Closure Engine:
-          - Computes `D = np.minimum(D, D[:, k:k+1] + D[k:k+1, :])` in vectorized NumPy slices.
-          - Verifies via Fixed-Time Monte Carlo Triangle Inequality probes `D[u, w] <= D[u, v] + D[v, w]`.
+        All-Pairs Shortest Path Engine routed to isolated_solver:
+          - Decomposes the adjacency matrix into bounded edge tuples and computes
+            exact shortest path trees via isolated Dijkstra / Bellman-Ford subprocesses.
         """
-        dist = np.asarray(adj_matrix, dtype=np.float64).copy()
-        n = dist.shape[0]
-        self._numpy_buffers["graph_dist"] = dist
-        for k in range(n):
-            dist = np.minimum(dist, dist[:, k : k + 1] + dist[k : k + 1, :])
-        self._numpy_buffers["graph_dist"] = dist
+        import math
+        dist_mat = np.asarray(adj_matrix, dtype=np.float64).copy()
+        n = dist_mat.shape[0]
+        if n == 0:
+            return {"distances": [], "mc_verified": True}
+        edges: list[list[int]] = []
+        has_negative = False
+        use_numpy_fallback = False
+        for u in range(n):
+            for v in range(n):
+                if u != v:
+                    w = float(dist_mat[u, v])
+                    if math.isnan(w) or w == -math.inf:
+                        use_numpy_fallback = True
+                    elif math.isfinite(w):
+                        if abs(w) > 10**12 or not w.is_integer():
+                            use_numpy_fallback = True
+                        else:
+                            int_w = int(w)
+                            if int_w < 0:
+                                has_negative = True
+                            edges.append([u, v, int_w])
 
-        rng = np.random.default_rng(seed=42)
-        triples = rng.integers(0, max(1, n), size=(min(64, n * n), 3), dtype=np.int64)
-        for u, v, w in triples:
-            if dist[u, w] > dist[u, v] + dist[v, w] + 1e-9:
-                dist[u, w] = dist[u, v] + dist[v, w]
+        if use_numpy_fallback:
+            dist = dist_mat
+            self._numpy_buffers["graph_dist"] = dist
+            for k in range(n):
+                dist = np.minimum(dist, dist[:, k : k + 1] + dist[k : k + 1, :])
+            self._numpy_buffers["graph_dist"] = dist
+
+            rng = np.random.default_rng(seed=42)
+            triples = rng.integers(0, max(1, n), size=(min(64, n * n), 3), dtype=np.int64)
+            for u, v, w in triples:
+                if dist[u, w] > dist[u, v] + dist[v, w] + 1e-9:
+                    dist[u, w] = dist[u, v] + dist[v, w]
+
+            return {"distances": dist.tolist(), "mc_verified": True}
+
+        algo = "BELLMAN_FORD" if has_negative else "DIJKSTRA"
+        service = get_shared_solver_service()
+        all_dist: list[list[Optional[int]]] = []
+        verified = True
+        for src in range(n):
+            req = {
+                "schema_version": 1,
+                "request_id": f"apsp_{src}_{int(time.monotonic() * 1000)}",
+                "algorithm": algo,
+                "params": {"n": n, "edges": edges, "source": src},
+            }
+            job = service.submit(req)
+            try:
+                ans = job.future.result(timeout=service.limits.wall_seconds + 0.5)
+                if ans.get("status") == "OK" and ans.get("result"):
+                    all_dist.append(ans["result"]["distances"])
+                else:
+                    all_dist.append([None] * n)
+                    verified = False
+            except Exception:
+                all_dist.append([None] * n)
+                verified = False
 
         return {
-            "distances": dist.tolist(),
-            "mc_verified": True,
+            "distances": all_dist,
+            "mc_verified": verified,
         }
 
     def verify_algebraic_identity_mc(
@@ -4265,24 +4442,26 @@ class EphemeralAlgorithmicAccelerator:
         params: Optional[dict[str, Any]] = None,
     ) -> dict[str, Any]:
         """
-        Model-Selected Vectorized Algorithm Synthesis Engine:
+        Model-Selected Vectorized Algorithm Synthesis & Isolated Graph Solver Engine:
         Takes an algorithm family chosen by the AI model (either via an `@ALGO[TYPE | ...]` tag
-        or explicit `(algo_spec, params)`) and dynamically constructs and executes the corresponding
+        or explicit `(algo_spec, params)`) and routes graph operations (BFS, DFS, Dijkstra, Bellman-Ford,
+        Topological Sort) to the isolated out-of-process solver, or executes the corresponding
         vectorized NumPy data structure (implicit tree, multi-way page matrix, Fenwick/Segment tree,
         min-heap bucket table, 1D state-transition table, or power-series grid) in RAM.
         """
         raw_spec = (algo_spec or "").strip()
         p_dict: dict[str, Any] = dict(params) if params else {}
 
-        # If algo_spec is formatted like '@ALGO[TYPE | key=val, ...]' or 'TYPE | key=val', parse it
-        m_tag = re.search(
-            r"@ALGO\[\s*([A-Za-z0-9_]+)\s*(?:\|\s*((?:[^\[\]]|\[[^\]]*\])*))?\]",
-            raw_spec,
-            re.IGNORECASE,
-        )
-        if m_tag:
-            algo_name = m_tag.group(1).strip().upper()
-            body = m_tag.group(2) or ""
+        # If algo_spec is formatted like '@ALGO[TYPE | key=val, ...]' or '@SOLVER[...]' or 'TYPE | key=val', parse it
+        if raw_spec.startswith("@ALGO[") or raw_spec.startswith("@SOLVER["):
+            inner = raw_spec[raw_spec.find("[") + 1 : -1] if raw_spec.endswith("]") else raw_spec[raw_spec.find("[") + 1 :]
+            if "|" in inner:
+                algo_name, body = inner.split("|", 1)
+                algo_name = algo_name.strip().upper()
+                body = body.strip()
+            else:
+                algo_name = inner.strip().upper()
+                body = ""
         elif "|" in raw_spec:
             parts = raw_spec.split("|", 1)
             algo_name = parts[0].strip().upper()
@@ -4292,20 +4471,89 @@ class EphemeralAlgorithmicAccelerator:
             body = ""
 
         if body:
+            # Extract nested edge lists like edges=[[0,1,4],[0,2,1]]
+            edges_m = re.search(r"edges\s*=\s*(\[\[.*?\]\])", body, re.IGNORECASE)
+            if edges_m:
+                try:
+                    p_dict["edges"] = json.loads(edges_m.group(1))
+                except Exception:
+                    pass
+            body_no_edges = re.sub(r"edges\s*=\s*\[\[.*?\]\]", "", body, flags=re.IGNORECASE)
             # Extract vector parameters like X=[1,2,3], Q=[4,5]
-            for vec_m in re.finditer(r"([A-Za-z_]\w*)\s*=\s*\[([^\]]*)\]", body):
+            for vec_m in re.finditer(r"([A-Za-z_]\w*)\s*=\s*\[([^\]]*)\]", body_no_edges):
                 k_name = vec_m.group(1).strip().lower()
                 nums = [int(x) for x in re.findall(r"-?\d+", vec_m.group(2))]
                 p_dict[k_name] = nums
-            # Extract scalar parameters like k=3, b=3, L=28
-            body_no_vecs = re.sub(r"[A-Za-z_]\w*\s*=\s*\[[^\]]*\]", "", body)
+            # Extract scalar parameters like k=3, b=3, L=28, n=4, source=0
+            body_no_vecs = re.sub(r"[A-Za-z_]\w*\s*=\s*\[[^\]]*\]", "", body_no_edges)
             for sc_m in re.finditer(r"([A-Za-z_]\w*)\s*=\s*(-?\d+)", body_no_vecs):
                 k_name = sc_m.group(1).strip().lower()
                 p_dict[k_name] = int(sc_m.group(2))
+            directed_m = re.search(r"directed\s*=\s*(true|false)", body, re.IGNORECASE)
+            if directed_m:
+                p_dict["directed"] = directed_m.group(1).lower() == "true"
 
         vec_x = list(p_dict.get("x", p_dict.get("data", p_dict.get("values", []))))
         queries_q = list(p_dict.get("q", p_dict.get("queries", [])))
 
+        # 1. Isolated Subprocess Graph Operations:
+        if algo_name in ("DIJKSTRA", "BELLMAN_FORD", "BFS", "DFS", "TOPOLOGICAL_SORT"):
+            n_val = int(p_dict.get("n", p_dict.get("vertices", p_dict.get("nodes", len(vec_x) if vec_x else 0))))
+            source_val = int(p_dict.get("source", p_dict.get("src", p_dict.get("s", 0))))
+            edges_val = p_dict.get("edges", [])
+            req_params: dict[str, Any] = {"n": n_val, "edges": edges_val}
+            if algo_name != "TOPOLOGICAL_SORT":
+                req_params["source"] = source_val
+            if "directed" in p_dict:
+                req_params["directed"] = bool(p_dict["directed"])
+            req = {
+                "schema_version": 1,
+                "request_id": f"algo_{algo_name.lower()}_{int(time.monotonic() * 1000)}",
+                "algorithm": algo_name,
+                "params": req_params,
+            }
+            service = get_shared_solver_service()
+            job = service.submit(req)
+            try:
+                ans = job.future.result(timeout=service.limits.wall_seconds + 0.5)
+            except Exception as exc:
+                ans = {"status": "TIMEOUT", "error": str(exc), "result": None}
+
+            if ans.get("status") == "OK" and ans.get("result"):
+                res_data = ans["result"]
+                if algo_name in ("DIJKSTRA", "BELLMAN_FORD", "BFS"):
+                    summary = (
+                        f"ALGO[{algo_name}](n={n_val}, source={source_val}) -> "
+                        f"distances={res_data.get('distances')}, parents={res_data.get('parents')}"
+                    )
+                elif algo_name == "DFS":
+                    summary = (
+                        f"ALGO[DFS](n={n_val}, source={source_val}) -> "
+                        f"discovery={res_data.get('discovery_order')}, finish={res_data.get('finish_order')}, parents={res_data.get('parents')}"
+                    )
+                else:  # TOPOLOGICAL_SORT
+                    summary = f"ALGO[TOPOLOGICAL_SORT](n={n_val}) -> order={res_data.get('order')}"
+                return {
+                    "algorithm": algo_name,
+                    "result": res_data,
+                    "summary": summary,
+                    "mc_verified": True,
+                    "quality": ans.get("quality", "EXACT"),
+                    "verification": ans.get("verification", "CERTIFICATE_CHECKED"),
+                }
+            else:
+                err_msg = ans.get("error") or ans.get("status", "SOLVER_ERROR")
+                summary = f"ALGO[{algo_name}] ERROR: {ans.get('status')} ({err_msg})"
+                return {
+                    "algorithm": algo_name,
+                    "result": None,
+                    "summary": summary,
+                    "mc_verified": False,
+                    "status": ans.get("status"),
+                    "error": err_msg,
+                }
+
+        # 2. In-RAM Vectorized Tree & Tabulation Engines:
         if algo_name in ("EYTZINGER_TREE", "EYTZINGER", "BST", "BINARY_TREE"):
             res = self.build_and_query_eytzinger_tree(vec_x, queries=queries_q or None)
             summary = (
@@ -4368,8 +4616,8 @@ class EphemeralAlgorithmicAccelerator:
     def inspect_and_accelerate_text(self, text: str, is_secret_mode: bool = False, lang: str = "cs") -> Optional[str]:
         """
         Domain-Agnostic Ephemeral Table & Vectorized Tree Scratchpad Evaluator:
-          1. If the model emitted an `@ALGO[TYPE | ...]` algorithm blueprint selector in its symbolic
-             Chain-of-Draft trace, synthesizes and executes that exact vectorized NumPy algorithm first.
+          1. If the model emitted an `@ALGO[TYPE | ...]` or `@SOLVER[...]` algorithm blueprint selector in its symbolic
+             Chain-of-Draft trace, synthesizes and executes that exact algorithm (routing graph operations to isolated_solver).
           2. Extracts numeric vectors `X = [x_1, ..., x_n]` and scalar parameters `(k, L, p, q)` from any
              input text or trace, builds vectorized implicit trees (`build_and_query_eytzinger_tree`,
              `build_and_query_implicit_btree`, `build_and_query_fenwick_segment_tree`) and tables
@@ -4381,11 +4629,28 @@ class EphemeralAlgorithmicAccelerator:
 
         table_notes: list[str] = []
 
-        # 0. Model-Selected Algorithm Blueprint (`@ALGO[TYPE | ...]`):
-        for algo_m in re.finditer(r"@ALGO\[(?:[^\[\]]|\[[^\]]*\])+\]", text, re.IGNORECASE):
-            syn = self.synthesize_and_execute_algorithm(algo_m.group(0))
+        # 0. Model-Selected Algorithm Blueprint (`@ALGO[TYPE | ...]` or `@SOLVER[...]`):
+        algo_tags = _extract_algo_tags_balanced(text)
+        for full_tag, _ in algo_tags:
+            syn = self.synthesize_and_execute_algorithm(full_tag)
             if syn.get("summary"):
                 table_notes.append(str(syn["summary"]))
+
+        # Check for explicit JSON solver request payload inside text
+        json_blocks = _extract_json_solver_blocks(text)
+        for jb in json_blocks:
+            try:
+                candidate = json.loads(jb)
+                if isinstance(candidate, dict) and "algorithm" in candidate and "params" in candidate:
+                    if "request_id" not in candidate:
+                        candidate["request_id"] = f"text_{int(time.monotonic() * 1000)}"
+                    service = get_shared_solver_service()
+                    job = service.submit(candidate)
+                    ans = job.future.result(timeout=service.limits.wall_seconds + 0.5)
+                    if ans.get("status") == "OK" and ans.get("result"):
+                        table_notes.append(f"SOLVER[{candidate['algorithm']}] -> {ans['result']}")
+            except Exception:
+                pass
 
         # 1. General Vector + Scalar Table & Implicit Tree Evaluation:
         # Look for any comma/conjunction-separated integer sequence X of length >= 3
@@ -4768,6 +5033,10 @@ class VisionInferenceWorker(QThread):
         self._cancelled = False
         self._t0: float = 0.0
         self._salvaged_thought_answer: str = ""
+        self._gate = LatestOnly()
+        self._request_id: str = f"worker_{int(time.time() * 1000)}_{os.getpid()}"
+        self._ticket = self._gate.select(self._request_id)
+        self._active_solver_job: Optional[Any] = None
         self.ephemeral_accelerator = EphemeralAlgorithmicAccelerator()
         self._client: Optional[httpx.Client] = None
         self._active_response: Optional[httpx.Response] = None
@@ -4779,8 +5048,15 @@ class VisionInferenceWorker(QThread):
         return max(0.0, MAX_INFERENCE_WALL_TIME - (time.perf_counter() - self._t0))
 
     def cancel(self) -> None:
-        """Signals the streaming loop to abort cleanly and resets any stalled HTTP connection."""
+        """Signals the streaming loop to abort cleanly and resets any active solver job or HTTP connection."""
         self._cancelled = True
+        self._gate.invalidate()
+        if self._active_solver_job is not None:
+            try:
+                self._active_solver_job.cancel()
+            except Exception:
+                pass
+            self._active_solver_job = None
         resp = self._active_response
         if resp is not None:
             try:
@@ -4799,6 +5075,13 @@ class VisionInferenceWorker(QThread):
             self.image = None
         self.history.clear()
         self.prompt = ""
+        self._gate.invalidate()
+        if self._active_solver_job is not None:
+            try:
+                self._active_solver_job.cancel()
+            except Exception:
+                pass
+            self._active_solver_job = None
         self.ephemeral_accelerator.clear()
 
     def _stream_chat(
@@ -4878,12 +5161,16 @@ class VisionInferenceWorker(QThread):
             )
 
         if not self._cancelled and not emitted_visible:
-            salvaged = (
-                self.ephemeral_accelerator.latest_verified_conclusion
-                or _extract_conclusion_from_thought("".join(ollama_thoughts))
-            )
+            salvaged = ""
+            if ollama_thoughts:
+                salvaged = (
+                    self.ephemeral_accelerator.latest_verified_conclusion
+                    or _extract_conclusion_from_thought("".join(ollama_thoughts))
+                )
             if salvaged:
                 self._salvaged_thought_answer = salvaged
+            else:
+                self.ephemeral_accelerator.clear()
             return False, "EMPTY_VISIBLE_OUTPUT_AFTER_THINKING"
 
         return True, ""
@@ -4995,12 +5282,16 @@ class VisionInferenceWorker(QThread):
                 )
 
             if not self._cancelled and not emitted_visible:
-                salvaged = (
-                    self.ephemeral_accelerator.latest_verified_conclusion
-                    or _extract_conclusion_from_thought("".join(thought_texts))
-                )
+                salvaged = ""
+                if thought_texts:
+                    salvaged = (
+                        self.ephemeral_accelerator.latest_verified_conclusion
+                        or _extract_conclusion_from_thought("".join(thought_texts))
+                    )
                 if salvaged:
                     self._salvaged_thought_answer = salvaged
+                else:
+                    self.ephemeral_accelerator.clear()
                 return False, 204, "EMPTY_VISIBLE_OUTPUT_AFTER_THINKING"
 
             return True, 200, ""
@@ -5022,18 +5313,18 @@ class VisionInferenceWorker(QThread):
                 self.ephemeral_accelerator.inspect_and_accelerate_text(
                     "".join(thought_texts), is_secret_mode=self.is_secret_mode, lang=self.language
                 )
-            if isinstance(exc, (httpx.ReadTimeout, httpx.ConnectTimeout, httpx.PoolTimeout)) and not thought_texts:
-                _close_shared_http_clients()
-                return False, 408, "THINKING_READ_TIMEOUT"
-            if not emitted_visible and (thought_texts or self.ephemeral_accelerator.latest_verified_conclusion):
                 salvaged = (
                     self.ephemeral_accelerator.latest_verified_conclusion
                     or _extract_conclusion_from_thought("".join(thought_texts))
                 )
                 if salvaged:
                     self._salvaged_thought_answer = salvaged
-                return False, 204, "EMPTY_VISIBLE_OUTPUT_AFTER_THINKING"
+                    return False, 204, "EMPTY_VISIBLE_OUTPUT_AFTER_THINKING"
+
+            self.ephemeral_accelerator.clear()
             _close_shared_http_clients()
+            if isinstance(exc, (httpx.ReadTimeout, httpx.ConnectTimeout, httpx.PoolTimeout)):
+                return False, 408, "THINKING_READ_TIMEOUT"
             return False, 500, redact_secrets(exc, headers.get("x-goog-api-key"))
 
     def _build_gemini_generation_config(self, gemini_model: str, fast_fallback: bool = False) -> dict[str, Any]:
@@ -5455,6 +5746,9 @@ class VisionInferenceWorker(QThread):
         t0 = time.perf_counter()
         self._t0 = t0
         self._salvaged_thought_answer = ""
+        self._request_id = f"worker_{int(time.time() * 1000)}_{os.getpid()}"
+        self._ticket = self._gate.select(self._request_id)
+        self.ephemeral_accelerator.clear()
         url = f"{self.ollama_host}/api/chat"
         ui = get_ui_strings(self.language)
         max_side = int(self.tier_cfg.get("max_image_side", 1280))
@@ -5575,4 +5869,3 @@ class VisionInferenceWorker(QThread):
             messages.clear()
             self.clear_memory()
             gc.collect()
-

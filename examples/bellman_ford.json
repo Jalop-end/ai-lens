@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "request_id": "bellman_ford-example",
+  "algorithm": "BELLMAN_FORD",
+  "params": {
+    "n": 3,
+    "edges": [
+      [
+        0,
+        1,
+        4
+      ],
+      [
+        0,
+        2,
+        8
+      ],
+      [
+        1,
+        2,
+        -2
+      ]
+    ],
+    "source": 0
+  }
+}

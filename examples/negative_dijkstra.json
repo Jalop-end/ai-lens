@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "request_id": "negative_dijkstra-example",
+  "algorithm": "DIJKSTRA",
+  "params": {
+    "n": 2,
+    "edges": [
+      [
+        0,
+        1,
+        -1
+      ]
+    ],
+    "source": 0
+  }
+}

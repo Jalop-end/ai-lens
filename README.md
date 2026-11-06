@@ -363,6 +363,7 @@ flowchart LR
 4. **Step 4: AI Brain Processing (Unified High Reasoning)**
    - **Local VLM (Ollama):** Applies system prompt guards against prompt injection, bounds KV-cache allocation, and dynamically configures thinking budgets.
    - **Google Gemini API:** Dynamically configures `{"thinkingLevel": "high"}` and `maxOutputTokens: 12288` across all active models (`gemini-3.5-flash`, `gemini-3.1-pro`, `gemini-3.5-flash-lite`).
+   - **Structured graph solving:** Explicit `@ALGO[...]` / `@SOLVER[...]` graph requests and recognized JSON payloads can use the separate `ai_lens.isolated_solver` worker for BFS, DFS, Dijkstra, Bellman–Ford, and topological sorting. Integer-weight all-pairs shortest paths use those graph kernels; fractional or out-of-range weights retain the NumPy path. The worker accepts only fixed operations and bounded JSON, and enforces time/output limits. Strict OS memory and CPU limits are Linux-only; this does not replace the other mathematical routines or provide a general-purpose math engine. The GUI/OCR/VLM flow has not been validated end to end.
    - **Smart Quota Guard:** Intercepts `429 (limit: 0)` errors on flagship Pro models and seamlessly routes through active Gemini 3 endpoints without dropping thinking depth or showing errors.
 5. **Step 5: High-Precision Formatting, Typography & Animations**
    - **Luminous Infinity Animation (∞):** Renders dynamic Bernoulli lemniscate glowing path and circulating photons in PopoverCard during reasoning.
