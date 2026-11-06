@@ -107,7 +107,8 @@ class ToolStateTests(unittest.TestCase):
 
 class WorkerCodeTests(unittest.TestCase):
     def setUp(self):
-        self.w = VisionInferenceWorker(None, "", model="gemini-3.5-flash", language="cs")
+        self.w = VisionInferenceWorker(None, "", model="gemini-3.5-flash", language="cs",
+                                       enable_code_execution=True)
         self.tokens, self.stages = [], []
         self.resets = []
         self.w.tokenReceived.connect(self.tokens.append)

@@ -93,6 +93,7 @@ def load_config(config_path: Path = DEFAULT_CONFIG_PATH) -> dict[str, Any]:
         "thinking_level": "medium",
         "compute_device": "gpu",
         "think": True,
+        "enable_code_execution": False,
         "temperature": 0.12,
         "default_prompt": get_default_prompt("cs"),
     }
@@ -108,6 +109,7 @@ def load_config(config_path: Path = DEFAULT_CONFIG_PATH) -> dict[str, Any]:
         except Exception:
             pass
     defaults["language"] = normalize_language_code(str(defaults.get("language", "cs")))
+    defaults["enable_code_execution"] = defaults.get("enable_code_execution") is True
     defaults["thinking_level"] = normalize_thinking_level(
         str(defaults.get("thinking_level", "medium"))
     )
@@ -718,6 +720,7 @@ class OverlayWindow(QWidget):
             system_prompt=secret_sys_prompt,
             history=None,
             is_secret_mode=True,
+            enable_code_execution=self.config.get("enable_code_execution") is True,
             parent=self,
         )
         worker.tokenReceived.connect(self._on_secret_worker_token)
@@ -820,6 +823,7 @@ class OverlayWindow(QWidget):
             compute_device=compute_device,
             system_prompt=str(system_prompt) if system_prompt else None,
             history=self._chat_history if is_followup else None,
+            enable_code_execution=self.config.get("enable_code_execution") is True,
             parent=self,
         )
         worker.tokenReceived.connect(self._on_worker_token)

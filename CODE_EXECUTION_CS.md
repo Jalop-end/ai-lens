@@ -1,5 +1,10 @@
 # Složitější výpočty v Gemini a limit 60 sekund
 
+Po opravě regrese kvóty je tato obecná cesta ve výchozím stavu vypnutá.
+Zapnutí vyžaduje `"enable_code_execution": true` v kořenovém `config.json`
+a restart aplikace; High ani lokální solvery tím vypnuté nejsou.
+Podrobnosti změny chování jsou v [opravě kvóty a generování](QUOTA_REPAIR_CS.md).
+
 AI Lens má nově kromě deterministického stromového solveru i obecnější cestu:
 model může použít spravované Code Execution v Gemini. Vygenerovaný Python se
 nespouští v počítači uživatele; běží u poskytovatele API v rámci stejného
@@ -50,7 +55,7 @@ ale správnost těchto modelových kontrol není zaručená.
 - Po přijetí skutečné události Code Execution se limit změní na **celkem
   60 sekund od začátku dotazu**.
 - Pokud se nástroj ohlásí po 30 sekundách, zbývá nejvýše 30 sekund.
-- Opakované spuštění nástroje ani modelový fallback čas neobnovuje.
+- Opakované spuštění nástroje ani kompatibilitní pokus bez nástroje čas neobnovuje.
 - Událost přijatá až po vypršení původního limitu dotaz neoživí.
 - UI watchdog i worker sledují tentýž zbývající čas; worker se pokouší zavřít
   aktivní HTTP odpověď i při zablokovaném čtení.
@@ -59,9 +64,8 @@ ale správnost těchto modelových kontrol není zaručená.
 
 Jde o klientský rozpočet aplikace, nikoli příkaz k vypnutí serverového modelu
 nebo záruku zastavení účtování na straně poskytovatele. Plánování OS, síť a
-uzavírání transportu mohou přidat režii. Ne-streamovaný fallback nemůže
-zobrazit nástroj předtím, než server vrátí jeho události; pokud je do té doby
-neoznámí, platí běžný limit.
+uzavírání transportu mohou přidat režii. Ne-streamovaný fallback byl odstraněn;
+po chybě se generování nerozbíhá znovu skrytým dalším požadavkem.
 
 Vlastní omezení nástroje Gemini, včetně dokumentovaného maximálního času běhu
 kódu 30 sekund, tím neměníme. Dokumentace uvádí mimo jiné dostupnost NumPy,
@@ -90,10 +94,10 @@ interpretaci všech matematických zadání.
 ## High a dostupnost
 
 Konfigurace High se nesnižuje. HTTP 400 nevede k odstranění výslovného
-`thinkingLevel="high"` a fallback bez výslovného High se u takového požadavku
-přeskočí. Nový nástroj je přidán jako `tools: [{"codeExecution": {}}]` do
-Gemini požadavků. Pokud API výslovně odmítne Code Execution jako nepodporované,
-aplikace to oznámí a zkusí požadavek bez nástroje, ale se stejným High.
+`thinkingLevel="high"`. Nástroj `tools: [{"codeExecution": {}}]` se přidá jen
+při výslovném zapnutí `enable_code_execution`. Pokud API výslovně odmítne
+Code Execution jako nepodporované, aplikace to oznámí a zkusí nejvýše jednou
+stejný endpoint bez nástroje, ale se stejným High.
 Běžné odpovědi a lokální stromový solver tak mohou dál fungovat; model dostane
 výslovnou instrukci netvrdit, že Python spustil. Pro obecné vykonávání kódu je
 potřeba podporovaný endpoint, nikoli vypnutí High.

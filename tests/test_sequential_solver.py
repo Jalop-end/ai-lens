@@ -329,7 +329,7 @@ class MockedVisionPipeline(unittest.TestCase):
         self.assertTrue(result[0])
         self.assertIn("Kořen: 1", "".join(self.emitted))
 
-    def test_nonstream_fallback_retains_high_and_renders_solver(self):
+    def test_http400_does_not_restart_generation_or_remove_high(self):
         from contextlib import ExitStack
         from copy import deepcopy
         from unittest.mock import Mock
@@ -362,12 +362,13 @@ class MockedVisionPipeline(unittest.TestCase):
             self.worker._run_gemini(time.perf_counter(), {}, "synthetic-image-placeholder")
         # No retry with thinkingConfig removed after a 400.
         self.assertEqual(len(stream_payloads), 1)
-        self.assertEqual(len(captured), 1)
+        self.assertEqual(len(captured), 0)
+        client.post.assert_not_called()
         for payload in stream_payloads + captured:
             self.assertEqual(payload["generationConfig"]["thinkingConfig"]["thinkingLevel"], "high")
             self.assertIn(SOLVER_INSTRUCTION, payload["systemInstruction"]["parts"][0]["text"])
-            self.assertEqual(payload["tools"], [{"codeExecution": {}}])
-        self.assertIn("Kořen: 3", "".join(self.emitted))
+            self.assertNotIn("tools", payload)
+        self.assertEqual(self.emitted, [])
 
     def test_unfinished_thought_not_salvaged(self):
         from ai_lens.vision_engine import StreamThinkingFilter
